@@ -134,6 +134,7 @@ class Model with ChangeNotifier {
     int? playerLimit,
     Iterable<String>? onlinePlayers,
     String? difficulty,
+    String? weather,
   }) {
     _serverRuntimeState = state;
     _lastServerStateAt = observedAt ?? DateTime.now();
@@ -142,6 +143,7 @@ class Model with ChangeNotifier {
       playersOnline: playersOnline,
       playerLimit: playerLimit,
       lastDifficulty: difficulty,
+      lastWeather: weather,
     );
     if (onlinePlayers != null) {
       _onlinePlayers

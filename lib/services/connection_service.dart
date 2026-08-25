@@ -239,6 +239,7 @@ class ConnectionService {
                       )
                     : null,
                 difficulty: decoded['difficulty']?.toString(),
+                weather: decoded['weather']?.toString(),
               );
             }
             return;
