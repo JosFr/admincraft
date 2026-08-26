@@ -16,6 +16,27 @@ class WorldState {
   final int? playersOnline;
   final int? playerLimit;
 
+  final double? tps1m;
+  final double? tps5m;
+  final double? tps15m;
+  final double? mspt;
+  final double? cpuPercent;
+  final double? memoryMb;
+  final double? memoryLimitMb;
+  final String? serverVersion;
+  final String? minecraftVersion;
+  final String? bukkitVersion;
+  final String? worldName;
+  final String? worldSeed;
+  final int? loadedChunks;
+  final int? entityCount;
+  final int? pluginCount;
+  final bool? whitelistEnabled;
+  final List<String> worlds;
+  final List<String> whitelistedPlayers;
+  final List<String> operators;
+  final List<String> disabledPlugins;
+
   /// Weather is set from this app; difficulty is also updated from replies.
   final String? lastWeather;
   final String? lastDifficulty;
@@ -25,6 +46,26 @@ class WorldState {
     this.gamerules = const {},
     this.playersOnline,
     this.playerLimit,
+    this.tps1m,
+    this.tps5m,
+    this.tps15m,
+    this.mspt,
+    this.cpuPercent,
+    this.memoryMb,
+    this.memoryLimitMb,
+    this.serverVersion,
+    this.minecraftVersion,
+    this.bukkitVersion,
+    this.worldName,
+    this.worldSeed,
+    this.loadedChunks,
+    this.entityCount,
+    this.pluginCount,
+    this.whitelistEnabled,
+    this.worlds = const [],
+    this.whitelistedPlayers = const [],
+    this.operators = const [],
+    this.disabledPlugins = const [],
     this.lastWeather,
     this.lastDifficulty,
   });
@@ -34,6 +75,26 @@ class WorldState {
     Map<String, String>? gamerules,
     int? playersOnline,
     int? playerLimit,
+    double? tps1m,
+    double? tps5m,
+    double? tps15m,
+    double? mspt,
+    double? cpuPercent,
+    double? memoryMb,
+    double? memoryLimitMb,
+    String? serverVersion,
+    String? minecraftVersion,
+    String? bukkitVersion,
+    String? worldName,
+    String? worldSeed,
+    int? loadedChunks,
+    int? entityCount,
+    int? pluginCount,
+    bool? whitelistEnabled,
+    List<String>? worlds,
+    List<String>? whitelistedPlayers,
+    List<String>? operators,
+    List<String>? disabledPlugins,
     String? lastWeather,
     String? lastDifficulty,
   }) {
@@ -42,6 +103,26 @@ class WorldState {
       gamerules: gamerules ?? this.gamerules,
       playersOnline: playersOnline ?? this.playersOnline,
       playerLimit: playerLimit ?? this.playerLimit,
+      tps1m: tps1m ?? this.tps1m,
+      tps5m: tps5m ?? this.tps5m,
+      tps15m: tps15m ?? this.tps15m,
+      mspt: mspt ?? this.mspt,
+      cpuPercent: cpuPercent ?? this.cpuPercent,
+      memoryMb: memoryMb ?? this.memoryMb,
+      memoryLimitMb: memoryLimitMb ?? this.memoryLimitMb,
+      serverVersion: serverVersion ?? this.serverVersion,
+      minecraftVersion: minecraftVersion ?? this.minecraftVersion,
+      bukkitVersion: bukkitVersion ?? this.bukkitVersion,
+      worldName: worldName ?? this.worldName,
+      worldSeed: worldSeed ?? this.worldSeed,
+      loadedChunks: loadedChunks ?? this.loadedChunks,
+      entityCount: entityCount ?? this.entityCount,
+      pluginCount: pluginCount ?? this.pluginCount,
+      whitelistEnabled: whitelistEnabled ?? this.whitelistEnabled,
+      worlds: worlds ?? this.worlds,
+      whitelistedPlayers: whitelistedPlayers ?? this.whitelistedPlayers,
+      operators: operators ?? this.operators,
+      disabledPlugins: disabledPlugins ?? this.disabledPlugins,
       lastWeather: lastWeather ?? this.lastWeather,
       lastDifficulty: lastDifficulty ?? this.lastDifficulty,
     );

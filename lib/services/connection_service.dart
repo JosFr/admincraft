@@ -238,6 +238,34 @@ class ConnectionService {
                         (player) => player.toString(),
                       )
                     : null,
+                tps1m: (decoded['tps1m'] as num?)?.toDouble(),
+                tps5m: (decoded['tps5m'] as num?)?.toDouble(),
+                tps15m: (decoded['tps15m'] as num?)?.toDouble(),
+                mspt: (decoded['mspt'] as num?)?.toDouble(),
+                cpuPercent: (decoded['cpuPercent'] as num?)?.toDouble(),
+                memoryMb: (decoded['memoryMb'] as num?)?.toDouble(),
+                memoryLimitMb: (decoded['memoryLimitMb'] as num?)?.toDouble(),
+                serverVersion: decoded['serverVersion']?.toString(),
+                minecraftVersion: decoded['minecraftVersion']?.toString(),
+                bukkitVersion: decoded['bukkitVersion']?.toString(),
+                worldName: decoded['worldName']?.toString(),
+                worldSeed: decoded['worldSeed']?.toString(),
+                loadedChunks: (decoded['loadedChunks'] as num?)?.toInt(),
+                entityCount: (decoded['entityCount'] as num?)?.toInt(),
+                pluginCount: (decoded['pluginCount'] as num?)?.toInt(),
+                whitelistEnabled: decoded['whitelistEnabled'] as bool?,
+                worlds: decoded['worlds'] is List
+                    ? (decoded['worlds'] as List).map((value) => value.toString())
+                    : null,
+                whitelistedPlayers: decoded['whitelistedPlayers'] is List
+                    ? (decoded['whitelistedPlayers'] as List).map((value) => value.toString())
+                    : null,
+                operators: decoded['operators'] is List
+                    ? (decoded['operators'] as List).map((value) => value.toString())
+                    : null,
+                disabledPlugins: decoded['disabledPlugins'] is List
+                    ? (decoded['disabledPlugins'] as List).map((value) => value.toString())
+                    : null,
                 difficulty: decoded['difficulty']?.toString(),
                 weather: decoded['weather']?.toString(),
               );

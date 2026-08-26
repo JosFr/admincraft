@@ -170,6 +170,74 @@ class _ControlTabState extends State<ControlTab> {
     await _send(action.build(value.trim()));
   }
 
+  Future<void> _managePlayer(String name) async {
+    final world = _model.world;
+    bool containsIgnoreCase(Iterable<String> values) =>
+        values.any((value) => value.toLowerCase() == name.toLowerCase());
+    final isOperator = containsIgnoreCase(world.operators);
+    final isWhitelisted = containsIgnoreCase(world.whitelistedPlayers);
+    final isOnline = containsIgnoreCase(_model.onlinePlayers);
+
+    final command = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(name, style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 12),
+              if (isOnline)
+                ListTile(
+                  leading: const Icon(Icons.logout),
+                  title: const Text('Kick'),
+                  onTap: () => Navigator.pop(context, 'kick $name'),
+                ),
+              ListTile(
+                leading: Icon(isOperator ? Icons.shield_outlined : Icons.shield),
+                title: Text(isOperator ? 'Deop' : 'Make operator'),
+                onTap: () => Navigator.pop(context, isOperator ? 'deop $name' : 'op $name'),
+              ),
+              ListTile(
+                leading: Icon(isWhitelisted ? Icons.person_remove : Icons.person_add),
+                title: Text(isWhitelisted ? 'Remove from whitelist' : 'Add to whitelist'),
+                onTap: () => Navigator.pop(
+                  context,
+                  isWhitelisted ? 'whitelist remove $name' : 'whitelist add $name',
+                ),
+              ),
+              if (isOnline) ...[
+                const SizedBox(height: 8),
+                Text('Gamemode', style: Theme.of(context).textTheme.labelLarge),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: ['survival', 'creative', 'adventure', 'spectator']
+                      .map(
+                        (mode) => ActionChip(
+                          label: Text(mode),
+                          onPressed: () => Navigator.pop(
+                            context,
+                            'gamemode $mode $name',
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+    if (command == null || !mounted) return;
+    await _send(command);
+  }
+
   Future<void> _restartServer() async {
     final confirmed = await DialogUtils.confirmAction(
       context,
@@ -343,9 +411,42 @@ class _ControlTabState extends State<ControlTab> {
               runSpacing: 8,
               children: names
                   .map(
-                    (name) => Chip(
+                    (name) => ActionChip(
                       avatar: const Icon(Icons.person, size: 16),
                       label: Text(name),
+                      tooltip: 'Manage $name',
+                      onPressed: () => _managePlayer(name),
+                    ),
+                  )
+                  .toList(),
+            ),
+          ],
+          if (world.whitelistEnabled != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Whitelist ${world.whitelistEnabled! ? 'enabled' : 'disabled'} · ${world.whitelistedPlayers.length} player(s) · ${world.operators.length} operator(s)',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+          if (world.whitelistedPlayers.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Text('Whitelisted', style: Theme.of(context).textTheme.labelLarge),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: world.whitelistedPlayers
+                  .map(
+                    (name) => ActionChip(
+                      avatar: Icon(
+                        world.operators.any((op) => op.toLowerCase() == name.toLowerCase())
+                            ? Icons.shield
+                            : Icons.person_outline,
+                        size: 16,
+                      ),
+                      label: Text(name),
+                      tooltip: 'Manage $name',
+                      onPressed: () => _managePlayer(name),
                     ),
                   )
                   .toList(),

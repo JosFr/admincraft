@@ -75,9 +75,39 @@ class OverviewView extends StatelessWidget {
                   ),
                   _MetricCard(
                     width: width,
+                    icon: Icons.speed_outlined,
+                    label: 'TPS',
+                    value: world.tps1m == null ? 'Not observed yet' : world.tps1m!.toStringAsFixed(2),
+                  ),
+                  _MetricCard(
+                    width: width,
+                    icon: Icons.timer_outlined,
+                    label: 'MSPT',
+                    value: world.mspt == null ? 'Not observed yet' : '${world.mspt!.toStringAsFixed(1)} ms',
+                  ),
+                  _MetricCard(
+                    width: width,
+                    icon: Icons.memory_outlined,
+                    label: 'Memory',
+                    value: _memoryLabel(world.memoryMb, world.memoryLimitMb),
+                  ),
+                  _MetricCard(
+                    width: width,
+                    icon: Icons.developer_board_outlined,
+                    label: 'CPU',
+                    value: world.cpuPercent == null ? 'Not observed yet' : '${world.cpuPercent!.toStringAsFixed(1)}%',
+                  ),
+                  _MetricCard(
+                    width: width,
                     icon: world.timeIcon,
                     label: 'World time',
                     value: '${world.timeLabel} · ${world.clock}',
+                  ),
+                  _MetricCard(
+                    width: width,
+                    icon: Icons.cloud_outlined,
+                    label: 'Weather',
+                    value: world.lastWeather ?? 'Not observed yet',
                   ),
                   _MetricCard(
                     width: width,
@@ -89,6 +119,8 @@ class OverviewView extends StatelessWidget {
               );
             },
           ),
+          const SizedBox(height: 16),
+          _RuntimeInfoCard(model: model),
           const SizedBox(height: 16),
           _DiagnosticsCard(model: model, connection: connection),
           const SizedBox(height: 16),
@@ -166,6 +198,70 @@ class OverviewView extends StatelessWidget {
   }
 }
 
+String _memoryLabel(double? usedMb, double? limitMb) {
+  if (usedMb == null) return 'Not observed yet';
+  String format(double value) => value >= 1024
+      ? '${(value / 1024).toStringAsFixed(1)} GB'
+      : '${value.toStringAsFixed(0)} MB';
+  if (limitMb == null || limitMb <= 0) return format(usedMb);
+  return '${format(usedMb)} / ${format(limitMb)}';
+}
+
+class _RuntimeInfoCard extends StatelessWidget {
+  final Model model;
+
+  const _RuntimeInfoCard({required this.model});
+
+  @override
+  Widget build(BuildContext context) {
+    final world = model.world;
+    final disabled = world.disabledPlugins;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Server & world', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            _DiagnosticRow(label: 'Minecraft', value: world.minecraftVersion ?? 'Unknown'),
+            _DiagnosticRow(label: 'Server', value: world.serverVersion ?? 'Unknown'),
+            _DiagnosticRow(
+              label: 'Plugins',
+              value: world.pluginCount == null
+                  ? 'Unknown'
+                  : disabled.isEmpty
+                      ? '${world.pluginCount} loaded · all enabled'
+                      : '${world.pluginCount} loaded · disabled: ${disabled.join(', ')}',
+            ),
+            _DiagnosticRow(label: 'Primary world', value: world.worldName ?? 'Unknown'),
+            if (world.worlds.isNotEmpty)
+              _DiagnosticRow(label: 'Worlds', value: world.worlds.join(', ')),
+            _DiagnosticRow(
+              label: 'Seed',
+              value: world.worldSeed?.toString() ?? 'Unknown',
+            ),
+            _DiagnosticRow(
+              label: 'Loaded chunks',
+              value: world.loadedChunks?.toString() ?? 'Unknown',
+            ),
+            _DiagnosticRow(
+              label: 'Entities',
+              value: world.entityCount?.toString() ?? 'Unknown',
+            ),
+            _DiagnosticRow(
+              label: 'Whitelist',
+              value: world.whitelistEnabled == null
+                  ? 'Unknown'
+                  : world.whitelistEnabled! ? 'Enabled' : 'Disabled',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _DiagnosticsCard extends StatelessWidget {
   final Model model;
   final ConnectionController connection;
@@ -232,12 +328,30 @@ class _DiagnosticsCard extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               _DiagnosticRow(
-                label: 'Connection',
-                value: connection.status.name,
+                label: 'Bridge',
+                value: connection.status == ConnectionStatus.connected
+                    ? 'OK · connected'
+                    : connection.status.name,
               ),
               _DiagnosticRow(
-                label: 'Server state',
+                label: 'Minecraft',
                 value: model.serverRuntimeState ?? 'Unknown',
+              ),
+              _DiagnosticRow(
+                label: 'RCON',
+                value: model.lastServerStateAt == null
+                    ? 'Not observed'
+                    : 'OK · runtime state received',
+              ),
+              _DiagnosticRow(
+                label: 'Multicraft',
+                value: model.supportsBridgeCapability('restart')
+                    ? 'Configured · lifecycle available'
+                    : 'Not advertised',
+              ),
+              _DiagnosticRow(
+                label: 'State feed',
+                value: _time(model.lastServerStateAt),
               ),
               _DiagnosticRow(
                 label: 'Bridge version',
