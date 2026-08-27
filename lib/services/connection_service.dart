@@ -71,8 +71,7 @@ class ConnectionService {
         : (rawPath.startsWith('/') ? rawPath : '/$rawPath');
     final uri = Uri.parse(
       '$protocol://${model.ip}:${model.port}$bridgePath',
-    ).replace(queryParameters: {'token': jwtToken});
-
+    );
     final channel = _openChannel(model, uri, security);
     _beginConsoleHistoryLoad(model);
 
@@ -114,6 +113,10 @@ class ConnectionService {
             ),
       ),
       cancelOnError: true,
+    );
+
+    channel.sink.add(
+      jsonEncode({'type': 'admincraft.auth', 'token': jwtToken}),
     );
   }
 
