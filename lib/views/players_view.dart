@@ -56,8 +56,10 @@ class _PlayersViewState extends State<PlayersView> {
     final command = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (context) => SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
+          child: Padding(
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -118,6 +120,7 @@ class _PlayersViewState extends State<PlayersView> {
             ],
           ),
         ),
+      ),
       ),
     );
     if (command == null || !mounted) return;

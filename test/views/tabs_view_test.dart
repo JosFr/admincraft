@@ -93,7 +93,7 @@ void main() {
     expect(find.text('Google Drive sync'), findsOneWidget);
     expect(find.text('Setup required'), findsOneWidget);
     expect(find.text('Back up and transfer application data'), findsOneWidget);
-    expect(find.text('Bedrock Edition'), findsOneWidget);
+    expect(find.text('Quick transfer'), findsOneWidget);
 
     tester.view.physicalSize = const Size(390, 844);
     await tester.pumpAndSettle();
@@ -190,7 +190,7 @@ void main() {
     expect(find.text('Settings'), findsOneWidget);
     expect(find.byTooltip('Switch server'), findsNothing);
 
-    await tester.tap(find.text('Servers'));
+    await tester.tap(find.widgetWithText(NavigationDestination, 'Servers'));
     await tester.pumpAndSettle();
     expect(find.text('Choose a server to open its dashboard.'), findsOneWidget);
     expect(find.text('Add server'), findsOneWidget);
@@ -214,7 +214,7 @@ void main() {
 
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Servers'));
+    await tester.tap(find.widgetWithText(NavigationDestination, 'Servers'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Edit server'));
     await tester.pumpAndSettle();
@@ -284,7 +284,7 @@ void main() {
 
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Servers'));
+    await tester.tap(find.widgetWithText(NavigationDestination, 'Servers'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Edit server'));
     await tester.pumpAndSettle();
@@ -333,7 +333,7 @@ void main() {
     expect(find.byKey(const ValueKey('console-surface')), findsOneWidget);
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Servers'));
+    await tester.tap(find.widgetWithText(NavigationDestination, 'Servers'));
     await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('Edit server'));
     await tester.pumpAndSettle();
@@ -376,7 +376,7 @@ void main() {
       connectionService: _NoopConnectionService(),
     );
 
-    await tester.tap(find.text('Servers'));
+    await tester.tap(find.widgetWithText(NavigationDestination, 'Servers'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Second server'));
     await tester.pumpAndSettle();
@@ -571,7 +571,7 @@ void main() {
     expect(find.byType(WelcomeView), findsNothing);
     expect(find.text('Add, switch, and edit server profiles'), findsOneWidget);
 
-    await tester.tap(find.text('Servers'));
+    await tester.tap(find.widgetWithText(NavigationDestination, 'Servers'));
     await tester.pumpAndSettle();
     expect(find.byType(WelcomeView), findsNothing);
     expect(tester.takeException(), isNull);
@@ -620,7 +620,7 @@ void main() {
 
     await tester.tap(find.text('Settings'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Servers'));
+    await tester.tap(find.widgetWithText(NavigationDestination, 'Servers'));
     await tester.pumpAndSettle();
 
     final address = tester.widget<Text>(
@@ -670,7 +670,7 @@ void main() {
       );
 
       expect(
-        find.text('This connection is not available in the browser'),
+        find.text('Connection unavailable'),
         findsOneWidget,
       );
       expect(find.textContaining('cannot use the self-signed'), findsOneWidget);
@@ -858,7 +858,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Welcome to Admincraft'), findsOneWidget);
-    expect(find.text('Players'), findsWidgets);
+    expect(find.text('Players'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 }

@@ -24,9 +24,11 @@ class OverviewView extends StatelessWidget {
     final connected = connection.status == ConnectionStatus.connected;
     final compatibilityFailure = connection.compatibilityFailure(model);
 
-    return ListView(
+    return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
-      children: [
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
         if (!model.selectedServer.isComplete)
           _NoticeCard(
             icon: Icons.rocket_launch_outlined,
@@ -40,7 +42,7 @@ class OverviewView extends StatelessWidget {
             icon: Icons.browser_not_supported,
             title: 'Connection unavailable',
             subtitle: compatibilityFailure.message,
-            actionLabel: 'Review',
+            actionLabel: 'Review connection',
             onAction: onEditServer,
           )
         else ...[
@@ -118,7 +120,8 @@ class OverviewView extends StatelessWidget {
           const SizedBox(height: 12),
           _DiagnosticsSection(model: model, connection: connection),
         ],
-      ],
+        ],
+      ),
     );
   }
 }
