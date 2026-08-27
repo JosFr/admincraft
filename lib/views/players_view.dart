@@ -1,5 +1,6 @@
 import 'package:admincraft/controllers/connection_controller.dart';
 import 'package:admincraft/models/model.dart';
+import 'package:admincraft/models/connection_security.dart';
 import 'package:admincraft/utils/command_utils.dart';
 import 'package:admincraft/utils/dialog_utils.dart';
 import 'package:admincraft/utils/toast_utils.dart';
