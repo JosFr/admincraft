@@ -229,37 +229,69 @@ class _ServerEditorViewState extends State<ServerEditorView> {
     final selection = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Server logo'),
+        title: const Text('Server icon'),
         content: SizedBox(
-          width: 360,
-          child: GridView.count(
-            shrinkWrap: true,
-            crossAxisCount: 5,
-            mainAxisSpacing: 8,
-            crossAxisSpacing: 8,
-            children: [
-              for (final asset in serverIconAssets)
-                InkWell(
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: () => Navigator.pop(context, asset),
+          width: 400,
+          height: MediaQuery.sizeOf(context).height * 0.62,
+          child: GridView.builder(
+            itemCount: serverIconPresets.length + 1,
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 4,
+              mainAxisSpacing: 8,
+              crossAxisSpacing: 8,
+              childAspectRatio: 0.88,
+            ),
+            itemBuilder: (context, index) {
+              if (index == serverIconPresets.length) {
+                return InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: () => Navigator.pop(context, '__custom__'),
+                  child: const Tooltip(
+                    message: 'Upload a custom 16 x 16 PNG',
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.add_photo_alternate_outlined, size: 34),
+                        SizedBox(height: 6),
+                        Text('Custom', textAlign: TextAlign.center),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              final preset = serverIconPresets[index];
+              return Tooltip(
+                message: '${preset.category} · ${preset.label}',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: () => Navigator.pop(context, preset.asset),
                   child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Image.asset(
-                      asset,
-                      filterQuality: FilterQuality.none,
-                      isAntiAlias: false,
+                    padding: const EdgeInsets.all(6),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Expanded(
+                          child: Image.asset(
+                            preset.asset,
+                            filterQuality: FilterQuality.none,
+                            isAntiAlias: false,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          preset.label,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                      ],
                     ),
                   ),
                 ),
-              InkWell(
-                borderRadius: BorderRadius.circular(8),
-                onTap: () => Navigator.pop(context, '__custom__'),
-                child: const Tooltip(
-                  message: 'Upload a 16 x 16 PNG',
-                  child: Icon(Icons.add_photo_alternate_outlined),
-                ),
-              ),
-            ],
+              );
+            },
           ),
         ),
         actions: [

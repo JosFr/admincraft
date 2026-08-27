@@ -78,10 +78,8 @@ void main() {
       findsOneWidget,
     );
     expect(find.byIcon(Icons.link_off_rounded), findsOneWidget);
-    expect(
-      tester.getCenter(find.byIcon(Icons.unfold_more)).dx,
-      greaterThan(185),
-    );
+    expect(find.byIcon(Icons.unfold_more), findsNothing);
+    expect(find.text('Servers'), findsOneWidget);
     expect(find.text('Google Drive sync'), findsNothing);
     expect(tester.widget<Image>(find.byType(Image).first).width, 32);
     expect(
@@ -180,27 +178,26 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('server switcher exposes add server as its final action', (
+  testWidgets('mobile Servers tab owns server selection and add flow', (
     tester,
   ) async {
     await pumpApp(tester, const Size(390, 844));
 
-    await tester.tap(find.byTooltip('Switch server'));
-    await tester.pumpAndSettle();
+    expect(find.text('Servers'), findsOneWidget);
+    expect(find.text('Console'), findsOneWidget);
+    expect(find.text('Actions'), findsOneWidget);
+    expect(find.text('Players'), findsOneWidget);
+    expect(find.text('Settings'), findsOneWidget);
+    expect(find.byTooltip('Switch server'), findsNothing);
 
+    await tester.tap(find.text('Servers'));
+    await tester.pumpAndSettle();
+    expect(find.text('Choose a server to open its dashboard.'), findsOneWidget);
     expect(find.text('Add server'), findsOneWidget);
-    expect(find.text('Create a new server profile'), findsOneWidget);
 
     await tester.tap(find.text('Add server'));
     await tester.pumpAndSettle();
-
-    expect(find.text('Edit server'), findsWidgets);
     expect(find.text('Save changes'), findsOneWidget);
-    expect(
-      tester.getTopLeft(find.text('Save changes')).dy,
-      lessThan(tester.getTopLeft(find.text('Danger zone')).dy),
-    );
-
     expect(tester.takeException(), isNull);
   });
 
@@ -350,7 +347,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('selecting a server keeps the server list open', (tester) async {
+  testWidgets('selecting a server opens its overview under Servers', (tester) async {
     const first = ServerProfile(
       id: 'first',
       alias: 'First server',
@@ -379,77 +376,76 @@ void main() {
       connectionService: _NoopConnectionService(),
     );
 
-    await tester.tap(find.text('Settings'));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('Servers'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Second server'));
     await tester.pumpAndSettle();
 
-    expect(
-      find.text('Choose a server or create another profile.'),
-      findsOneWidget,
-    );
-    expect(find.text('Players'), findsNothing);
+    expect(find.text('Server Overview'), findsOneWidget);
+    expect(find.byTooltip('Back to Servers'), findsOneWidget);
+    expect(find.text('Choose a server to open its dashboard.'), findsNothing);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('selectedServer'), second.id);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('mobile header is concise and does not repeat the app logo', (
+  testWidgets('mobile overview matches the Servers dashboard shell', (
     tester,
   ) async {
-    await pumpApp(tester, const Size(390, 844));
+    const server = ServerProfile(
+      id: 'dashboard',
+      alias: 'Lobby',
+      ip: 'admincraft.fraanje.net',
+      port: 443,
+      bridgePath: '/lobby',
+      secretKey: 'secret',
+      certificate: '',
+      security: ConnectionSecurity.trustedCertificate,
+    );
+    await pumpApp(
+      tester,
+      const Size(390, 844),
+      extraPrefs: {
+        'servers': [jsonEncode(server.toJson())],
+        'selectedServer': server.id,
+      },
+      connectionService: _NoopConnectionService(),
+    );
 
-    final appLogos = find.byWidgetPredicate(
-      (widget) =>
-          widget is Image &&
-          widget.image is AssetImage &&
-          (widget.image as AssetImage).assetName == 'assets/logo.png',
-    );
-    expect(appLogos, findsNothing);
-    expect(find.textContaining('The current state of'), findsNothing);
-    expect(find.byTooltip('Notification history'), findsOneWidget);
-    expect(find.byKey(const ValueKey('connection-status-dot')), findsOneWidget);
-    expect(find.byKey(const ValueKey('connection-status-label')), findsNothing);
-    expect(find.byIcon(Icons.play_arrow_rounded), findsNothing);
-    expect(find.byIcon(Icons.stop_rounded), findsNothing);
-    final notificationButton = find.byWidgetPredicate(
-      (widget) =>
-          widget is IconButton && widget.tooltip == 'Notification history',
-    );
-    expect(
-      tester.getTopRight(notificationButton).dx,
-      lessThanOrEqualTo(
-        tester
-            .getTopLeft(find.byKey(const ValueKey('mobile-connection-action')))
-            .dx,
-      ),
-    );
-    final navigation = tester.widget<DecoratedBox>(
-      find.byKey(const ValueKey('mobile-bottom-navigation')),
-    );
-    final navigationColor = (navigation.decoration as BoxDecoration).color;
-    final pageColor = Theme.of(
-      tester.element(find.byKey(const ValueKey('mobile-bottom-navigation'))),
-    ).scaffoldBackgroundColor;
-    expect(navigationColor, isNot(pageColor));
+    expect(find.byTooltip('Switch server'), findsNothing);
+    expect(find.byTooltip('Back to Servers'), findsOneWidget);
+    expect(find.text('Server Overview'), findsOneWidget);
+    expect(find.text('Live metrics'), findsOneWidget);
+    expect(find.text('Server & world'), findsOneWidget);
+    expect(find.text('Plugins'), findsOneWidget);
+    expect(find.text('Players'), findsWidgets);
+    expect(find.text('Diagnostics'), findsOneWidget);
+
+    final navigation = find.byKey(const ValueKey('mobile-bottom-navigation'));
+    expect(navigation, findsOneWidget);
+    expect(find.text('Servers'), findsOneWidget);
+    expect(find.text('Console'), findsOneWidget);
+    expect(find.text('Actions'), findsOneWidget);
+    expect(find.text('Settings'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('mobile connection status shows its label when space permits', (
+  testWidgets('mobile primary tabs expose Actions and Players separately', (
     tester,
   ) async {
-    await pumpApp(tester, const Size(600, 844));
-
-    expect(
-      find.byKey(const ValueKey('connection-status-label')),
-      findsOneWidget,
+    await pumpApp(
+      tester,
+      const Size(600, 844),
+      connectionService: _NoopConnectionService(),
     );
-    expect(find.text('Disconnected'), findsOneWidget);
-    expect(find.byIcon(Icons.link_off_rounded), findsOneWidget);
-    expect(find.byIcon(Icons.play_arrow_rounded), findsNothing);
-    expect(find.byIcon(Icons.stop_rounded), findsNothing);
+
+    await tester.tap(find.text('Players').last);
+    await tester.pumpAndSettle();
+    expect(find.text('Connect to manage players'), findsOneWidget);
+
+    await tester.tap(find.text('Actions'));
+    await tester.pumpAndSettle();
+    expect(find.text('Connect to enable the Control Panel'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -522,7 +518,7 @@ void main() {
     );
 
     expect(find.byType(WelcomeView), findsNothing);
-    expect(find.text('Overview'), findsWidgets);
+    expect(find.text('Server Overview'), findsOneWidget);
     expect(find.text('Restored server'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
@@ -539,7 +535,7 @@ void main() {
 
     expect(find.byType(WelcomeView), findsNothing);
     expect(find.text('Preferences'), findsWidgets);
-    expect(find.text('Players'), findsNothing);
+    expect(find.text('Players'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 
@@ -555,7 +551,7 @@ void main() {
       find.text('Move or protect every saved server profile.'),
       findsOneWidget,
     );
-    expect(find.text('Players'), findsNothing);
+    expect(find.text('Players'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 
@@ -808,7 +804,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('the app title returns to Overview', (tester) async {
+  testWidgets('the app title returns to Servers', (tester) async {
     PackageInfo.setMockInitialValues(
       appName: 'Admincraft',
       packageName: 'com.joanroig.admincraft',
@@ -844,7 +840,10 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('app-title')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Players'), findsOneWidget);
+    expect(
+      find.text('Choose a server to open its dashboard.'),
+      findsOneWidget,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -859,7 +858,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Welcome to Admincraft'), findsOneWidget);
-    expect(find.text('Players'), findsNothing);
+    expect(find.text('Players'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 }

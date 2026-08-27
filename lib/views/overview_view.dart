@@ -1,7 +1,7 @@
 import 'package:admincraft/controllers/connection_controller.dart';
 import 'package:admincraft/models/connection_status.dart';
 import 'package:admincraft/models/model.dart';
-import 'package:admincraft/services/console_output_formatter.dart';
+import 'package:admincraft/views/widgets/server_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -20,186 +20,110 @@ class OverviewView extends StatelessWidget {
   Widget build(BuildContext context) {
     final model = context.watch<Model>();
     final connection = context.watch<ConnectionController>();
+    final world = model.world;
     final connected = connection.status == ConnectionStatus.connected;
     final compatibilityFailure = connection.compatibilityFailure(model);
-    final world = model.world;
-    final outputLines = ConsoleOutputFormatter.visibleLines(
-      model.output,
-      hideCommonNoise: model.hideCommonConsoleNoise,
-      containing: model.consoleFilterPattern,
-    );
-    final recentLines = outputLines.length <= 4
-        ? outputLines.reversed.toList()
-        : outputLines.sublist(outputLines.length - 4).reversed.toList();
 
-    return _PageFrame(
-      title: 'Overview',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (!model.selectedServer.isComplete)
-            _SetupBanner(onEditServer: onEditServer)
-          else if (compatibilityFailure != null)
-            _CompatibilityBanner(
-              message: compatibilityFailure.message,
-              onEditServer: onEditServer,
-            )
-          else if (!connected)
-            const Card(
-              child: ListTile(
-                leading: Icon(Icons.cloud_off_outlined),
-                title: Text('Server is disconnected'),
-                subtitle: Text(
-                  'Connect from the header to load players and world state.',
-                ),
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+      children: [
+        if (!model.selectedServer.isComplete)
+          _NoticeCard(
+            icon: Icons.rocket_launch_outlined,
+            title: 'Finish setting up this server',
+            subtitle: 'Add its address and bridge access key before connecting.',
+            actionLabel: 'Set up',
+            onAction: onEditServer,
+          )
+        else if (compatibilityFailure != null)
+          _NoticeCard(
+            icon: Icons.browser_not_supported,
+            title: 'Connection unavailable',
+            subtitle: compatibilityFailure.message,
+            actionLabel: 'Review',
+            onAction: onEditServer,
+          )
+        else ...[
+          _ServerHero(model: model, connected: connected),
+          const SizedBox(height: 14),
+          _LiveMetrics(model: model),
+          const SizedBox(height: 14),
+          _SectionCard(
+            icon: Icons.public,
+            title: 'Server & world',
+            subtitle: _serverWorldSummary(model),
+            children: [
+              _InfoRow('Minecraft', world.minecraftVersion ?? 'Unknown'),
+              _InfoRow('Server', world.serverVersion ?? 'Unknown'),
+              _InfoRow('Primary world', world.worldName ?? 'Unknown'),
+              if (world.worlds.isNotEmpty)
+                _InfoRow('Worlds', world.worlds.join(', ')),
+              _InfoRow('Seed', world.worldSeed ?? 'Unknown'),
+              _InfoRow(
+                'Whitelist',
+                world.whitelistEnabled == null
+                    ? 'Unknown'
+                    : world.whitelistEnabled! ? 'Enabled' : 'Disabled',
               ),
-            ),
+            ],
+          ),
           const SizedBox(height: 12),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final columns = constraints.maxWidth >= 720 ? 3 : 1;
-              const spacing = 12.0;
-              final width =
-                  (constraints.maxWidth - spacing * (columns - 1)) / columns;
-              return Wrap(
-                spacing: spacing,
-                runSpacing: spacing,
-                children: [
-                  _MetricCard(
-                    width: width,
-                    icon: Icons.people_outline,
-                    label: 'Players',
-                    value: world.playersOnline == null
-                        ? '${model.onlinePlayers.length} tracked'
-                        : '${world.playersOnline} of ${world.playerLimit}',
-                  ),
-                  _MetricCard(
-                    width: width,
-                    icon: Icons.speed_outlined,
-                    label: 'TPS',
-                    value: world.tps1m == null ? 'Not observed yet' : world.tps1m!.toStringAsFixed(2),
-                  ),
-                  _MetricCard(
-                    width: width,
-                    icon: Icons.timer_outlined,
-                    label: 'MSPT',
-                    value: world.mspt == null ? 'Not observed yet' : '${world.mspt!.toStringAsFixed(1)} ms',
-                  ),
-                  _MetricCard(
-                    width: width,
-                    icon: Icons.memory_outlined,
-                    label: 'Memory',
-                    value: _memoryLabel(world.memoryMb, world.memoryLimitMb),
-                  ),
-                  _MetricCard(
-                    width: width,
-                    icon: Icons.developer_board_outlined,
-                    label: 'CPU',
-                    value: world.cpuPercent == null ? 'Not observed yet' : '${world.cpuPercent!.toStringAsFixed(1)}%',
-                  ),
-                  _MetricCard(
-                    width: width,
-                    icon: world.timeIcon,
-                    label: 'World time',
-                    value: '${world.timeLabel} · ${world.clock}',
-                  ),
-                  _MetricCard(
-                    width: width,
-                    icon: Icons.cloud_outlined,
-                    label: 'Weather',
-                    value: world.lastWeather ?? 'Not observed yet',
-                  ),
-                  _MetricCard(
-                    width: width,
-                    icon: Icons.shield_outlined,
-                    label: 'Difficulty',
-                    value: world.lastDifficulty ?? 'Not observed yet',
-                  ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 16),
-          _RuntimeInfoCard(model: model),
-          const SizedBox(height: 16),
-          _DiagnosticsCard(model: model, connection: connection),
-          const SizedBox(height: 16),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Recent activity',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ),
-                      TextButton(
-                        onPressed: onOpenConsole,
-                        child: const Text('View console'),
-                      ),
-                    ],
-                  ),
-                  if (recentLines.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 18),
-                      child: Text(
-                        connected
-                            ? 'Waiting for server output…'
-                            : 'Connect to see server activity.',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    )
-                  else
-                    for (final line in recentLines)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 3),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Padding(
-                              padding: EdgeInsets.only(top: 1),
-                              child: Icon(Icons.chevron_right, size: 17),
-                            ),
-                            const SizedBox(width: 5),
-                            Expanded(
-                              child: Text(
-                                ConsoleOutputFormatter.formatLine(
-                                  line,
-                                  model.consoleTimestampMode,
-                                ),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontFamily: model.terminalFont,
-                                  fontFamilyFallback: const [
-                                    'Miracode',
-                                    'monospace',
-                                  ],
-                                  fontSize: model.terminalFontSize,
-                                  height: 1.25,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                ],
+          _SectionCard(
+            icon: Icons.extension_outlined,
+            title: 'Plugins',
+            subtitle: _pluginSummary(model),
+            children: [
+              _InfoRow(
+                'Loaded',
+                world.pluginCount?.toString() ?? 'Unknown',
               ),
-            ),
+              _InfoRow(
+                'Disabled',
+                world.disabledPlugins.isEmpty
+                    ? 'None'
+                    : world.disabledPlugins.join(', '),
+              ),
+            ],
           ),
+          const SizedBox(height: 12),
+          _SectionCard(
+            icon: Icons.people_outline,
+            title: 'Players',
+            subtitle: _playerSummary(model),
+            children: [
+              if (model.onlinePlayers.isEmpty)
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('No players online.'),
+                )
+              else
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: model.onlinePlayers
+                        .map((name) => Chip(label: Text(name)))
+                        .toList(),
+                  ),
+                ),
+              const SizedBox(height: 8),
+              _InfoRow(
+                'Whitelisted',
+                world.whitelistedPlayers.length.toString(),
+              ),
+              _InfoRow('Operators', world.operators.length.toString()),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _DiagnosticsSection(model: model, connection: connection),
         ],
-      ),
+      ],
     );
   }
 }
-
 String _memoryLabel(double? usedMb, double? limitMb) {
-  if (usedMb == null) return 'Not observed yet';
+  if (usedMb == null) return 'Not observed';
   String format(double value) => value >= 1024
       ? '${(value / 1024).toStringAsFixed(1)} GB'
       : '${value.toStringAsFixed(0)} MB';
@@ -207,53 +131,205 @@ String _memoryLabel(double? usedMb, double? limitMb) {
   return '${format(usedMb)} / ${format(limitMb)}';
 }
 
-class _RuntimeInfoCard extends StatelessWidget {
-  final Model model;
+String _serverWorldSummary(Model model) {
+  final world = model.world;
+  final version = world.minecraftVersion ?? 'Unknown version';
+  final name = world.worldName ?? 'Unknown world';
+  return '$version · $name';
+}
 
-  const _RuntimeInfoCard({required this.model});
+String _pluginSummary(Model model) {
+  final world = model.world;
+  if (world.pluginCount == null) return 'Plugin state unknown';
+  if (world.disabledPlugins.isEmpty) {
+    return '${world.pluginCount} loaded · all enabled';
+  }
+  return '${world.pluginCount} loaded · ${world.disabledPlugins.length} disabled';
+}
+
+String _playerSummary(Model model) {
+  final world = model.world;
+  if (world.playersOnline == null) return '${model.onlinePlayers.length} tracked';
+  return '${world.playersOnline} online';
+}
+class _ServerHero extends StatelessWidget {
+  final Model model;
+  final bool connected;
+
+  const _ServerHero({required this.model, required this.connected});
 
   @override
   Widget build(BuildContext context) {
     final world = model.world;
-    final disabled = world.disabledPlugins;
+    final runtime = model.serverRuntimeState?.trim();
+    final status = runtime == null || runtime.isEmpty
+        ? (connected ? 'Running' : 'Disconnected')
+        : '${runtime[0].toUpperCase()}${runtime.substring(1)}';
+    final statusColor = status.toLowerCase() == 'running'
+        ? Colors.green
+        : Theme.of(context).colorScheme.outline;
+
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.all(16),
+        child: Row(
           children: [
-            Text('Server & world', style: Theme.of(context).textTheme.titleMedium),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: ServerIcon(server: model.selectedServer, size: 54),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    model.alias.isEmpty ? 'Unnamed server' : model.alias,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    world.playersOnline == null
+                        ? '${model.onlinePlayers.length} tracked players'
+                        : '${world.playersOnline} of ${world.playerLimit} players',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 9,
+                      height: 9,
+                      decoration: BoxDecoration(
+                        color: statusColor,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(status, style: TextStyle(color: statusColor)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  '${world.timeLabel} · ${world.clock}',
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+class _LiveMetrics extends StatelessWidget {
+  final Model model;
+
+  const _LiveMetrics({required this.model});
+
+  String _updatedLabel() {
+    final updated = model.lastServerStateAt;
+    if (updated == null) return 'Waiting for state';
+    final age = DateTime.now().difference(updated.toLocal());
+    if (age.inSeconds < 5) return 'Updated now';
+    if (age.inMinutes < 1) return 'Updated ${age.inSeconds}s ago';
+    return 'Updated ${age.inMinutes}m ago';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final world = model.world;
+    final metrics = <_MetricData>[
+      _MetricData(
+        Icons.people_outline,
+        'Players',
+        world.playersOnline == null
+            ? '${model.onlinePlayers.length}'
+            : '${world.playersOnline} / ${world.playerLimit}',
+      ),
+      _MetricData(
+        Icons.monitor_heart_outlined,
+        'TPS',
+        world.tps1m?.toStringAsFixed(2) ?? '—',
+        healthy: world.tps1m != null && world.tps1m! >= 19,
+      ),
+      _MetricData(
+        Icons.timer_outlined,
+        'MSPT',
+        world.mspt == null ? '—' : '${world.mspt!.toStringAsFixed(1)} ms',
+        healthy: world.mspt != null && world.mspt! < 50,
+      ),
+      _MetricData(
+        Icons.memory_outlined,
+        'CPU',
+        world.cpuPercent == null ? '—' : '${world.cpuPercent!.toStringAsFixed(1)}%',
+      ),
+      _MetricData(
+        Icons.storage_outlined,
+        'Memory',
+        _memoryLabel(world.memoryMb, world.memoryLimitMb),
+      ),
+      _MetricData(
+        Icons.cloud_outlined,
+        'Weather',
+        world.lastWeather ?? '—',
+      ),
+      _MetricData(
+        Icons.sports_esports_outlined,
+        'Difficulty',
+        world.lastDifficulty ?? '—',
+      ),
+      _MetricData(
+        Icons.view_in_ar_outlined,
+        'Chunks / Entities',
+        '${world.loadedChunks ?? '—'} / ${world.entityCount ?? '—'}',
+      ),
+    ];
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Live metrics',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                Text(
+                  _updatedLabel(),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
-            _DiagnosticRow(label: 'Minecraft', value: world.minecraftVersion ?? 'Unknown'),
-            _DiagnosticRow(label: 'Server', value: world.serverVersion ?? 'Unknown'),
-            _DiagnosticRow(
-              label: 'Plugins',
-              value: world.pluginCount == null
-                  ? 'Unknown'
-                  : disabled.isEmpty
-                      ? '${world.pluginCount} loaded · all enabled'
-                      : '${world.pluginCount} loaded · disabled: ${disabled.join(', ')}',
-            ),
-            _DiagnosticRow(label: 'Primary world', value: world.worldName ?? 'Unknown'),
-            if (world.worlds.isNotEmpty)
-              _DiagnosticRow(label: 'Worlds', value: world.worlds.join(', ')),
-            _DiagnosticRow(
-              label: 'Seed',
-              value: world.worldSeed?.toString() ?? 'Unknown',
-            ),
-            _DiagnosticRow(
-              label: 'Loaded chunks',
-              value: world.loadedChunks?.toString() ?? 'Unknown',
-            ),
-            _DiagnosticRow(
-              label: 'Entities',
-              value: world.entityCount?.toString() ?? 'Unknown',
-            ),
-            _DiagnosticRow(
-              label: 'Whitelist',
-              value: world.whitelistEnabled == null
-                  ? 'Unknown'
-                  : world.whitelistEnabled! ? 'Enabled' : 'Disabled',
+            LayoutBuilder(
+              builder: (context, constraints) {
+                const gap = 10.0;
+                final columns = constraints.maxWidth >= 760 ? 4 : 2;
+                final width =
+                    (constraints.maxWidth - gap * (columns - 1)) / columns;
+                return Wrap(
+                  spacing: gap,
+                  runSpacing: gap,
+                  children: metrics
+                      .map((metric) => _MetricTile(width: width, data: metric))
+                      .toList(),
+                );
+              },
             ),
           ],
         ),
@@ -262,194 +338,114 @@ class _RuntimeInfoCard extends StatelessWidget {
   }
 }
 
-class _DiagnosticsCard extends StatelessWidget {
-  final Model model;
-  final ConnectionController connection;
+class _MetricData {
+  final IconData icon;
+  final String label;
+  final String value;
+  final bool healthy;
 
-  const _DiagnosticsCard({required this.model, required this.connection});
+  const _MetricData(
+    this.icon,
+    this.label,
+    this.value, {
+    this.healthy = false,
+  });
+}
 
-  String _time(DateTime? value) =>
-      value == null ? 'Not observed' : value.toLocal().toIso8601String();
+class _MetricTile extends StatelessWidget {
+  final double width;
+  final _MetricData data;
 
-  String _diagnosticText() => [
-    'Server: ${model.alias}',
-    'Endpoint: ${model.ip}:${model.port}',
-    'Connection: ${connection.status.name}',
-    'Security: ${model.connectionSecurity.name}',
-    'Edition: ${model.minecraftEdition.name}',
-    'Bridge version: ${model.bridgeVersion ?? 'Unknown'}',
-    'Protocol: ${model.bridgeProtocol?.toString() ?? 'Unknown'}',
-    'Permission: ${model.bridgePermission ?? 'Unknown'}',
-    'Server state: ${model.serverRuntimeState ?? 'Unknown'}',
-    'Connected at: ${_time(model.bridgeConnectedAt)}',
-    'Last heartbeat: ${_time(model.lastHeartbeatAt)}',
-    'Last log: ${_time(model.lastLogAt)}',
-    'Last state event: ${_time(model.lastServerStateAt)}',
-    'Capabilities: ${model.bridgeCapabilities.join(', ')}',
-    if (model.bridgeLastError != null) 'Last error: ${model.bridgeLastError}',
-  ].join('\n');
+  const _MetricTile({required this.width, required this.data});
 
-  Future<void> _show(BuildContext context) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (sheetContext) => SafeArea(
-        child: DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.72,
-          maxChildSize: 0.92,
-          builder: (context, controller) => ListView(
-            controller: controller,
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return SizedBox(
+      key: ValueKey('metric-${data.label}'),
+      width: width,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: theme.colorScheme.outlineVariant),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Connection diagnostics',
-                      style: Theme.of(context).textTheme.titleLarge,
+              Icon(data.icon, size: 26),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(data.label, style: theme.textTheme.bodySmall),
+                    const SizedBox(height: 2),
+                    Text(
+                      data.value,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: data.healthy ? Colors.green : null,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
-                  ),
-                  TextButton.icon(
-                    onPressed: () async {
-                      await Clipboard.setData(
-                        ClipboardData(text: _diagnosticText()),
-                      );
-                      if (!context.mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Diagnostics copied.')),
-                      );
-                    },
-                    icon: const Icon(Icons.copy_all_outlined),
-                    label: const Text('Copy'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              _DiagnosticRow(
-                label: 'Bridge',
-                value: connection.status == ConnectionStatus.connected
-                    ? 'OK · connected'
-                    : connection.status.name,
-              ),
-              _DiagnosticRow(
-                label: 'Minecraft',
-                value: model.serverRuntimeState ?? 'Unknown',
-              ),
-              _DiagnosticRow(
-                label: 'RCON',
-                value: model.lastServerStateAt == null
-                    ? 'Not observed'
-                    : 'OK · runtime state received',
-              ),
-              _DiagnosticRow(
-                label: 'Multicraft',
-                value: model.supportsBridgeCapability('restart')
-                    ? 'Configured · lifecycle available'
-                    : 'Not advertised',
-              ),
-              _DiagnosticRow(
-                label: 'State feed',
-                value: _time(model.lastServerStateAt),
-              ),
-              _DiagnosticRow(
-                label: 'Bridge version',
-                value: model.bridgeVersion ?? 'Unknown or legacy bridge',
-              ),
-              _DiagnosticRow(
-                label: 'Protocol',
-                value: model.bridgeProtocol?.toString() ?? 'Unknown',
-              ),
-              _DiagnosticRow(
-                label: 'Permission',
-                value: model.bridgePermission ?? 'Unknown',
-              ),
-              _DiagnosticRow(
-                label: 'Connected',
-                value: _time(model.bridgeConnectedAt),
-              ),
-              _DiagnosticRow(
-                label: 'Last heartbeat',
-                value: _time(model.lastHeartbeatAt),
-              ),
-              _DiagnosticRow(label: 'Last log', value: _time(model.lastLogAt)),
-              _DiagnosticRow(
-                label: 'Last state event',
-                value: _time(model.lastServerStateAt),
-              ),
-              if (model.bridgeLastError != null)
-                _DiagnosticRow(
-                  label: 'Last error',
-                  value: model.bridgeLastError!,
+                  ],
                 ),
-              const SizedBox(height: 14),
-              Text(
-                'Capabilities',
-                style: Theme.of(context).textTheme.titleMedium,
               ),
-              const SizedBox(height: 8),
-              if (model.bridgeCapabilities.isEmpty)
-                const Text('No capabilities advertised.')
-              else
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: model.bridgeCapabilities
-                      .map((capability) => Chip(label: Text(capability)))
-                      .toList(),
-                ),
-              const SizedBox(height: 18),
-              Text(
-                'Command audit',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 6),
-              if (model.commandAudit.isEmpty)
-                const Text('No user-issued commands recorded for this server.')
-              else
-                for (final entry in model.commandAudit.reversed.take(20))
-                  ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.terminal, size: 20),
-                    title: Text(entry.command),
-                    subtitle: Text(
-                      '${entry.source} · ${entry.outcome} · ${_time(entry.occurredAt)}',
-                    ),
-                  ),
             ],
           ),
         ),
       ),
     );
   }
+}
+
+class _SectionCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final List<Widget> children;
+
+  const _SectionCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.children,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: ListTile(
-        leading: const Icon(Icons.monitor_heart_outlined),
-        title: const Text('Diagnostics'),
-        subtitle: Text(
-          [
-            model.serverRuntimeState ?? connection.status.name,
-            if (model.bridgeVersion != null) 'bridge v${model.bridgeVersion}',
-            if (model.bridgePermission != null) model.bridgePermission!,
-          ].join(' · '),
+      margin: EdgeInsets.zero,
+      child: ExpansionTile(
+        leading: Icon(icon),
+        title: Text(
+          title,
+          style: Theme.of(context).textTheme.titleMedium,
         ),
-        trailing: const Icon(Icons.chevron_right),
-        onTap: () => _show(context),
+        subtitle: Text(
+          subtitle,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          const Divider(height: 1),
+          const SizedBox(height: 10),
+          ...children,
+        ],
       ),
     );
   }
 }
 
-class _DiagnosticRow extends StatelessWidget {
+class _InfoRow extends StatelessWidget {
   final String label;
   final String value;
 
-  const _DiagnosticRow({required this.label, required this.value});
+  const _InfoRow(this.label, this.value);
 
   @override
   Widget build(BuildContext context) {
@@ -459,178 +455,210 @@ class _DiagnosticRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 130,
-            child: Text(label, style: Theme.of(context).textTheme.bodySmall),
+            width: 115,
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ),
-          Expanded(child: SelectableText(value)),
+          Expanded(
+            child: SelectableText(
+              value,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ),
         ],
       ),
     );
   }
 }
+class _DiagnosticsSection extends StatelessWidget {
+  final Model model;
+  final ConnectionController connection;
 
-class _CompatibilityBanner extends StatelessWidget {
-  final String message;
-  final VoidCallback onEditServer;
+  const _DiagnosticsSection({
+    required this.model,
+    required this.connection,
+  });
 
-  const _CompatibilityBanner({
-    required this.message,
-    required this.onEditServer,
+  String _time(DateTime? value) =>
+      value == null ? 'Not observed' : value.toLocal().toIso8601String();
+
+  String _diagnosticText() => [
+    'Server: ${model.alias}',
+    'Endpoint: ${model.ip}:${model.port}${model.bridgePath}',
+    'Connection: ${connection.status.name}',
+    'Security: ${model.connectionSecurity.name}',
+    'Edition: ${model.minecraftEdition.name}',
+    'Bridge version: ${model.bridgeVersion ?? 'Unknown'}',
+    'Protocol: ${model.bridgeProtocol?.toString() ?? 'Unknown'}',
+    'Permission: ${model.bridgePermission ?? 'Unknown'}',
+    'Server state: ${model.serverRuntimeState ?? 'Unknown'}',
+    'Last heartbeat: ${_time(model.lastHeartbeatAt)}',
+    'Last state event: ${_time(model.lastServerStateAt)}',
+    'Capabilities: ${model.bridgeCapabilities.join(', ')}',
+    if (model.bridgeLastError != null) 'Last error: ${model.bridgeLastError}',
+  ].join('\n');
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: ExpansionTile(
+        leading: const Icon(Icons.build_outlined),
+        title: const Text('Diagnostics'),
+        subtitle: Text(
+          [
+            model.serverRuntimeState ?? connection.status.name,
+            if (model.bridgeVersion != null) 'bridge v${model.bridgeVersion}',
+          ].join(' · '),
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          const Divider(height: 1),
+          const SizedBox(height: 10),
+          _InfoRow('Bridge', connection.status.name),
+          _InfoRow('Minecraft', model.serverRuntimeState ?? 'Unknown'),
+          _InfoRow(
+            'RCON',
+            model.lastServerStateAt == null
+                ? 'Not observed'
+                : 'Runtime state received',
+          ),
+          _InfoRow(
+            'Multicraft',
+            model.supportsBridgeCapability('restart')
+                ? 'Lifecycle available'
+                : 'Not advertised',
+          ),
+          _InfoRow('Bridge version', model.bridgeVersion ?? 'Unknown'),
+          _InfoRow(
+            'Protocol',
+            model.bridgeProtocol?.toString() ?? 'Unknown',
+          ),
+          _InfoRow('Permission', model.bridgePermission ?? 'Unknown'),
+          _InfoRow(
+            'Endpoint',
+            '${model.ip}:${model.port}${model.bridgePath}',
+          ),
+          _InfoRow('Last heartbeat', _time(model.lastHeartbeatAt)),
+          _InfoRow('Last state', _time(model.lastServerStateAt)),
+          if (model.bridgeLastError != null)
+            _InfoRow('Last error', model.bridgeLastError!),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Capabilities',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+          ),
+          const SizedBox(height: 6),
+          if (model.bridgeCapabilities.isEmpty)
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text('No capabilities advertised.'),
+            )
+          else
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: model.bridgeCapabilities
+                    .map((capability) => Chip(label: Text(capability)))
+                    .toList(),
+              ),
+            ),
+          const SizedBox(height: 12),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Command audit',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+          ),
+          const SizedBox(height: 4),
+          if (model.commandAudit.isEmpty)
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text('No user-issued commands recorded.'),
+            )
+          else
+            for (final entry in model.commandAudit.reversed.take(10))
+              ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.terminal, size: 18),
+                title: Text(entry.command),
+                subtitle: Text('${entry.source} · ${entry.outcome}'),
+              ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () async {
+                await Clipboard.setData(
+                  ClipboardData(text: _diagnosticText()),
+                );
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Diagnostics copied.')),
+                );
+              },
+              icon: const Icon(Icons.copy_all_outlined),
+              label: const Text('Copy diagnostics'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+class _NoticeCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  const _NoticeCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.actionLabel,
+    required this.onAction,
   });
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return Card(
-      color: scheme.errorContainer,
       child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
+        padding: const EdgeInsets.all(16),
+        child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  Icons.browser_not_supported,
-                  color: scheme.onErrorContainer,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'This connection is not available in the browser',
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(color: scheme.onErrorContainer),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        message,
-                        style: TextStyle(color: scheme.onErrorContainer),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: onEditServer,
-                child: const Text('Review connection'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _PageFrame extends StatelessWidget {
-  final String title;
-  final Widget child;
-
-  const _PageFrame({required this.title, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1040),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(title, style: Theme.of(context).textTheme.headlineMedium),
-              const SizedBox(height: 12),
-              child,
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SetupBanner extends StatelessWidget {
-  final VoidCallback onEditServer;
-
-  const _SetupBanner({required this.onEditServer});
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      color: Theme.of(context).colorScheme.primaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Row(
-          children: [
-            const Icon(Icons.rocket_launch_outlined),
-            const SizedBox(width: 14),
-            const Expanded(
+            Icon(icon),
+            const SizedBox(width: 12),
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Finish setting up this server'),
-                  SizedBox(height: 3),
-                  Text('Add its address and secret key before connecting.'),
+                  Text(title, style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 4),
+                  Text(subtitle),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: FilledButton(
+                      onPressed: onAction,
+                      child: Text(actionLabel),
+                    ),
+                  ),
                 ],
               ),
             ),
-            FilledButton(onPressed: onEditServer, child: const Text('Set up')),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MetricCard extends StatelessWidget {
-  final double width;
-  final IconData icon;
-  final String label;
-  final String value;
-
-  const _MetricCard({
-    required this.width,
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: width,
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Icon(icon, color: Theme.of(context).colorScheme.primary),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(label, style: Theme.of(context).textTheme.bodySmall),
-                    const SizedBox(height: 4),
-                    Text(
-                      value,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
         ),
       ),
     );

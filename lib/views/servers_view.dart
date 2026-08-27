@@ -45,7 +45,7 @@ class ServersView extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'Choose a server or create another profile.',
+                        'Choose a server to open its dashboard.',
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                     ],
@@ -76,6 +76,9 @@ class ServersView extends StatelessWidget {
                   server: server,
                   selected: server.id == model.selectedServerId,
                   status: connection.status,
+                  liveSummary: server.id == model.selectedServerId
+                      ? _liveSummary(model)
+                      : null,
                   onSelect: () => onSelect(server.id),
                   onEdit: () async {
                     if (server.id != model.selectedServerId) {
@@ -94,6 +97,18 @@ class ServersView extends StatelessWidget {
   }
 }
 
+String _liveSummary(Model model) {
+  final world = model.world;
+  final parts = <String>[];
+  if (world.playersOnline != null) {
+    parts.add('${world.playersOnline}/${world.playerLimit} players');
+  }
+  if (world.tps1m != null) {
+    parts.add('TPS ${world.tps1m!.toStringAsFixed(2)}');
+  }
+  return parts.join(' · ');
+}
+
 /// One saved server.
 ///
 /// Kept deliberately compact on phones: connection state lives beside the
@@ -102,6 +117,7 @@ class _ServerTile extends StatelessWidget {
   final ServerProfile server;
   final bool selected;
   final ConnectionStatus status;
+  final String? liveSummary;
   final VoidCallback onSelect;
   final VoidCallback onEdit;
 
@@ -109,6 +125,7 @@ class _ServerTile extends StatelessWidget {
     required this.server,
     required this.selected,
     required this.status,
+    required this.liveSummary,
     required this.onSelect,
     required this.onEdit,
   });
@@ -125,7 +142,7 @@ class _ServerTile extends StatelessWidget {
       color: selected ? theme.colorScheme.primaryContainer : null,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
-        onTap: selected ? null : onSelect,
+        onTap: onSelect,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
           child: Row(
@@ -178,6 +195,15 @@ class _ServerTile extends StatelessWidget {
                         ),
                       ],
                     ),
+                    if (liveSummary != null && liveSummary!.isNotEmpty)
+                      Text(
+                        liveSummary!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                   ],
                 ),
               ),

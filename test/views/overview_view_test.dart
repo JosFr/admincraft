@@ -1,5 +1,9 @@
+import 'dart:convert';
+
 import 'package:admincraft/controllers/connection_controller.dart';
+import 'package:admincraft/models/connection_security.dart';
 import 'package:admincraft/models/model.dart';
+import 'package:admincraft/models/server_profile.dart';
 import 'package:admincraft/services/persistence_service.dart';
 import 'package:admincraft/views/overview_view.dart';
 import 'package:flutter/material.dart';
@@ -7,64 +11,102 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-void main() {
-  testWidgets(
-    'recent activity follows console filtering and timestamp settings',
-    (tester) async {
-      SharedPreferences.setMockInitialValues({
-        'consoleTimestampMode': 'hidden',
-        'consoleFilterPattern': 'ready',
-      });
-      final preferences = await SharedPreferences.getInstance();
-      final model = Model(PersistenceService(preferences));
-      model.appendOutputCommand(
-        '[2026-08-16 17:00:00:000 INFO] Running AutoCompaction...',
-      );
-      model.appendOutputCommand('[2026-08-16 17:00:01:000 INFO] Server ready');
-      model.appendOutputCommand(
-        '[2026-08-16 17:00:02:000 INFO] There are 0/10 players online:',
-      );
+const _server = ServerProfile(
+  id: 'lobby',
+  alias: 'Lobby',
+  ip: 'admincraft.fraanje.net',
+  port: 443,
+  bridgePath: '/lobby',
+  secretKey: 'secret',
+  certificate: '',
+  security: ConnectionSecurity.trustedCertificate,
+);
 
-      await tester.pumpWidget(
-        MultiProvider(
-          providers: [
-            ChangeNotifierProvider.value(value: model),
-            ChangeNotifierProvider(create: (_) => ConnectionController()),
-          ],
-          child: MaterialApp(
-            home: Scaffold(
-              body: OverviewView(onOpenConsole: () {}, onEditServer: () {}),
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('Server ready'), findsOneWidget);
-      final recent = tester.widget<Text>(find.text('Server ready'));
-      expect(recent.style?.height, 1.25);
-      expect(recent.strutStyle, isNull);
-      expect(find.textContaining('2026-08-16'), findsNothing);
-      expect(find.textContaining('AutoCompaction'), findsNothing);
-      expect(find.textContaining('players online'), findsNothing);
-      expect(find.text('Quick actions'), findsNothing);
-    },
+Future<Model> _model() async {
+  SharedPreferences.setMockInitialValues({
+    'onboardingCompleted': true,
+    'selectedServer': _server.id,
+    'servers': [jsonEncode(_server.toJson())],
+  });
+  final prefs = await SharedPreferences.getInstance();
+  final model = Model(PersistenceService(prefs));
+  model.updateServerRuntimeState(
+    'running',
+    playersOnline: 0,
+    playerLimit: 15,
+    tps1m: 20,
+    mspt: 0.1,
+    cpuPercent: 2,
+    memoryMb: 62,
+    memoryLimitMb: 3994,
+    minecraftVersion: '1.21.8',
+    serverVersion: 'Paper 1.21.8',
+    worldName: 'world',
+    worldSeed: '1960381020482390555',
+    loadedChunks: 0,
+    entityCount: 0,
+    pluginCount: 3,
+    whitelistEnabled: true,
   );
+  return model;
+}
 
-  testWidgets('diagnostics shows bridge details and command audit', (
+void main() {
+  testWidgets('overview matches the compact server dashboard layout', (
     tester,
   ) async {
-    SharedPreferences.setMockInitialValues({});
-    final preferences = await SharedPreferences.getInstance();
-    final model = Model(PersistenceService(preferences));
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final model = await _model();
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: model),
+          ChangeNotifierProvider(create: (_) => ConnectionController()),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: OverviewView(onOpenConsole: () {}, onEditServer: () {}),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Lobby'), findsOneWidget);
+    expect(find.text('Live metrics'), findsOneWidget);
+    expect(find.byKey(const ValueKey('metric-Players')), findsOneWidget);
+    expect(find.byKey(const ValueKey('metric-TPS')), findsOneWidget);
+    expect(find.byKey(const ValueKey('metric-MSPT')), findsOneWidget);
+    expect(find.byKey(const ValueKey('metric-CPU')), findsOneWidget);
+    expect(find.text('Server & world'), findsOneWidget);
+    expect(find.text('Plugins'), findsOneWidget);
+    expect(find.text('Players'), findsWidgets);
+    expect(find.text('Diagnostics'), findsOneWidget);
+    expect(find.text('Recent activity'), findsNothing);
+
+    final players = tester.getRect(find.byKey(const ValueKey('metric-Players')));
+    final tps = tester.getRect(find.byKey(const ValueKey('metric-TPS')));
+    expect((players.top - tps.top).abs(), lessThan(1));
+    expect(players.width, closeTo(tps.width, 1));
+    expect(players.right, lessThan(tps.left));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('diagnostics expands bridge details and command audit', (
+    tester,
+  ) async {
+    final model = await _model();
     model.updateBridgeHello(
       protocol: 2,
       capabilities: const ['logs', 'status', 'commands'],
       version: '1.2.0',
       permission: 'command',
-      connectedAt: DateTime.utc(2026, 8, 17, 10),
+      connectedAt: DateTime.utc(2026, 8, 27, 18),
     );
-    model.updateServerRuntimeState('running');
     await model.recordCommandAudit('list', source: 'terminal', outcome: 'sent');
 
     await tester.pumpWidget(
@@ -81,19 +123,19 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Diagnostics'));
     await tester.tap(find.text('Diagnostics'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Connection diagnostics'), findsOneWidget);
     expect(find.text('1.2.0'), findsOneWidget);
     expect(find.text('command'), findsOneWidget);
-    expect(find.text('running'), findsWidgets);
-    await tester.scrollUntilVisible(
-      find.text('list'),
-      180,
-      scrollable: find.byType(Scrollable).last,
-    );
+    expect(find.text('Capabilities'), findsOneWidget);
+    expect(find.text('logs'), findsOneWidget);
+    expect(find.text('Command audit'), findsOneWidget);
     expect(find.text('list'), findsOneWidget);
-    expect(find.textContaining('terminal · sent'), findsOneWidget);
+    expect(find.text('terminal · sent'), findsOneWidget);
+    expect(find.text('Copy diagnostics'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

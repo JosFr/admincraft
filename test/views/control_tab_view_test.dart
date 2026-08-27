@@ -139,15 +139,12 @@ void main() {
   });
 
   testWidgets(
-    'selected controls keep their icon clear and players autocomplete',
+    'selected controls keep their icon clear and player actions stay separate',
     (tester) async {
       SharedPreferences.setMockInitialValues({});
       final preferences = await SharedPreferences.getInstance();
       final model = Model(PersistenceService(preferences));
       model.recordDifficulty('normal');
-      model.appendOutputCommand(
-        '[2026-08-16 18:00:00:000 INFO] Player connected: Steve, xuid: 1',
-      );
 
       await tester.pumpWidget(
         MultiProvider(
@@ -167,25 +164,8 @@ void main() {
       );
       expect(normal.selected, isTrue);
       expect(normal.showCheckmark, isFalse);
-
-      final kick = find.widgetWithText(ActionChip, 'Kick');
-      await tester.ensureVisible(kick);
-      await tester.pumpAndSettle();
-      await tester.tap(kick);
-      await tester.pumpAndSettle();
-      final dialog = find.byType(AlertDialog);
-      expect(
-        find.descendant(of: dialog, matching: find.text('Steve')),
-        findsOneWidget,
-      );
-      await tester.tap(
-        find.descendant(of: dialog, matching: find.text('Steve')),
-      );
-      await tester.pump();
-      final input = tester.widget<TextField>(
-        find.descendant(of: dialog, matching: find.byType(TextField)),
-      );
-      expect(input.controller?.text, 'Steve');
+      expect(find.text('Announce to server'), findsOneWidget);
+      expect(find.widgetWithText(ActionChip, 'Kick'), findsNothing);
     },
   );
 

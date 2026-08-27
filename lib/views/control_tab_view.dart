@@ -15,16 +15,6 @@ import 'package:admincraft/utils/toast_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-/// A command that needs one value from the user before it can be sent.
-class _PromptedAction {
-  final String label;
-  final IconData icon;
-  final String placeholder;
-  final String Function(String value) build;
-
-  const _PromptedAction(this.label, this.icon, this.placeholder, this.build);
-}
-
 /// One selectable value, such as a time of day or a weather type.
 class _Choice {
   final String label;
@@ -47,23 +37,6 @@ class _ControlTabState extends State<ControlTab> {
   bool _loadingRules = false;
   bool _responseExpanded = false;
   bool _gamerulesExpanded = false;
-
-  static final List<_PromptedAction> _promptedActions = [
-    _PromptedAction(
-      'Whitelist',
-      Icons.person_add,
-      'player',
-      (p) => 'whitelist add $p',
-    ),
-    _PromptedAction(
-      'Unwhitelist',
-      Icons.person_remove,
-      'player',
-      (p) => 'whitelist remove $p',
-    ),
-    _PromptedAction('Kick', Icons.logout, 'player', (p) => 'kick $p'),
-    _PromptedAction('Announce', Icons.campaign, 'message', (m) => 'say $m'),
-  ];
 
   static const List<_Choice> _bedrockTimes = [
     _Choice('Sunrise', Icons.wb_twilight, 'sunrise'),
@@ -158,84 +131,12 @@ class _ControlTabState extends State<ControlTab> {
     await _connection.sendQuietly('time query daytime');
   }
 
-  Future<void> _promptAndSend(_PromptedAction action) async {
-    final value = await DialogUtils.promptForInput(
-      context,
-      action.placeholder,
-      suggestions: action.placeholder == 'player'
-          ? _model.onlinePlayers
-          : const [],
-    );
-    if (value == null || !mounted) return;
-    await _send(action.build(value.trim()));
-  }
-
-  Future<void> _managePlayer(String name) async {
-    final world = _model.world;
-    bool containsIgnoreCase(Iterable<String> values) =>
-        values.any((value) => value.toLowerCase() == name.toLowerCase());
-    final isOperator = containsIgnoreCase(world.operators);
-    final isWhitelisted = containsIgnoreCase(world.whitelistedPlayers);
-    final isOnline = containsIgnoreCase(_model.onlinePlayers);
-
-    final command = await showModalBottomSheet<String>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(name, style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 12),
-              if (isOnline)
-                ListTile(
-                  leading: const Icon(Icons.logout),
-                  title: const Text('Kick'),
-                  onTap: () => Navigator.pop(context, 'kick $name'),
-                ),
-              ListTile(
-                leading: Icon(isOperator ? Icons.shield_outlined : Icons.shield),
-                title: Text(isOperator ? 'Deop' : 'Make operator'),
-                onTap: () => Navigator.pop(context, isOperator ? 'deop $name' : 'op $name'),
-              ),
-              ListTile(
-                leading: Icon(isWhitelisted ? Icons.person_remove : Icons.person_add),
-                title: Text(isWhitelisted ? 'Remove from whitelist' : 'Add to whitelist'),
-                onTap: () => Navigator.pop(
-                  context,
-                  isWhitelisted ? 'whitelist remove $name' : 'whitelist add $name',
-                ),
-              ),
-              if (isOnline) ...[
-                const SizedBox(height: 8),
-                Text('Gamemode', style: Theme.of(context).textTheme.labelLarge),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: ['survival', 'creative', 'adventure', 'spectator']
-                      .map(
-                        (mode) => ActionChip(
-                          label: Text(mode),
-                          onPressed: () => Navigator.pop(
-                            context,
-                            'gamemode $mode $name',
-                          ),
-                        ),
-                      )
-                      .toList(),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-    if (command == null || !mounted) return;
-    await _send(command);
+  Future<void> _announce() async {
+    final message = await DialogUtils.promptForInput(context, 'message');
+    if (message == null || !mounted) return;
+    final trimmed = message.trim();
+    if (trimmed.isEmpty) return;
+    await _send('say $trimmed');
   }
 
   Future<void> _restartServer() async {
@@ -378,93 +279,6 @@ class _ControlTabState extends State<ControlTab> {
                 : _bedrockTimes,
             null,
             _setTime,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _playersCard(Model model) {
-    final world = model.world;
-    final names = model.onlinePlayers.toList()..sort();
-
-    return _card(
-      title: 'Players',
-      trailing: IconButton(
-        icon: const Icon(Icons.refresh),
-        tooltip: 'Refresh player list',
-        onPressed: () => _connection.sendQuietly('list'),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            world.playersOnline == null
-                ? 'Not queried yet'
-                : '${world.playersOnline} of ${world.playerLimit} online',
-            style: Theme.of(context).textTheme.bodyMedium,
-          ),
-          if (names.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: names
-                  .map(
-                    (name) => ActionChip(
-                      avatar: const Icon(Icons.person, size: 16),
-                      label: Text(name),
-                      tooltip: 'Manage $name',
-                      onPressed: () => _managePlayer(name),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ],
-          if (world.whitelistEnabled != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              'Whitelist ${world.whitelistEnabled! ? 'enabled' : 'disabled'} · ${world.whitelistedPlayers.length} player(s) · ${world.operators.length} operator(s)',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-          if (world.whitelistedPlayers.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Text('Whitelisted', style: Theme.of(context).textTheme.labelLarge),
-            const SizedBox(height: 6),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: world.whitelistedPlayers
-                  .map(
-                    (name) => ActionChip(
-                      avatar: Icon(
-                        world.operators.any((op) => op.toLowerCase() == name.toLowerCase())
-                            ? Icons.shield
-                            : Icons.person_outline,
-                        size: 16,
-                      ),
-                      label: Text(name),
-                      tooltip: 'Manage $name',
-                      onPressed: () => _managePlayer(name),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ],
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: _promptedActions
-                .map(
-                  (action) => ActionChip(
-                    avatar: Icon(action.icon, size: 18),
-                    label: Text(action.label),
-                    onPressed: () => _promptAndSend(action),
-                  ),
-                )
-                .toList(),
           ),
         ],
       ),
@@ -757,7 +571,17 @@ class _ControlTabState extends State<ControlTab> {
               ],
             ),
           ),
-          _playersCard(model),
+          _card(
+            title: 'Message',
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: FilledButton.tonalIcon(
+                onPressed: _announce,
+                icon: const Icon(Icons.campaign_outlined),
+                label: const Text('Announce to server'),
+              ),
+            ),
+          ),
           _gamerulesCard(world),
           if (model.connectionSecurity.supportsServerManagement &&
               (model.supportsBridgeCapability('start') ||
