@@ -10,6 +10,7 @@ import 'package:admincraft/services/console_parser.dart';
 import 'package:admincraft/services/console_output_formatter.dart';
 import 'package:admincraft/services/android_widget_service.dart';
 import 'package:admincraft/services/persistence_service.dart';
+import 'package:admincraft/services/legacy_endpoint_migration.dart';
 import 'package:flutter/material.dart';
 
 class Model with ChangeNotifier {
@@ -297,8 +298,21 @@ class Model with ChangeNotifier {
       List.unmodifiable(_persistenceService.favoriteCommands);
 
   Model(this._persistenceService) {
-    _servers = _persistenceService.servers;
+    final loadedServers = _persistenceService.servers;
+    final migratedServers = loadedServers
+        .map(migrateLegacyAdmincraftEndpoint)
+        .toList();
+    final migratedAny = List.generate(
+      loadedServers.length,
+      (index) => !identical(loadedServers[index], migratedServers[index]),
+    ).any((changed) => changed);
+
+    _servers = migratedServers;
     if (_servers.isEmpty) _servers = [ServerProfile.empty(_newId())];
+
+    if (migratedAny) {
+      unawaited(_persistenceService.saveServers(_servers));
+    }
 
     // A profile restored by an older Drive/import path may predate the
     // separate onboarding flag. Treat the configured profile as the source of
