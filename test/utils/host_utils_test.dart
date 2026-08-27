@@ -19,6 +19,7 @@ void main() {
     expect(parsed.host, 'example.com');
     expect(parsed.port, 8443);
     expect(parsed.hadPath, isTrue);
+    expect(parsed.path, '/socket');
   });
 
   test('a bare host is left exactly as it is', () {

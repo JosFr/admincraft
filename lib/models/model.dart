@@ -270,6 +270,7 @@ class Model with ChangeNotifier {
   String get alias => selectedServer.alias;
   String get ip => selectedServer.ip;
   int get port => selectedServer.port;
+  String get bridgePath => selectedServer.bridgePath;
   String get secretKey => selectedServer.secretKey;
   String get certificate => selectedServer.certificate;
   ConnectionSecurity get connectionSecurity => selectedServer.security;
@@ -435,6 +436,7 @@ class Model with ChangeNotifier {
     required String alias,
     required String ip,
     required int port,
+    String? bridgePath,
     required String secretKey,
     required String certificate,
     required ConnectionSecurity connectionSecurity,
@@ -449,6 +451,7 @@ class Model with ChangeNotifier {
                   alias: alias,
                   ip: ip,
                   port: port,
+                  bridgePath: bridgePath,
                   secretKey: secretKey,
                   certificate: certificate,
                   security: connectionSecurity,

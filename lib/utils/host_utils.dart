@@ -11,6 +11,9 @@ class HostInput {
   /// leaving a pasted `host:8080` connecting to whatever was there before.
   final int? port;
 
+  /// Optional reverse-proxy path, including its leading slash.
+  final String path;
+
   /// What was removed, for telling the reader their paste was understood.
   final bool hadScheme;
   final bool hadPath;
@@ -18,6 +21,7 @@ class HostInput {
   const HostInput({
     required this.host,
     this.port,
+    this.path = '',
     this.hadScheme = false,
     this.hadPath = false,
   });
@@ -26,7 +30,7 @@ class HostInput {
 
   static final _scheme = RegExp(r'^[a-zA-Z][a-zA-Z0-9+.\-]*://');
 
-  /// Reduces anything URL-shaped to the host, and the port if one was given.
+  /// Splits anything URL-shaped into host, optional port and optional path.
   ///
   /// Deliberately forgiving rather than strict: the alternative is a validation
   /// error telling someone their own server address is wrong.
@@ -43,7 +47,15 @@ class HostInput {
 
     final cut = text.indexOf(RegExp(r'[/?#]'));
     final hadPath = cut != -1;
-    if (hadPath) text = text.substring(0, cut);
+    var path = '';
+    if (cut != -1) {
+      final suffix = text.substring(cut);
+      if (suffix.startsWith('/')) {
+        final end = suffix.indexOf(RegExp(r'[?#]'));
+        path = end == -1 ? suffix : suffix.substring(0, end);
+      }
+      text = text.substring(0, cut);
+    }
 
     int? port;
     // IPv6 arrives bracketed, and its colons are not port separators.
@@ -64,6 +76,7 @@ class HostInput {
     return HostInput(
       host: text.trim(),
       port: port,
+      path: path,
       hadScheme: hadScheme,
       hadPath: hadPath,
     );

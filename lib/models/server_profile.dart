@@ -8,6 +8,7 @@ class ServerProfile {
   final String alias;
   final String ip;
   final int port;
+  final String bridgePath;
   final String secretKey;
   final String certificate;
   final ConnectionSecurity security;
@@ -20,6 +21,7 @@ class ServerProfile {
     required this.alias,
     required this.ip,
     required this.port,
+    this.bridgePath = '',
     required this.secretKey,
     required this.certificate,
     required this.security,
@@ -45,6 +47,7 @@ class ServerProfile {
     String? alias,
     String? ip,
     int? port,
+    String? bridgePath,
     String? secretKey,
     String? certificate,
     ConnectionSecurity? security,
@@ -57,6 +60,7 @@ class ServerProfile {
       alias: alias ?? this.alias,
       ip: ip ?? this.ip,
       port: port ?? this.port,
+      bridgePath: bridgePath ?? this.bridgePath,
       secretKey: secretKey ?? this.secretKey,
       certificate: certificate ?? this.certificate,
       security: security ?? this.security,
@@ -76,6 +80,7 @@ class ServerProfile {
     'alias': alias,
     'ip': ip,
     'port': port,
+    if (bridgePath.isNotEmpty) 'bridgePath': bridgePath,
     if (includeSecrets) 'secretKey': secretKey,
     if (includeSecrets) 'certificate': certificate,
     'security': security.name,
@@ -90,6 +95,7 @@ class ServerProfile {
       alias: json['alias'] as String? ?? 'Server',
       ip: json['ip'] as String? ?? '',
       port: json['port'] as int? ?? 8080,
+      bridgePath: json['bridgePath'] as String? ?? '',
       secretKey: json['secretKey'] as String? ?? '',
       certificate: json['certificate'] as String? ?? '',
       security: ConnectionSecurity.values.firstWhere(

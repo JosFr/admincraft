@@ -65,9 +65,13 @@ class ConnectionService {
 
     final security = model.connectionSecurity;
     final protocol = security.usesTls ? 'wss' : 'ws';
+    final rawPath = model.bridgePath.trim();
+    final bridgePath = rawPath.isEmpty
+        ? ''
+        : (rawPath.startsWith('/') ? rawPath : '/$rawPath');
     final uri = Uri.parse(
-      '$protocol://${model.ip}:${model.port}?token=$jwtToken',
-    );
+      '$protocol://${model.ip}:${model.port}$bridgePath',
+    ).replace(queryParameters: {'token': jwtToken});
 
     final channel = _openChannel(model, uri, security);
     _beginConsoleHistoryLoad(model);

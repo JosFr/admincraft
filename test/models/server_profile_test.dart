@@ -36,6 +36,21 @@ void main() {
     );
   });
 
+  test('bridge path survives profile serialization', () {
+    const profile = ServerProfile(
+      id: 'proxy',
+      alias: 'Proxied server',
+      ip: 'admincraft.example.com',
+      port: 443,
+      bridgePath: '/smp',
+      secretKey: 'secret',
+      certificate: '',
+      security: ConnectionSecurity.trustedCertificate,
+    );
+
+    expect(ServerProfile.fromJson(profile.toJson()).bridgePath, '/smp');
+  });
+
   test('custom server logo survives profile serialization', () {
     const profile = ServerProfile(
       id: 'logo',

@@ -62,6 +62,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
   final _aliasController = TextEditingController();
   final _hostController = TextEditingController();
   final _portController = TextEditingController();
+  final _pathController = TextEditingController();
   final _secretController = TextEditingController();
   final _certificateController = TextEditingController();
 
@@ -98,6 +99,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
       _aliasController,
       _hostController,
       _portController,
+      _pathController,
       _secretController,
     ]) {
       controller.addListener(_reportDirty);
@@ -111,6 +113,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
     _aliasController.text = server.alias;
     _hostController.text = server.ip;
     _portController.text = server.port.toString();
+    _pathController.text = server.bridgePath;
     _secretController.text = server.secretKey;
     _certificateContent = server.certificate;
     _iconAsset = server.iconAsset;
@@ -148,6 +151,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
       _aliasController,
       _hostController,
       _portController,
+      _pathController,
       _secretController,
       _certificateController,
     ]) {
@@ -163,6 +167,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
         _aliasController.text != original.alias ||
         _hostController.text != original.ip ||
         _portController.text != original.port.toString() ||
+        _pathController.text != original.bridgePath ||
         _secretController.text != original.secretKey ||
         _certificateContent != original.certificate ||
         _security != original.security ||
@@ -183,6 +188,12 @@ class _ServerEditorViewState extends State<ServerEditorView> {
         '';
     final shownHost = host.isEmpty ? '<host>' : host;
     final shownPort = port.isEmpty ? '<port>' : port;
+    final rawPath = parsed.path.isNotEmpty
+        ? parsed.path
+        : _pathController.text.trim();
+    final shownPath = rawPath.isEmpty
+        ? ''
+        : (rawPath.startsWith('/') ? rawPath : '/$rawPath');
 
     // RCON is not a URL scheme, so labelling it ws:// would be a lie.
     if (_security.isDirectRcon) {
@@ -191,7 +202,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
 
     final scheme = _security.usesTls ? 'wss' : 'ws';
     final suffix = _security.usesTls ? '' : '  (not encrypted)';
-    return '$scheme://$shownHost:$shownPort$suffix';
+    return '$scheme://$shownHost:$shownPort$shownPath$suffix';
   }
 
   Future<void> _pickCertificate() async {
@@ -300,7 +311,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
     _reportDirty();
   }
 
-  /// Reduces a pasted URL to the host, and takes the port with it.
+  /// Splits a pasted URL into the host, port and optional bridge path.
   ///
   /// Every guide to Tailscale, Funnel or a reverse proxy hands out a URL, so
   /// that is what gets pasted. `https://host` used to be stored verbatim and
@@ -313,11 +324,13 @@ class _ServerEditorViewState extends State<ServerEditorView> {
     setState(() {
       _hostController.text = parsed.host;
       if (parsed.port != null) _portController.text = parsed.port.toString();
+      if (parsed.path.isNotEmpty) _pathController.text = parsed.path;
     });
 
     ToastUtils.showToastSuccess(
       'Address read as ${parsed.host}'
-      '${parsed.port != null ? ', port ${parsed.port}' : ''}.',
+      '${parsed.port != null ? ', port ${parsed.port}' : ''}'
+      '${parsed.path.isNotEmpty ? ', path ${parsed.path}' : ''}.',
     );
   }
 
@@ -333,11 +346,16 @@ class _ServerEditorViewState extends State<ServerEditorView> {
     }
 
     setState(() => _saving = true);
+    final rawBridgePath = _pathController.text.trim();
+    final bridgePath = rawBridgePath.isEmpty
+        ? ''
+        : (rawBridgePath.startsWith('/') ? rawBridgePath : '/$rawBridgePath');
     try {
       await _model.setConnectionDetails(
         alias: _aliasController.text.trim(),
         ip: _hostController.text.trim(),
         port: int.parse(_portController.text),
+        bridgePath: _security.isDirectRcon ? '' : bridgePath,
         secretKey: _secretController.text,
         certificate: _certificateContent,
         connectionSecurity: _security,
@@ -706,6 +724,26 @@ class _ServerEditorViewState extends State<ServerEditorView> {
                                 );
                         },
                       ),
+                      if (!_security.isDirectRcon) ...[
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _pathController,
+                          decoration: const InputDecoration(
+                            labelText: 'Bridge path (optional)',
+                            helperText:
+                                'For one public reverse-proxy URL, for example /lobby or /smp.',
+                            helperMaxLines: 2,
+                          ),
+                          onChanged: (_) => setState(() {}),
+                          validator: (value) {
+                            final path = value?.trim() ?? '';
+                            if (path.contains('?') || path.contains('#')) {
+                              return 'Enter only the URL path, without query or fragment.';
+                            }
+                            return null;
+                          },
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _secretController,
