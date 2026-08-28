@@ -1,6 +1,12 @@
 import 'package:admincraft/models/connection_security.dart';
 import 'package:admincraft/models/minecraft_edition.dart';
+import 'package:admincraft/models/model.dart';
+import 'package:admincraft/services/persistence_service.dart';
+import 'package:admincraft/views/server_editor_view.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   // The editor describes a bridge for three of the four connection types and
@@ -37,6 +43,35 @@ void main() {
   // Said per edition because it is the edition that decides it: the hint used
   // to describe Java's RCON while Bedrock was selected, which reads as though
   // Bedrock had RCON too.
+  testWidgets('replacing an editor cannot detach the new controller owner', (tester) async {
+    SharedPreferences.setMockInitialValues(const {});
+    final prefs = await SharedPreferences.getInstance();
+    final model = Model(PersistenceService(prefs));
+    final controller = ServerEditorController();
+
+    Widget editor(String key) => MaterialApp(
+      home: ChangeNotifierProvider.value(
+        value: model,
+        child: Scaffold(
+          body: ServerEditorView(
+            key: ValueKey(key),
+            controller: controller,
+            onSaved: () async {},
+            onDeleted: () async {},
+            onBack: () {},
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(editor('first'));
+    await tester.pump();
+    expect(controller.isAttached, isTrue);
+
+    await tester.pumpWidget(editor('second'));
+    await tester.pump();
+    expect(controller.isAttached, isTrue);
+  });
   test('each edition explains only how it can be reached', () {
     expect(MinecraftEdition.java.connectivityHint, contains('RCON'));
     expect(MinecraftEdition.bedrock.connectivityHint, isNot(contains('RCON')));

@@ -18,18 +18,29 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class ServerEditorController {
+  Object? _owner;
   Future<bool> Function()? _save;
   VoidCallback? _discard;
 
   Future<bool> save() => _save?.call() ?? Future.value(false);
   void discard() => _discard?.call();
 
-  void _attach(Future<bool> Function() save, VoidCallback discard) {
+  @visibleForTesting
+  bool get isAttached => _save != null;
+
+  void _attach(
+    Object owner,
+    Future<bool> Function() save,
+    VoidCallback discard,
+  ) {
+    _owner = owner;
     _save = save;
     _discard = discard;
   }
 
-  void _detach() {
+  void _detach(Object owner) {
+    if (!identical(_owner, owner)) return;
+    _owner = null;
     _save = null;
     _discard = null;
   }
@@ -58,6 +69,7 @@ class ServerEditorView extends StatefulWidget {
 }
 
 class _ServerEditorViewState extends State<ServerEditorView> {
+  final Object _controllerOwner = Object();
   GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final _aliasController = TextEditingController();
   final _hostController = TextEditingController();
@@ -104,7 +116,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
     ]) {
       controller.addListener(_reportDirty);
     }
-    widget.controller._attach(_save, _discardChanges);
+    widget.controller._attach(_controllerOwner, _save, _discardChanges);
   }
 
   void _loadSelectedServer() {
@@ -140,13 +152,13 @@ class _ServerEditorViewState extends State<ServerEditorView> {
   void didUpdateWidget(covariant ServerEditorView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller == widget.controller) return;
-    oldWidget.controller._detach();
-    widget.controller._attach(_save, _discardChanges);
+    oldWidget.controller._detach(_controllerOwner);
+    widget.controller._attach(_controllerOwner, _save, _discardChanges);
   }
 
   @override
   void dispose() {
-    widget.controller._detach();
+    widget.controller._detach(_controllerOwner);
     for (final controller in [
       _aliasController,
       _hostController,

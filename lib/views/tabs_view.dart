@@ -2,14 +2,19 @@ import 'dart:async';
 
 import 'package:admincraft/controllers/connection_controller.dart';
 import 'package:admincraft/controllers/google_drive_sync_controller.dart';
+import 'package:admincraft/controllers/network_controller.dart';
 import 'package:admincraft/models/connection_status.dart';
 import 'package:admincraft/models/model.dart';
+import 'package:admincraft/models/server_profile.dart';
 import 'package:admincraft/services/browser_unload_guard.dart';
 import 'package:admincraft/utils/build_info.dart';
+import 'package:admincraft/utils/dialog_utils.dart';
+import 'package:admincraft/utils/toast_utils.dart';
 import 'package:admincraft/utils/url_utils.dart';
 import 'package:admincraft/views/control_tab_view.dart';
 import 'package:admincraft/views/data_sync_view.dart';
 import 'package:admincraft/views/more_view.dart';
+import 'package:admincraft/views/network_view.dart';
 import 'package:admincraft/views/overview_view.dart';
 import 'package:admincraft/views/players_view.dart';
 import 'package:admincraft/views/preferences_view.dart';
@@ -31,6 +36,7 @@ enum _WorkspaceDestination {
   controls,
   players,
   servers,
+  network,
   serverEditor,
   dataSync,
   preferences,
@@ -46,6 +52,7 @@ extension on _WorkspaceDestination {
     _WorkspaceDestination.controls => 'Actions',
     _WorkspaceDestination.players => 'Players',
     _WorkspaceDestination.servers => 'Servers',
+    _WorkspaceDestination.network => 'Network',
     _WorkspaceDestination.serverEditor => 'Configuration',
     _WorkspaceDestination.dataSync => 'Data & Sync',
     _WorkspaceDestination.preferences => 'Preferences',
@@ -66,6 +73,7 @@ extension on _WorkspaceDestination {
     _WorkspaceDestination.controls ||
     _WorkspaceDestination.players => true,
     _WorkspaceDestination.servers ||
+    _WorkspaceDestination.network ||
     _WorkspaceDestination.serverEditor ||
     _WorkspaceDestination.dataSync ||
     _WorkspaceDestination.preferences ||
@@ -78,6 +86,7 @@ extension on _WorkspaceDestination {
     _WorkspaceDestination.controls => Icons.bolt_outlined,
     _WorkspaceDestination.players => Icons.people_alt_outlined,
     _WorkspaceDestination.servers => Icons.dns_outlined,
+    _WorkspaceDestination.network => Icons.hub_outlined,
     _WorkspaceDestination.serverEditor => Icons.edit_outlined,
     _WorkspaceDestination.dataSync => Icons.sync_outlined,
     _WorkspaceDestination.preferences => Icons.palette_outlined,
@@ -91,7 +100,8 @@ extension on _WorkspaceDestination {
     _WorkspaceDestination.console ||
     _WorkspaceDestination.controls ||
     _WorkspaceDestination.players ||
-    _WorkspaceDestination.servers => this,
+    _WorkspaceDestination.servers ||
+    _WorkspaceDestination.network => this,
     _WorkspaceDestination.serverEditor => _WorkspaceDestination.servers,
     _WorkspaceDestination.dataSync ||
     _WorkspaceDestination.preferences ||
@@ -127,6 +137,7 @@ class _TabsState extends State<Tabs> {
       orElse: () => _WorkspaceDestination.overview,
     );
     _pageController = PageController(initialPage: _destination.index);
+    context.read<NetworkController?>()?.start(context.read<Model>());
     _initializationFuture = _initialize();
   }
 
@@ -365,6 +376,75 @@ class _TabsState extends State<Tabs> {
     if (mounted) _goWithoutHistory(_WorkspaceDestination.overview);
   }
 
+  Future<void> _networkServerAction(
+    String serverName,
+    NetworkQuickAction action,
+  ) async {
+    final model = context.read<Model>();
+    final connection = context.read<ConnectionController>();
+    const routes = <String, String>{
+      'lobby': 'lobby',
+      'skeerekippen': 'skeerekippen',
+      'skeerekippen-old': 'skeerekippen-old',
+      'smp': 'smp',
+      'fraanje-202404-202505': 'fraanje-202404',
+      'fraanje-202201-202205': 'fraanje-202201',
+      'fraanje-202207-202208': 'fraanje-202207',
+      'jolien-joas-202404': 'jolien-joas',
+    };
+    final slug = routes[serverName.toLowerCase()] ?? serverName.toLowerCase();
+    ServerProfile? profile;
+    for (final server in model.servers) {
+      if (server.bridgePath.trim().toLowerCase() == '/$slug') {
+        profile = server;
+        break;
+      }
+    }
+    if (profile == null) {
+      ToastUtils.showToastError('No Admincraft profile matches $serverName.');
+      return;
+    }
+    if (profile.id != model.selectedServerId) {
+      await connection.disconnect(model);
+      await model.selectServer(profile.id);
+    }
+    if (!mounted) return;
+    if (connection.status != ConnectionStatus.connected && profile.isComplete) {
+      await connection.attemptConnection(model);
+    }
+    if (!mounted) return;
+
+    switch (action) {
+      case NetworkQuickAction.open:
+        _goWithoutHistory(_WorkspaceDestination.overview);
+      case NetworkQuickAction.console:
+        _goWithoutHistory(_WorkspaceDestination.console);
+      case NetworkQuickAction.players:
+        _goWithoutHistory(_WorkspaceDestination.players);
+      case NetworkQuickAction.start:
+        await connection.startServer(model);
+        _goWithoutHistory(_WorkspaceDestination.network);
+      case NetworkQuickAction.stop:
+        final stopConfirmed = await DialogUtils.confirmAction(
+          context,
+          title: 'Stop ${profile.alias}?',
+          message: 'Connected players will be disconnected when the server stops.',
+          confirmLabel: 'Stop',
+        );
+        if (stopConfirmed) await connection.stopServer(model);
+        if (mounted) _goWithoutHistory(_WorkspaceDestination.network);
+      case NetworkQuickAction.restart:
+        final restartConfirmed = await DialogUtils.confirmAction(
+          context,
+          title: 'Restart ${profile.alias}?',
+          message: 'Connected players may be disconnected during the restart.',
+          confirmLabel: 'Restart',
+        );
+        if (restartConfirmed) await connection.restartServer(model);
+        if (mounted) _goWithoutHistory(_WorkspaceDestination.network);
+    }
+  }
+
   /// Edits the blank profile that already exists rather than adding a second
   /// one, so a first-time setup does not leave an unused server behind.
   void _startFirstServer() =>
@@ -440,7 +520,11 @@ class _TabsState extends State<Tabs> {
       _WorkspaceDestination.servers => ServersView(
         onSelect: _selectServer,
         onAdd: _addServer,
+        onNetwork: () => _go(_WorkspaceDestination.network),
         onEditSelected: () => _go(_WorkspaceDestination.serverEditor),
+      ),
+      _WorkspaceDestination.network => NetworkView(
+        onServerAction: _networkServerAction,
       ),
       _WorkspaceDestination.serverEditor => ServerEditorView(
         key: ValueKey(model.selectedServerId),
@@ -597,13 +681,14 @@ class _TabsState extends State<Tabs> {
         ? scheme.surfaceContainerHigh
         : scheme.surfaceContainerLow;
     final serverOverview = _destination == _WorkspaceDestination.overview;
+    final networkOverview = _destination == _WorkspaceDestination.network;
     final nestedSettings = {
       _WorkspaceDestination.serverEditor,
       _WorkspaceDestination.dataSync,
       _WorkspaceDestination.preferences,
     }.contains(_destination);
     final showConnectionLabel =
-        !serverOverview && !nestedSettings &&
+        !serverOverview && !networkOverview && !nestedSettings &&
         MediaQuery.sizeOf(context).width >= 480;
 
     return Scaffold(
@@ -615,7 +700,13 @@ class _TabsState extends State<Tabs> {
                 onPressed: () => _go(_WorkspaceDestination.servers),
                 icon: const Icon(Icons.arrow_back_ios_new),
               )
-            : nestedSettings
+            : networkOverview
+                ? IconButton(
+                    tooltip: 'Back to Servers',
+                    onPressed: () => _go(_WorkspaceDestination.servers),
+                    icon: const Icon(Icons.arrow_back_ios_new),
+                  )
+                : nestedSettings
                 ? IconButton(
                     tooltip: _destination == _WorkspaceDestination.serverEditor
                         ? 'Back to Servers'
@@ -624,8 +715,8 @@ class _TabsState extends State<Tabs> {
                     icon: const Icon(Icons.arrow_back),
                   )
                 : null,
-        titleSpacing: serverOverview || nestedSettings ? 0 : 16,
-        centerTitle: serverOverview,
+        titleSpacing: serverOverview || networkOverview || nestedSettings ? 0 : 16,
+        centerTitle: serverOverview || networkOverview,
         title: serverOverview
             ? Column(
                 mainAxisSize: MainAxisSize.min,
@@ -687,7 +778,9 @@ class _TabsState extends State<Tabs> {
                   ],
                 ),
               ]
-            : [
+            : networkOverview
+                ? [const NotificationInboxButton()]
+                : [
                 const NotificationInboxButton(),
                 if (!nestedSettings)
                   Padding(
@@ -754,6 +847,7 @@ class _TabsState extends State<Tabs> {
   int get _mobileIndex => switch (_destination) {
     _WorkspaceDestination.overview ||
     _WorkspaceDestination.servers ||
+    _WorkspaceDestination.network ||
     _WorkspaceDestination.serverEditor => 0,
     _WorkspaceDestination.console => 1,
     _WorkspaceDestination.controls => 2,
@@ -802,6 +896,11 @@ class _WorkspaceSidebar extends StatelessWidget {
               _NavigationTile(
                 destination: _WorkspaceDestination.servers,
                 selected: destination == _WorkspaceDestination.servers,
+                onTap: onDestination,
+              ),
+              _NavigationTile(
+                destination: _WorkspaceDestination.network,
+                selected: destination == _WorkspaceDestination.network,
                 onTap: onDestination,
               ),
               _NavigationTile(
@@ -875,6 +974,7 @@ class _WorkspaceHeader extends StatelessWidget {
           ? model.selectedServer.edition.label
           : '${model.selectedServer.edition.label} · ${model.ip}:${model.port}${model.bridgePath}',
     _WorkspaceDestination.servers => 'Manage saved server profiles',
+    _WorkspaceDestination.network => 'Velocity network overview',
     _WorkspaceDestination.dataSync => 'Back up and transfer application data',
     _WorkspaceDestination.preferences => 'Application-wide settings',
     _WorkspaceDestination.more => 'Application tools and settings',

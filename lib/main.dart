@@ -1,6 +1,8 @@
 import 'package:admincraft/controllers/connection_controller.dart';
 import 'package:admincraft/controllers/google_drive_sync_controller.dart';
 import 'package:admincraft/controllers/notification_controller.dart';
+import 'package:admincraft/controllers/network_controller.dart';
+import 'package:admincraft/controllers/push_notification_controller.dart';
 import 'package:admincraft/services/persistence_service.dart';
 import 'package:admincraft/services/theme_service.dart';
 import 'package:admincraft/utils/toast_utils.dart';
@@ -27,6 +29,8 @@ void main() async {
   );
   final persistentDataManager = PersistenceService(prefs, secrets);
   final notificationController = NotificationController(prefs);
+  final pushController = PushNotificationController();
+  await pushController.initialize();
   ToastUtils.initialize(notificationController);
 
   // Move any profile still holding its key in plain storage, and only drop the
@@ -44,6 +48,13 @@ void main() async {
           create: (context) => GoogleDriveSyncController(prefs),
         ),
         ChangeNotifierProvider.value(value: notificationController),
+        ChangeNotifierProvider.value(value: pushController),
+        ChangeNotifierProvider(
+          create: (context) => NetworkController(
+            notificationController,
+            push: pushController,
+          ),
+        ),
       ],
       child: const Admincraft(),
     ),

@@ -9,12 +9,14 @@ import 'package:admincraft/views/widgets/server_icon.dart';
 class ServersView extends StatelessWidget {
   final Future<void> Function(String serverId) onSelect;
   final Future<void> Function() onAdd;
+  final VoidCallback onNetwork;
   final VoidCallback onEditSelected;
 
   const ServersView({
     super.key,
     required this.onSelect,
     required this.onAdd,
+    required this.onNetwork,
     required this.onEditSelected,
   });
 
@@ -50,6 +52,11 @@ class ServersView extends StatelessWidget {
                       ),
                     ],
                   );
+                  final network = OutlinedButton.icon(
+                    onPressed: onNetwork,
+                    icon: const Icon(Icons.hub_outlined),
+                    label: const Text('Network'),
+                  );
                   final add = FilledButton.icon(
                     onPressed: onAdd,
                     icon: const Icon(Icons.add),
@@ -59,12 +66,24 @@ class ServersView extends StatelessWidget {
                   if (constraints.maxWidth < 520) {
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [heading, const SizedBox(height: 12), add],
+                      children: [
+                        heading,
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(child: network),
+                            const SizedBox(width: 8),
+                            Expanded(child: add),
+                          ],
+                        ),
+                      ],
                     );
                   }
                   return Row(
                     children: [
                       Expanded(child: heading),
+                      network,
+                      const SizedBox(width: 8),
                       add,
                     ],
                   );
