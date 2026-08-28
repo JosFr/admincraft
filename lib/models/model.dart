@@ -5,6 +5,7 @@ import 'package:admincraft/models/app_theme.dart';
 import 'package:admincraft/models/command_audit_entry.dart';
 import 'package:admincraft/models/minecraft_edition.dart';
 import 'package:admincraft/models/network_access_entry.dart';
+import 'package:admincraft/models/network_audit_entry.dart';
 import 'package:admincraft/models/server_profile.dart';
 import 'package:admincraft/models/world_state.dart';
 import 'package:admincraft/services/console_parser.dart';
@@ -42,6 +43,23 @@ class Model with ChangeNotifier {
   String get output => _output;
   bool get consoleHistoryLoading => _consoleHistoryLoading;
   List<CommandAuditEntry> get commandAudit => List.unmodifiable(_commandAudit);
+
+  List<NetworkAuditEntry> get networkAudit {
+    final entries = <NetworkAuditEntry>[];
+    for (final server in _servers) {
+      for (final entry in _persistenceService.commandAudit(server.id)) {
+        entries.add(
+          NetworkAuditEntry(
+            serverId: server.id,
+            serverName: server.alias,
+            entry: entry,
+          ),
+        );
+      }
+    }
+    entries.sort((a, b) => b.entry.occurredAt.compareTo(a.entry.occurredAt));
+    return List.unmodifiable(entries.take(200));
+  }
   Set<String> get bridgeCapabilities => Set.unmodifiable(_bridgeCapabilities);
   int? get bridgeProtocol => _bridgeProtocol;
   String? get bridgeVersion => _bridgeVersion;

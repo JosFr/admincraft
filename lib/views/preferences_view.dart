@@ -1,5 +1,6 @@
 import 'package:admincraft/models/app_theme.dart';
 import 'package:admincraft/controllers/notification_controller.dart';
+import 'package:admincraft/controllers/push_notification_controller.dart';
 import 'package:admincraft/models/model.dart';
 import 'package:admincraft/services/theme_service.dart';
 import 'package:admincraft/utils/toast_utils.dart';
@@ -90,6 +91,7 @@ class _PreferencesViewState extends State<PreferencesView> {
   @override
   Widget build(BuildContext context) {
     final notifications = context.watch<NotificationController?>();
+    final push = context.watch<PushNotificationController?>();
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
       child: Center(
@@ -415,14 +417,98 @@ class _PreferencesViewState extends State<PreferencesView> {
                   title: 'Notifications',
                   subtitle:
                       'Every event stays in the notification history even when popups are hidden.',
-                  child: SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Show notification popups'),
-                    subtitle: const Text(
-                      'Connection events and errors will still be saved behind the bell icon.',
-                    ),
-                    value: notifications.popupsEnabled,
-                    onChanged: notifications.setPopupsEnabled,
+                  child: Column(
+                    children: [
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Show notification popups'),
+                        subtitle: const Text(
+                          'Events are still saved behind the bell when popups are hidden.',
+                        ),
+                        value: notifications.popupsEnabled,
+                        onChanged: notifications.setPopupsEnabled,
+                      ),
+                      const Divider(),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Access requests'),
+                        subtitle: const Text('Notify when a player asks for network access.'),
+                        value: notifications.ruleEnabled(NotificationRule.accessRequests),
+                        onChanged: (value) => notifications.setRuleEnabled(
+                          NotificationRule.accessRequests,
+                          value,
+                        ),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Server status changes'),
+                        subtitle: const Text('Notify when a backend changes state.'),
+                        value: notifications.ruleEnabled(NotificationRule.serverStatus),
+                        onChanged: (value) => notifications.setRuleEnabled(
+                          NotificationRule.serverStatus,
+                          value,
+                        ),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Health alerts'),
+                        subtitle: const Text('Notify when Velocity marks a backend as error.'),
+                        value: notifications.ruleEnabled(NotificationRule.health),
+                        onChanged: (value) => notifications.setRuleEnabled(
+                          NotificationRule.health,
+                          value,
+                        ),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Player activity'),
+                        subtitle: const Text('Notify when the player count changes on a backend.'),
+                        value: notifications.ruleEnabled(NotificationRule.playerActivity),
+                        onChanged: (value) => notifications.setRuleEnabled(
+                          NotificationRule.playerActivity,
+                          value,
+                        ),
+                      ),
+                      if (push != null && push.supported) ...[
+                        const Divider(),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.notifications_active_outlined),
+                          title: const Text('Native iOS push'),
+                          subtitle: Text(
+                            push.authorization == 'authorized' || push.authorization == 'provisional'
+                                ? (push.bridgeRegistered
+                                    ? (push.providerConfigured
+                                        ? 'APNs device registered and provider ready.'
+                                        : 'Device registered; APNs provider setup is still required.')
+                                    : 'Permission granted; waiting for bridge registration.')
+                                : push.authorization == 'denied'
+                                    ? 'Notifications are disabled in iOS Settings.'
+                                    : 'Allow native notifications from Admincraft.'
+                          ),
+                          trailing: FilledButton(
+                            onPressed: push.authorization == 'denied'
+                                ? null
+                                : push.requestPermission,
+                            child: Text(
+                              push.authorization == 'authorized' || push.authorization == 'provisional'
+                                  ? 'Refresh'
+                                  : 'Enable',
+                            ),
+                          ),
+                        ),
+                        if (push.error != null && push.error!.isNotEmpty)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              push.error!,
+                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.error,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ],
                   ),
                 ),
                 const SizedBox(height: 14),

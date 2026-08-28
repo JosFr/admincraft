@@ -4,6 +4,17 @@ import 'package:admincraft/models/app_notification.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+enum NotificationRule { accessRequests, serverStatus, playerActivity }
+
+extension NotificationRuleDetails on NotificationRule {
+  String get storageKey => 'notificationRule.$name';
+  bool get defaultEnabled => switch (this) {
+    NotificationRule.accessRequests => true,
+    NotificationRule.serverStatus => true,
+    NotificationRule.playerActivity => false,
+  };
+}
+
 class NotificationController with ChangeNotifier {
   static const _storageKey = 'notificationHistory';
   static const _maximumEntries = 100;
@@ -31,6 +42,14 @@ class NotificationController with ChangeNotifier {
   List<AppNotification> get entries => List.unmodifiable(_entries.reversed);
   int get unreadCount => _entries.where((entry) => !entry.read).length;
   bool get popupsEnabled => _preferences.getBool(_popupsKey) ?? true;
+
+  bool ruleEnabled(NotificationRule rule) =>
+      _preferences.getBool(rule.storageKey) ?? rule.defaultEnabled;
+
+  Future<void> setRuleEnabled(NotificationRule rule, bool value) async {
+    await _preferences.setBool(rule.storageKey, value);
+    notifyListeners();
+  }
 
   Future<void> setPopupsEnabled(bool value) async {
     await _preferences.setBool(_popupsKey, value);
