@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:admincraft/models/connection_security.dart';
 import 'package:admincraft/models/connection_status.dart';
 import 'package:admincraft/models/model.dart';
+import 'package:admincraft/models/network_access_entry.dart';
 import 'package:admincraft/services/connection_diagnosis.dart';
 import 'package:admincraft/services/connection_failure.dart';
 import 'package:admincraft/services/rcon_client.dart';
@@ -32,6 +33,7 @@ class ConnectionService {
   /// Called when an established connection ends, with the reason if there is
   /// one. The controller decides from that whether trying again makes sense.
   void Function(Model model, ConnectionFailure? failure)? onConnectionLost;
+  void Function(String title, String message, bool isError)? onBridgeNotification;
 
   ConnectionStatus _status = ConnectionStatus.disconnected;
   ConnectionStatus get status => _status;
@@ -270,6 +272,9 @@ class ConnectionService {
                 operators: decoded['operators'] is List
                     ? (decoded['operators'] as List).map((value) => value.toString())
                     : null,
+                pluginNames: decoded['pluginNames'] is List
+                    ? (decoded['pluginNames'] as List).map((value) => value.toString())
+                    : null,
                 disabledPlugins: decoded['disabledPlugins'] is List
                     ? (decoded['disabledPlugins'] as List).map((value) => value.toString())
                     : null,
@@ -277,6 +282,60 @@ class ConnectionService {
                 weather: decoded['weather']?.toString(),
               );
             }
+            return;
+          case 'admincraft.access-state':
+            final rawEntries = decoded['entries'];
+            if (rawEntries is List) {
+              final previousPending = model.networkAccess
+                  .where((entry) => entry.status == NetworkAccessStatus.pending)
+                  .map((entry) => entry.uuid)
+                  .toSet();
+              final hadSnapshot = model.networkAccessObservedAt != null;
+              final entries = rawEntries
+                  .whereType<Map<String, dynamic>>()
+                  .map(NetworkAccessEntry.fromJson)
+                  .where((entry) => entry.uuid.isNotEmpty)
+                  .toList();
+              model.updateNetworkAccess(
+                entries,
+                observedAt: DateTime.tryParse(
+                  decoded['observedAt']?.toString() ?? '',
+                )?.toLocal(),
+              );
+              final pending = entries
+                  .where(
+                    (entry) => entry.status == NetworkAccessStatus.pending,
+                  )
+                  .toList();
+              if (!hadSnapshot && pending.isNotEmpty) {
+                onBridgeNotification?.call(
+                  'Network access',
+                  pending.length == 1
+                      ? '${pending.first.name} wacht op toegang.'
+                      : '${pending.length} toegangsverzoeken wachten op beoordeling.',
+                  false,
+                );
+              } else if (hadSnapshot) {
+                for (final entry in pending) {
+                  if (previousPending.contains(entry.uuid)) continue;
+                  final target = entry.requestedTarget?.trim();
+                  onBridgeNotification?.call(
+                    'Nieuw toegangsverzoek',
+                    target == null || target.isEmpty
+                        ? '${entry.name} vraagt toegang tot het netwerk.'
+                        : '${entry.name} vraagt toegang tot $target.',
+                    false,
+                  );
+                }
+              }
+            }
+            return;
+          case 'admincraft.access-result':
+            onBridgeNotification?.call(
+              'Network access',
+              decoded['message']?.toString() ?? 'Access action completed.',
+              decoded['success'] != true,
+            );
             return;
           case 'admincraft.log':
             final line = decoded['message'];

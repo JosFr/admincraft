@@ -1,6 +1,7 @@
 import 'package:admincraft/controllers/connection_controller.dart';
 import 'package:admincraft/models/connection_status.dart';
 import 'package:admincraft/models/model.dart';
+import 'package:admincraft/views/widgets/network_access_section.dart';
 import 'package:admincraft/views/widgets/server_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -79,6 +80,17 @@ class OverviewView extends StatelessWidget {
                 'Loaded',
                 world.pluginCount?.toString() ?? 'Unknown',
               ),
+              if (world.pluginNames.isEmpty)
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Plugin names have not been reported yet.'),
+                )
+              else
+                _PluginList(
+                  names: world.pluginNames,
+                  disabled: world.disabledPlugins,
+                ),
+              const SizedBox(height: 6),
               _InfoRow(
                 'Disabled',
                 world.disabledPlugins.isEmpty
@@ -117,6 +129,10 @@ class OverviewView extends StatelessWidget {
               _InfoRow('Operators', world.operators.length.toString()),
             ],
           ),
+          if (_isLobby(model)) ...[
+            const SizedBox(height: 12),
+            NetworkAccessSection(model: model, connection: connection),
+          ],
           const SizedBox(height: 12),
           _DiagnosticsSection(model: model, connection: connection),
         ],
@@ -125,6 +141,12 @@ class OverviewView extends StatelessWidget {
     );
   }
 }
+bool _isLobby(Model model) {
+  final path = model.bridgePath.trim().toLowerCase();
+  final alias = model.alias.trim().toLowerCase();
+  return path == '/lobby' || alias == 'lobby';
+}
+
 String _memoryLabel(double? usedMb, double? limitMb) {
   if (usedMb == null) return 'Not observed';
   String format(double value) => value >= 1024
@@ -367,6 +389,7 @@ class _MetricTile extends StatelessWidget {
     return SizedBox(
       key: ValueKey('metric-${data.label}'),
       width: width,
+      height: 82,
       child: DecoratedBox(
         decoration: BoxDecoration(
           color: theme.colorScheme.surfaceContainerHighest,
@@ -385,13 +408,16 @@ class _MetricTile extends StatelessWidget {
                   children: [
                     Text(data.label, style: theme.textTheme.bodySmall),
                     const SizedBox(height: 2),
-                    Text(
-                      data.value,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        color: data.healthy ? Colors.green : null,
-                        fontWeight: FontWeight.w700,
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        data.value,
+                        maxLines: 1,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          color: data.healthy ? Colors.green : null,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ],
@@ -400,6 +426,37 @@ class _MetricTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _PluginList extends StatelessWidget {
+  final List<String> names;
+  final List<String> disabled;
+
+  const _PluginList({required this.names, required this.disabled});
+
+  @override
+  Widget build(BuildContext context) {
+    final disabledSet = disabled.map((name) => name.toLowerCase()).toSet();
+    final sorted = [...names]
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Wrap(
+        spacing: 7,
+        runSpacing: 7,
+        children: sorted.map((name) {
+          final isDisabled = disabledSet.contains(name.toLowerCase());
+          return Chip(
+            avatar: Icon(
+              isDisabled ? Icons.pause_circle_outline : Icons.check_circle_outline,
+              size: 16,
+            ),
+            label: Text(name),
+          );
+        }).toList(),
       ),
     );
   }
