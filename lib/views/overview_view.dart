@@ -160,16 +160,16 @@ String _serverWorldSummary(Model model) {
   final world = model.world;
   final version = world.minecraftVersion ?? 'Unknown version';
   final name = world.worldName ?? 'Unknown world';
-  return '$version · $name';
+  return '$version Â· $name';
 }
 
 String _pluginSummary(Model model) {
   final world = model.world;
   if (world.pluginCount == null) return 'Plugin state unknown';
   if (world.disabledPlugins.isEmpty) {
-    return '${world.pluginCount} loaded · all enabled';
+    return '${world.pluginCount} loaded Â· all enabled';
   }
-  return '${world.pluginCount} loaded · ${world.disabledPlugins.length} disabled';
+  return '${world.pluginCount} loaded Â· ${world.disabledPlugins.length} disabled';
 }
 
 String _playerSummary(Model model) {
@@ -245,7 +245,7 @@ class _ServerHero extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '${world.timeLabel} · ${world.clock}',
+                  '${world.timeLabel} Â· ${world.clock}',
                   style: Theme.of(context).textTheme.bodyMedium,
                 ),
               ],
@@ -284,19 +284,19 @@ class _LiveMetrics extends StatelessWidget {
       _MetricData(
         Icons.monitor_heart_outlined,
         'TPS',
-        world.tps1m?.toStringAsFixed(2) ?? '—',
+        world.tps1m?.toStringAsFixed(2) ?? 'â€”',
         healthy: world.tps1m != null && world.tps1m! >= 19,
       ),
       _MetricData(
         Icons.timer_outlined,
         'MSPT',
-        world.mspt == null ? '—' : '${world.mspt!.toStringAsFixed(1)} ms',
+        world.mspt == null ? 'â€”' : '${world.mspt!.toStringAsFixed(1)} ms',
         healthy: world.mspt != null && world.mspt! < 50,
       ),
       _MetricData(
         Icons.memory_outlined,
         'CPU',
-        world.cpuPercent == null ? '—' : '${world.cpuPercent!.toStringAsFixed(1)}%',
+        world.cpuPercent == null ? 'â€”' : '${world.cpuPercent!.toStringAsFixed(1)}%',
       ),
       _MetricData(
         Icons.storage_outlined,
@@ -306,17 +306,17 @@ class _LiveMetrics extends StatelessWidget {
       _MetricData(
         Icons.cloud_outlined,
         'Weather',
-        world.lastWeather ?? '—',
+        world.lastWeather ?? 'â€”',
       ),
       _MetricData(
         Icons.sports_esports_outlined,
         'Difficulty',
-        world.lastDifficulty ?? '—',
+        world.lastDifficulty ?? 'â€”',
       ),
       _MetricData(
         Icons.view_in_ar_outlined,
         'Chunks / Entities',
-        '${world.loadedChunks ?? '—'} / ${world.entityCount ?? '—'}',
+        '${world.loadedChunks ?? 'â€”'} / ${world.entityCount ?? 'â€”'}',
       ),
     ];
 
@@ -453,7 +453,10 @@ class _PluginList extends StatelessWidget {
         spacing: 7,
         runSpacing: 7,
         children: sorted.map((name) {
-          final isDisabled = disabledSet.contains(name.toLowerCase());
+          final lowerName = name.toLowerCase();
+          final isDisabled = disabledSet.any(
+            (plugin) => lowerName == plugin || lowerName.startsWith('$plugin '),
+          );
           return Chip(
             avatar: Icon(
               isDisabled ? Icons.pause_circle_outline : Icons.check_circle_outline,
@@ -576,7 +579,7 @@ class _DiagnosticsSection extends StatelessWidget {
           [
             model.serverRuntimeState ?? connection.status.name,
             if (model.bridgeVersion != null) 'bridge v${model.bridgeVersion}',
-          ].join(' · '),
+          ].join(' Â· '),
         ),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         children: [
@@ -656,7 +659,7 @@ class _DiagnosticsSection extends StatelessWidget {
                 contentPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.terminal, size: 18),
                 title: Text(entry.command),
-                subtitle: Text('${entry.source} · ${entry.outcome}'),
+                subtitle: Text('${entry.source} Â· ${entry.outcome}'),
               ),
           const SizedBox(height: 10),
           Align(
