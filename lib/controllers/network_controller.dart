@@ -11,7 +11,6 @@ import 'package:admincraft/models/network_snapshot.dart';
 import 'package:admincraft/models/server_profile.dart';
 import 'package:admincraft/services/websocket_connector.dart';
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 

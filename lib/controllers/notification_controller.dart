@@ -11,6 +11,7 @@ extension NotificationRuleDetails on NotificationRule {
   bool get defaultEnabled => switch (this) {
     NotificationRule.accessRequests => true,
     NotificationRule.serverStatus => true,
+    NotificationRule.health => true,
     NotificationRule.playerActivity => false,
   };
 }
