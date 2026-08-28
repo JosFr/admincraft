@@ -345,15 +345,25 @@ class _LiveMetrics extends StatelessWidget {
               builder: (context, constraints) {
                 const gap = 10.0;
                 final columns = constraints.maxWidth >= 760 ? 4 : 2;
-                final width =
-                    (constraints.maxWidth - gap * (columns - 1)) / columns;
-                return Wrap(
-                  spacing: gap,
-                  runSpacing: gap,
-                  children: metrics
-                      .map((metric) => _MetricTile(width: width, data: metric))
-                      .toList(),
-                );
+                final rows = <Widget>[];
+                for (var start = 0; start < metrics.length; start += columns) {
+                  final rowMetrics = metrics.skip(start).take(columns).toList();
+                  if (rows.isNotEmpty) rows.add(const SizedBox(height: gap));
+                  rows.add(
+                    IntrinsicHeight(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (var index = 0; index < rowMetrics.length; index++) ...[
+                            if (index > 0) const SizedBox(width: gap),
+                            Expanded(child: _MetricTile(data: rowMetrics[index])),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                }
+                return Column(children: rows);
               },
             ),
           ],
@@ -378,59 +388,54 @@ class _MetricData {
 }
 
 class _MetricTile extends StatelessWidget {
-  final double width;
   final _MetricData data;
 
-  const _MetricTile({required this.width, required this.data});
+  const _MetricTile({required this.data});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return SizedBox(
+    return DecoratedBox(
       key: ValueKey('metric-${data.label}'),
-      width: width,
-      height: 82,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: theme.colorScheme.outlineVariant),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              Icon(data.icon, size: 26),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(data.label, style: theme.textTheme.bodySmall),
-                    const SizedBox(height: 2),
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        data.value,
-                        maxLines: 1,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          color: data.healthy ? Colors.green : null,
-                          fontWeight: FontWeight.w700,
-                        ),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Icon(data.icon, size: 26),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(data.label, style: theme.textTheme.bodySmall),
+                  const SizedBox(height: 2),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      data.value,
+                      maxLines: 1,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: data.healthy ? Colors.green : null,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 }
-
 class _PluginList extends StatelessWidget {
   final List<String> names;
   final List<String> disabled;
