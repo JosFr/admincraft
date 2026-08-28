@@ -4,7 +4,7 @@ import 'package:admincraft/models/app_notification.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum NotificationRule { accessRequests, serverStatus, playerActivity }
+enum NotificationRule { accessRequests, serverStatus, health, playerActivity }
 
 extension NotificationRuleDetails on NotificationRule {
   String get storageKey => 'notificationRule.$name';

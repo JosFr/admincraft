@@ -1,5 +1,16 @@
 enum NetworkServerState { online, standby, starting, error, offline, unknown }
 
+extension NetworkServerStateDetails on NetworkServerState {
+  String get label => switch (this) {
+    NetworkServerState.online => 'Online',
+    NetworkServerState.standby => 'Standby',
+    NetworkServerState.starting => 'Starting',
+    NetworkServerState.error => 'Error',
+    NetworkServerState.offline => 'Offline',
+    NetworkServerState.unknown => 'Unknown',
+  };
+}
+
 class NetworkServerEntry {
   final String name;
   final String label;
