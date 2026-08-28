@@ -47,6 +47,22 @@ void main() {
           'playerLimit': 10,
           'onlinePlayers': ['Alex', 'Steve'],
           'difficulty': 'normal',
+          'pluginCount': 2,
+          'pluginNames': ['AdmincraftWeather', 'LuckPerms'],
+        }),
+      );
+      socket.add(
+        jsonEncode({
+          'type': 'admincraft.access-state',
+          'observedAt': '2026-08-17T10:00:02Z',
+          'entries': [
+            {
+              'uuid': '11111111-1111-1111-1111-111111111111',
+              'name': 'PendingPlayer',
+              'status': 'PENDING',
+              'requestedTarget': 'smp',
+            },
+          ],
         }),
       );
     });
@@ -68,6 +84,14 @@ void main() {
     final preferences = await SharedPreferences.getInstance();
     final model = Model(PersistenceService(preferences));
     final service = ConnectionService();
+    String? notificationTitle;
+    String? notificationMessage;
+    bool? notificationError;
+    service.onBridgeNotification = (title, message, isError) {
+      notificationTitle = title;
+      notificationMessage = message;
+      notificationError = isError;
+    };
     addTearDown(() => service.disconnect(model));
 
     await service.connect(model);
@@ -83,6 +107,12 @@ void main() {
     expect(model.world.playersOnline, 2);
     expect(model.world.playerLimit, 10);
     expect(model.world.lastDifficulty, 'normal');
+    expect(model.world.pluginNames, containsAll(['AdmincraftWeather', 'LuckPerms']));
+    expect(model.networkAccess, hasLength(1));
+    expect(model.networkAccess.single.name, 'PendingPlayer');
+    expect(notificationTitle, 'Network access');
+    expect(notificationMessage, contains('PendingPlayer'));
+    expect(notificationError, isFalse);
     expect(model.onlinePlayers, containsAll(['Alex', 'Steve']));
     expect(model.lastLogAt, isNotNull);
   });

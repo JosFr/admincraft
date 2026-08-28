@@ -35,6 +35,7 @@ class WorldState {
   final List<String> worlds;
   final List<String> whitelistedPlayers;
   final List<String> operators;
+  final List<String> pluginNames;
   final List<String> disabledPlugins;
 
   /// Weather is set from this app; difficulty is also updated from replies.
@@ -65,6 +66,7 @@ class WorldState {
     this.worlds = const [],
     this.whitelistedPlayers = const [],
     this.operators = const [],
+    this.pluginNames = const [],
     this.disabledPlugins = const [],
     this.lastWeather,
     this.lastDifficulty,
@@ -94,6 +96,7 @@ class WorldState {
     List<String>? worlds,
     List<String>? whitelistedPlayers,
     List<String>? operators,
+    List<String>? pluginNames,
     List<String>? disabledPlugins,
     String? lastWeather,
     String? lastDifficulty,
@@ -122,6 +125,7 @@ class WorldState {
       worlds: worlds ?? this.worlds,
       whitelistedPlayers: whitelistedPlayers ?? this.whitelistedPlayers,
       operators: operators ?? this.operators,
+      pluginNames: pluginNames ?? this.pluginNames,
       disabledPlugins: disabledPlugins ?? this.disabledPlugins,
       lastWeather: lastWeather ?? this.lastWeather,
       lastDifficulty: lastDifficulty ?? this.lastDifficulty,

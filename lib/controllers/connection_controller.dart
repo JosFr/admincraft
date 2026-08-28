@@ -44,6 +44,13 @@ class ConnectionController with ChangeNotifier, WidgetsBindingObserver {
     this.capabilities = currentConnectionPlatformCapabilities,
   }) : connectionService = connectionService ?? ConnectionService() {
     this.connectionService.onConnectionLost = _handleConnectionLost;
+    this.connectionService.onBridgeNotification = (title, message, isError) {
+      if (isError) {
+        ToastUtils.showToastError(message);
+      } else {
+        ToastUtils.showInfo(title, message);
+      }
+    };
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -307,6 +314,31 @@ class ConnectionController with ChangeNotifier, WidgetsBindingObserver {
       if (_keepConnected && status == ConnectionStatus.connected) {
         _startStatusMonitoring();
       }
+    }
+  }
+
+  Future<void> executeNetworkAccessAction(
+    Model model,
+    String action,
+    String uuid,
+  ) async {
+    final command = 'admincraft access $action $uuid';
+    if (status != ConnectionStatus.connected) {
+      ToastUtils.showToastError('The Lobby bridge is not connected.');
+      return;
+    }
+    if (!model.supportsBridgeCapability('access')) {
+      ToastUtils.showToastError('Network Access is not available on this bridge.');
+      return;
+    }
+    final sent = connectionService.executeCommand(command);
+    await model.recordCommandAudit(
+      command,
+      source: 'network-access',
+      outcome: sent ? 'sent' : 'not sent',
+    );
+    if (!sent) {
+      ToastUtils.showToastError('The Access action could not be sent.');
     }
   }
 
