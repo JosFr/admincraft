@@ -11,6 +11,7 @@ import 'package:admincraft/utils/build_info.dart';
 import 'package:admincraft/utils/dialog_utils.dart';
 import 'package:admincraft/utils/toast_utils.dart';
 import 'package:admincraft/utils/url_utils.dart';
+import 'package:admincraft/views/backup_view.dart';
 import 'package:admincraft/views/control_tab_view.dart';
 import 'package:admincraft/views/data_sync_view.dart';
 import 'package:admincraft/views/more_view.dart';
@@ -37,6 +38,7 @@ enum _WorkspaceDestination {
   players,
   servers,
   network,
+  backups,
   serverEditor,
   dataSync,
   preferences,
@@ -53,6 +55,7 @@ extension on _WorkspaceDestination {
     _WorkspaceDestination.players => 'Players',
     _WorkspaceDestination.servers => 'Servers',
     _WorkspaceDestination.network => 'Network',
+    _WorkspaceDestination.backups => 'Backups',
     _WorkspaceDestination.serverEditor => 'Configuration',
     _WorkspaceDestination.dataSync => 'Data & Sync',
     _WorkspaceDestination.preferences => 'Preferences',
@@ -74,6 +77,7 @@ extension on _WorkspaceDestination {
     _WorkspaceDestination.players => true,
     _WorkspaceDestination.servers ||
     _WorkspaceDestination.network ||
+    _WorkspaceDestination.backups ||
     _WorkspaceDestination.serverEditor ||
     _WorkspaceDestination.dataSync ||
     _WorkspaceDestination.preferences ||
@@ -87,6 +91,7 @@ extension on _WorkspaceDestination {
     _WorkspaceDestination.players => Icons.people_alt_outlined,
     _WorkspaceDestination.servers => Icons.dns_outlined,
     _WorkspaceDestination.network => Icons.hub_outlined,
+    _WorkspaceDestination.backups => Icons.inventory_2_outlined,
     _WorkspaceDestination.serverEditor => Icons.edit_outlined,
     _WorkspaceDestination.dataSync => Icons.sync_outlined,
     _WorkspaceDestination.preferences => Icons.palette_outlined,
@@ -101,7 +106,8 @@ extension on _WorkspaceDestination {
     _WorkspaceDestination.controls ||
     _WorkspaceDestination.players ||
     _WorkspaceDestination.servers ||
-    _WorkspaceDestination.network => this,
+    _WorkspaceDestination.network ||
+    _WorkspaceDestination.backups => this,
     _WorkspaceDestination.serverEditor => _WorkspaceDestination.servers,
     _WorkspaceDestination.dataSync ||
     _WorkspaceDestination.preferences ||
@@ -293,6 +299,10 @@ class _TabsState extends State<Tabs> {
     FocusManager.instance.primaryFocus?.unfocus();
     if (_destination == _WorkspaceDestination.serverEditor) {
       await _go(_WorkspaceDestination.servers);
+      return;
+    }
+    if (_destination == _WorkspaceDestination.backups) {
+      await _go(_WorkspaceDestination.network);
       return;
     }
     if (_destination == _WorkspaceDestination.dataSync ||
@@ -525,7 +535,9 @@ class _TabsState extends State<Tabs> {
       ),
       _WorkspaceDestination.network => NetworkView(
         onServerAction: _networkServerAction,
+        onBackups: () => _go(_WorkspaceDestination.backups),
       ),
+      _WorkspaceDestination.backups => const BackupView(),
       _WorkspaceDestination.serverEditor => ServerEditorView(
         key: ValueKey(model.selectedServerId),
         controller: _serverEditorController,
@@ -682,13 +694,17 @@ class _TabsState extends State<Tabs> {
         : scheme.surfaceContainerLow;
     final serverOverview = _destination == _WorkspaceDestination.overview;
     final networkOverview = _destination == _WorkspaceDestination.network;
+    final networkChild = _destination == _WorkspaceDestination.backups;
     final nestedSettings = {
       _WorkspaceDestination.serverEditor,
       _WorkspaceDestination.dataSync,
       _WorkspaceDestination.preferences,
     }.contains(_destination);
     final showConnectionLabel =
-        !serverOverview && !networkOverview && !nestedSettings &&
+        !serverOverview &&
+        !networkOverview &&
+        !networkChild &&
+        !nestedSettings &&
         MediaQuery.sizeOf(context).width >= 480;
 
     return Scaffold(
@@ -700,10 +716,14 @@ class _TabsState extends State<Tabs> {
                 onPressed: () => _go(_WorkspaceDestination.servers),
                 icon: const Icon(Icons.arrow_back_ios_new),
               )
-            : networkOverview
+            : networkOverview || networkChild
                 ? IconButton(
-                    tooltip: 'Back to Servers',
-                    onPressed: () => _go(_WorkspaceDestination.servers),
+                    tooltip: networkChild ? 'Back to Network' : 'Back to Servers',
+                    onPressed: () => _go(
+                      networkChild
+                          ? _WorkspaceDestination.network
+                          : _WorkspaceDestination.servers,
+                    ),
                     icon: const Icon(Icons.arrow_back_ios_new),
                   )
                 : nestedSettings
@@ -715,7 +735,10 @@ class _TabsState extends State<Tabs> {
                     icon: const Icon(Icons.arrow_back),
                   )
                 : null,
-        titleSpacing: serverOverview || networkOverview || nestedSettings ? 0 : 16,
+        titleSpacing:
+            serverOverview || networkOverview || networkChild || nestedSettings
+                ? 0
+                : 16,
         centerTitle: serverOverview || networkOverview,
         title: serverOverview
             ? Column(
@@ -778,7 +801,7 @@ class _TabsState extends State<Tabs> {
                   ],
                 ),
               ]
-            : networkOverview
+            : networkOverview || networkChild
                 ? [const NotificationInboxButton()]
                 : [
                 const NotificationInboxButton(),
@@ -848,6 +871,7 @@ class _TabsState extends State<Tabs> {
     _WorkspaceDestination.overview ||
     _WorkspaceDestination.servers ||
     _WorkspaceDestination.network ||
+    _WorkspaceDestination.backups ||
     _WorkspaceDestination.serverEditor => 0,
     _WorkspaceDestination.console => 1,
     _WorkspaceDestination.controls => 2,
@@ -901,6 +925,11 @@ class _WorkspaceSidebar extends StatelessWidget {
               _NavigationTile(
                 destination: _WorkspaceDestination.network,
                 selected: destination == _WorkspaceDestination.network,
+                onTap: onDestination,
+              ),
+              _NavigationTile(
+                destination: _WorkspaceDestination.backups,
+                selected: destination == _WorkspaceDestination.backups,
                 onTap: onDestination,
               ),
               _NavigationTile(
@@ -975,6 +1004,7 @@ class _WorkspaceHeader extends StatelessWidget {
           : '${model.selectedServer.edition.label} · ${model.ip}:${model.port}${model.bridgePath}',
     _WorkspaceDestination.servers => 'Manage saved server profiles',
     _WorkspaceDestination.network => 'Velocity network overview',
+    _WorkspaceDestination.backups => 'Network-wide backup inventory and storage',
     _WorkspaceDestination.dataSync => 'Back up and transfer application data',
     _WorkspaceDestination.preferences => 'Application-wide settings',
     _WorkspaceDestination.more => 'Application tools and settings',

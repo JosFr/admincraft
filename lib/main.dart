@@ -53,6 +53,7 @@ void main() async {
           create: (context) => NetworkController(
             notificationController,
             push: pushController,
+            preferences: prefs,
           ),
         ),
       ],

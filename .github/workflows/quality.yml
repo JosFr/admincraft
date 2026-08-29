@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - develop
+      - rc4
 
 permissions:
   contents: read

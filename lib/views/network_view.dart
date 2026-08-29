@@ -10,8 +10,13 @@ enum NetworkQuickAction { open, console, players, start, stop, restart }
 class NetworkView extends StatelessWidget {
   final Future<void> Function(String serverName, NetworkQuickAction action)
       onServerAction;
+  final VoidCallback onBackups;
 
-  const NetworkView({super.key, required this.onServerAction});
+  const NetworkView({
+    super.key,
+    required this.onServerAction,
+    required this.onBackups,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -38,7 +43,7 @@ class NetworkView extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _Header(network: network),
+                  _Header(network: network, onBackups: onBackups),
                   const SizedBox(height: 14),
                   _Summary(snapshot: network.snapshot, pending: pending),
                   const SizedBox(height: 14),
@@ -61,8 +66,9 @@ class NetworkView extends StatelessWidget {
 }
 class _Header extends StatelessWidget {
   final NetworkController network;
+  final VoidCallback onBackups;
 
-  const _Header({required this.network});
+  const _Header({required this.network, required this.onBackups});
 
   @override
   Widget build(BuildContext context) {
@@ -91,6 +97,11 @@ class _Header extends StatelessWidget {
           width: 10,
           height: 10,
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        IconButton(
+          tooltip: 'Open backups',
+          onPressed: onBackups,
+          icon: const Icon(Icons.inventory_2_outlined),
         ),
         IconButton(
           tooltip: 'Refresh network',

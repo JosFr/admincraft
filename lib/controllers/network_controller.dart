@@ -6,6 +6,7 @@ import 'package:admincraft/controllers/push_notification_controller.dart';
 import 'package:admincraft/models/connection_security.dart';
 import 'package:admincraft/models/app_notification.dart';
 import 'package:admincraft/models/model.dart';
+import 'package:admincraft/models/management_state.dart';
 import 'package:admincraft/models/network_access_entry.dart';
 import 'package:admincraft/models/network_snapshot.dart';
 import 'package:admincraft/models/server_profile.dart';
@@ -13,6 +14,7 @@ import 'package:admincraft/services/websocket_connector.dart';
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import 'package:flutter/widgets.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   static const _retryDelay = Duration(seconds: 8);
@@ -20,6 +22,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
 
   final NotificationController notifications;
   final PushNotificationController? push;
+  final SharedPreferences? preferences;
   Model? _model;
   WebSocketChannel? _channel;
   StreamSubscription? _subscription;
@@ -33,8 +36,11 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   Set<String> _capabilities = {};
   NetworkSnapshot _snapshot = const NetworkSnapshot();
   List<NetworkAccessEntry> _access = const [];
+  ManagementSnapshot _management = const ManagementSnapshot();
+  List<PerformanceSample> _performance = const [];
+  String? _managementMessage;
 
-  NetworkController(this.notifications, {this.push}) {
+  NetworkController(this.notifications, {this.push, this.preferences}) {
     WidgetsBinding.instance.addObserver(this);
     push?.addListener(_pushChanged);
     notifications.addListener(_notificationPreferencesChanged);
@@ -47,6 +53,10 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   List<NetworkAccessEntry> get access => List.unmodifiable(_access);
   bool get accessAvailable => _capabilities.contains('access');
   bool get networkAvailable => _capabilities.contains('network');
+  bool get managementAvailable => _capabilities.contains('management');
+  ManagementSnapshot get management => _management;
+  List<PerformanceSample> get performance => List.unmodifiable(_performance);
+  String? get managementMessage => _managementMessage;
   void start(Model model) {
     if (identical(_model, model)) return;
     _model?.removeListener(_modelChanged);
@@ -168,6 +178,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         _error = null;
         notifyListeners();
         _syncPushRegistration();
+        if (managementAvailable) refreshManagement();
         return;
       case 'admincraft.network-state':
         _updateNetwork(NetworkSnapshot.fromJson(decoded));
@@ -182,6 +193,33 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
               .toList();
           _updateAccess(entries);
         }
+        return;
+      case 'admincraft.management-state':
+        _management = ManagementSnapshot.fromJson(decoded);
+        _managementMessage = null;
+        notifyListeners();
+        return;
+      case 'admincraft.performance-history':
+        final rawSamples = decoded['samples'];
+        _performance = rawSamples is List
+            ? rawSamples
+                .whereType<Map<String, dynamic>>()
+                .map(PerformanceSample.fromJson)
+                .toList()
+            : const [];
+        notifyListeners();
+        return;
+      case 'admincraft.management-result':
+        _managementMessage = decoded['message']?.toString();
+        if (decoded['success'] != true) {
+          notifications.add(
+            kind: AppNotificationKind.error,
+            title: 'AdminCraft management',
+            message: _managementMessage ?? 'Management action failed.',
+          );
+        }
+        notifyListeners();
+        if (decoded['refresh'] != false) refreshManagement();
         return;
       case 'admincraft.push-result':
         push?.markBridgeRegistration(
@@ -282,6 +320,78 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     _channel?.sink.add('admincraft access $action $uuid');
     return true;
   }
+
+  bool updateProviderEnabled(UpdateProvider provider) =>
+      preferences?.getBool('updateProvider.${provider.name}') ?? true;
+
+  Future<void> setUpdateProviderEnabled(
+    UpdateProvider provider,
+    bool enabled,
+  ) async {
+    await preferences?.setBool('updateProvider.${provider.name}', enabled);
+    notifyListeners();
+  }
+
+  bool _manage(String action, [Map<String, dynamic> payload = const {}]) {
+    if (!_connected || !managementAvailable) return false;
+    final raw = jsonEncode(payload);
+    final encoded = base64Url.encode(utf8.encode(raw)).replaceAll('=', '');
+    _channel?.sink.add('admincraft manage $action $encoded');
+    return true;
+  }
+
+  bool refreshManagement() => _manage('snapshot');
+
+  bool createBackup(String serverId, {String engine = 'multicraft'}) =>
+      _manage('backup-create', {'serverId': serverId, 'engine': engine});
+
+  bool deleteBackup(String backupId) =>
+      _manage('backup-delete', {'backupId': backupId});
+
+  bool restoreBackup(String backupId) =>
+      _manage('backup-restore', {'backupId': backupId});
+
+  bool createSchedule({
+    required String serverId,
+    required String action,
+    required String schedule,
+  }) => _manage('schedule-create', {
+    'serverId': serverId,
+    'action': action,
+    'schedule': schedule,
+  });
+
+  bool toggleSchedule(String id, bool enabled) =>
+      _manage('schedule-toggle', {'id': id, 'enabled': enabled});
+
+  bool deleteSchedule(String id) =>
+      _manage('schedule-delete', {'id': id});
+
+  bool startMaintenance(
+    String serverId, {
+    int countdownSeconds = 600,
+    bool backup = true,
+    bool restartWhenEmpty = false,
+  }) => _manage('maintenance-start', {
+    'serverId': serverId,
+    'countdownSeconds': countdownSeconds,
+    'backup': backup,
+    'restartWhenEmpty': restartWhenEmpty,
+  });
+
+  bool cancelMaintenance(String serverId) =>
+      _manage('maintenance-cancel', {'serverId': serverId});
+
+  bool requestPerformance(String serverId, String range) =>
+      _manage('performance-history', {'serverId': serverId, 'range': range});
+
+  bool checkUpdates([String? serverId]) => _manage('updates-check', {
+    if (serverId != null) 'serverId': serverId,
+    'providers': {
+      for (final provider in UpdateProvider.values)
+        provider.name: updateProviderEnabled(provider),
+    },
+  });
 
   void _pushChanged() => _syncPushRegistration();
   void _notificationPreferencesChanged() => _syncPushRegistration();
