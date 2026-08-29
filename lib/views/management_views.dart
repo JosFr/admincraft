@@ -232,6 +232,109 @@ class MaintenanceView extends StatelessWidget {
   final String serverId;
   const MaintenanceView({super.key, required this.serverId});
 
+  Future<void> _startMaintenance(
+    BuildContext context,
+    NetworkController network,
+  ) async {
+    var countdownSeconds = 600;
+    var createBackup = true;
+    var restartWhenEmpty = false;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Start maintenance'),
+          content: SizedBox(
+            width: 430,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<int>(
+                  initialValue: countdownSeconds,
+                  decoration: const InputDecoration(labelText: 'Countdown'),
+                  items: const [
+                    DropdownMenuItem(value: 60, child: Text('1 minute')),
+                    DropdownMenuItem(value: 300, child: Text('5 minutes')),
+                    DropdownMenuItem(value: 600, child: Text('10 minutes')),
+                    DropdownMenuItem(value: 1800, child: Text('30 minutes')),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) {
+                      setState(() => countdownSeconds = value);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Create safety backup'),
+                  subtitle: const Text(
+                    'Request a backup before the maintenance action continues.',
+                  ),
+                  value: createBackup,
+                  onChanged: (value) => setState(() => createBackup = value),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Restart when empty'),
+                  subtitle: const Text(
+                    'Wait for players to leave before the restart stage.',
+                  ),
+                  value: restartWhenEmpty,
+                  onChanged: (value) => setState(() => restartWhenEmpty = value),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.play_arrow),
+              label: const Text('Start maintenance'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true) return;
+    network.startMaintenance(
+      serverId,
+      countdownSeconds: countdownSeconds,
+      backup: createBackup,
+      restartWhenEmpty: restartWhenEmpty,
+    );
+  }
+
+  Future<void> _cancelMaintenance(
+    BuildContext context,
+    NetworkController network,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cancel maintenance?'),
+        content: const Text(
+          'The active maintenance flow will be stopped. Any backup already started may still finish.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Keep running'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Cancel maintenance'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) network.cancelMaintenance(serverId);
+  }
+
   @override
   Widget build(BuildContext context) {
     final network = context.watch<NetworkController?>();
@@ -252,8 +355,8 @@ class MaintenanceView extends StatelessWidget {
         onPressed: !network.managementAvailable
             ? null
             : active
-                ? () => network.cancelMaintenance(serverId)
-                : () => network.startMaintenance(serverId),
+                ? () => _cancelMaintenance(context, network)
+                : () => _startMaintenance(context, network),
         icon: Icon(active ? Icons.cancel_outlined : Icons.play_arrow),
         label: Text(active ? 'Cancel' : 'Start'),
       ),
