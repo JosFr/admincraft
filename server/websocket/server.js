@@ -141,7 +141,7 @@ const managementClients = new Set();
 let managementService = null;
 
 try {
-  if (process.env.MULTICRAFT_ENABLED === "true") {
+  if (process.env.MULTICRAFT_ENABLED === "true" && process.env.MANAGEMENT_ENABLED === "true") {
     const managementMulticraft = createMulticraftClient({
       url: process.env.MULTICRAFT_URL,
       user: process.env.MULTICRAFT_USER,

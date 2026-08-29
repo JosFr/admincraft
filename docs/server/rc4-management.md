@@ -18,10 +18,11 @@ The management capability is advertised only for an authenticated admin session 
 Restore, delete, download, and copy remain disabled unless a future backup engine can perform them safely. The client reads those capabilities per backup and does not expose unsupported operations as if they worked.
 ## Required environment
 
-The bridge uses the existing Multicraft API credentials:
+The bridge uses the existing Multicraft API credentials. Management is opt-in and is advertised only when MANAGEMENT_ENABLED=true:
 
 ```text
 MULTICRAFT_ENABLED=true
+MANAGEMENT_ENABLED=true
 MULTICRAFT_URL=https://panel.example.net/api.php
 MULTICRAFT_USER=admincraft
 MULTICRAFT_API_KEY=...

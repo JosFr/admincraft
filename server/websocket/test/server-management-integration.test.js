@@ -65,6 +65,7 @@ test("bridge advertises management and serves a snapshot", async () => {
       DOCKER_ENABLED: "false",
       RCON_PASSWORD: "unused-smoke-password",
       MULTICRAFT_ENABLED: "true",
+      MANAGEMENT_ENABLED: "true",
       MULTICRAFT_URL: "http://127.0.0.1:1/api.php",
       MULTICRAFT_USER: "smoke",
       MULTICRAFT_API_KEY: "smoke",

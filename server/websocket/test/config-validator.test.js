@@ -6,6 +6,7 @@ function validEnv() {
   return {
     SECRET_KEY: "secret",
     MULTICRAFT_ENABLED: "true",
+    MANAGEMENT_ENABLED: "true",
     MULTICRAFT_URL: "https://panel.example.net/api.php",
     MULTICRAFT_USER: "admincraft",
     MULTICRAFT_API_KEY: "key",
@@ -49,3 +50,22 @@ test("preflight keeps update configuration optional", () => {
   assert.equal(result.updateProjectCount, 0);
 });
 
+
+test("preflight leaves management off unless explicitly enabled", () => {
+  const env = validEnv();
+  delete env.MANAGEMENT_ENABLED;
+  delete env.MANAGEMENT_SERVER_ID;
+  delete env.MANAGEMENT_SERVER_NAME;
+  const result = validateEnvironment(env);
+  assert.equal(result.ok, true);
+  assert.equal(result.serverCount, 0);
+  assert.ok(result.warnings.some((message) => message.includes("disabled")));
+});
+
+test("preflight rejects management without Multicraft", () => {
+  const env = validEnv();
+  env.MULTICRAFT_ENABLED = "false";
+  const result = validateEnvironment(env);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((message) => message.includes("requires MULTICRAFT")));
+});
