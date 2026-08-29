@@ -106,10 +106,7 @@ class BackupView extends StatelessWidget {
                       )
                     : null,
                 onCopy: backup.capabilities.copy
-                    ? () => _send(
-                        network.copyBackup(backup.id),
-                        'Copy request could not be sent.',
-                      )
+                    ? () => _copy(context, network, snapshot, backup)
                     : null,
                 onDelete: backup.capabilities.delete
                     ? () => _delete(context, network, backup)
@@ -121,74 +118,252 @@ class BackupView extends StatelessWidget {
     );
   }
 
+  List<BackupEngineDescriptor> _enginesFor(
+    ManagementSnapshot snapshot,
+    String targetServerId,
+  ) {
+    final configured = snapshot.backupEngines
+        .where((engine) => engine.supportsServer(targetServerId))
+        .toList();
+    if (configured.isNotEmpty) return configured;
+    return [
+      BackupEngineDescriptor(
+        id: 'multicraft',
+        type: BackupEngineType.multicraft,
+        label: 'Multicraft',
+        backupType: 'server-backup',
+        serverIds: [targetServerId],
+        destinationIds: const [],
+        availableDestinationIds: const [],
+        capabilities: const BackupCapabilities(
+          create: true,
+          list: true,
+          progress: true,
+        ),
+      ),
+    ];
+  }
+
   Future<void> _createBackup(
     BuildContext context,
     NetworkController network,
     Model model,
   ) async {
-    String selectedServer =
+    final snapshot = network.management;
+    var selectedServer =
         serverId ?? model.selectedServer.effectiveManagementServerId;
-    BackupEngineType engine = BackupEngineType.multicraft;
+    var engines = _enginesFor(snapshot, selectedServer);
+    var selectedEngineId = engines.first.id;
+    final selectedDestinations = <String>{...engines.first.destinationIds};
+
+    void selectServer(String value) {
+      selectedServer = value;
+      engines = _enginesFor(snapshot, selectedServer);
+      selectedEngineId = engines.first.id;
+      selectedDestinations
+        ..clear()
+        ..addAll(engines.first.destinationIds);
+    }
+
+    BackupEngineDescriptor selectedEngine() => engines.firstWhere(
+      (engine) => engine.id == selectedEngineId,
+      orElse: () => engines.first,
+    );
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          final engine = selectedEngine();
+          final availableStorageIds = engine.availableDestinationIds.isEmpty
+              ? engine.destinationIds
+              : engine.availableDestinationIds;
+          final storages = snapshot.storages
+              .where((storage) => availableStorageIds.contains(storage.id))
+              .toList();
+          return AlertDialog(
+            title: const Text('Create backup'),
+            content: SizedBox(
+              width: 460,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (serverId == null)
+                      DropdownButtonFormField<String>(
+                        initialValue: selectedServer,
+                        decoration: const InputDecoration(labelText: 'Server'),
+                        items: model.servers
+                            .where((server) => server.isComplete)
+                            .map(
+                              (server) => DropdownMenuItem(
+                                value: server.effectiveManagementServerId,
+                                child: Text(server.alias),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(() => selectServer(value));
+                        },
+                      ),
+                    if (serverId == null) const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedEngineId,
+                      decoration: const InputDecoration(
+                        labelText: 'Backup engine',
+                      ),
+                      items: engines
+                          .where((item) => item.capabilities.create)
+                          .map(
+                            (item) => DropdownMenuItem(
+                              value: item.id,
+                              child: Text(item.label),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setState(() {
+                          selectedEngineId = value;
+                          final next = selectedEngine();
+                          selectedDestinations
+                            ..clear()
+                            ..addAll(next.destinationIds);
+                        });
+                      },
+                    ),
+                    if (engine.capabilities.remoteDestination) ...[
+                      const SizedBox(height: 16),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Destinations',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      if (storages.isEmpty)
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'No configured remote destination is available for this engine. The archive stays on the management host.',
+                          ),
+                        )
+                      else
+                        ...storages.map(
+                          (storage) => CheckboxListTile(
+                            contentPadding: EdgeInsets.zero,
+                            dense: true,
+                            title: Text(storage.name),
+                            subtitle: Text(storage.type.label),
+                            value: selectedDestinations.contains(storage.id),
+                            onChanged: (checked) {
+                              setState(() {
+                                if (checked == true) {
+                                  selectedDestinations.add(storage.id);
+                                } else {
+                                  selectedDestinations.remove(storage.id);
+                                }
+                              });
+                            },
+                          ),
+                        ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton.icon(
+                onPressed: engine.capabilities.create
+                    ? () => Navigator.pop(context, true)
+                    : null,
+                icon: const Icon(Icons.backup_outlined),
+                label: const Text('Backup now'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    if (!network.createBackup(
+      selectedServer,
+      engineId: selectedEngineId,
+      destinationIds: selectedDestinations.toList(),
+    )) {
+      ToastUtils.showToastError('The management bridge is not connected.');
+    }
+  }
+
+  Future<void> _copy(
+    BuildContext context,
+    NetworkController network,
+    ManagementSnapshot snapshot,
+    BackupRecord backup,
+  ) async {
+    final candidates = snapshot.storages
+        .where((storage) => !backup.destinations.contains(storage.id))
+        .toList();
+    if (candidates.isEmpty) {
+      ToastUtils.showToastError(
+        'No additional backup destination is configured.',
+      );
+      return;
+    }
+    final selected = <String>{};
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: const Text('Create backup'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (serverId == null)
-                DropdownButtonFormField<String>(
-                  initialValue: selectedServer,
-                  decoration: const InputDecoration(labelText: 'Server'),
-                  items: model.servers
-                      .where((server) => server.isComplete)
-                      .map(
-                        (server) => DropdownMenuItem(
-                          value: server.effectiveManagementServerId,
-                          child: Text(server.alias),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) setState(() => selectedServer = value);
-                  },
-                ),
-              if (serverId == null) const SizedBox(height: 12),
-              DropdownButtonFormField<BackupEngineType>(
-                initialValue: engine,
-                decoration: const InputDecoration(labelText: 'Backup engine'),
-                items: BackupEngineType.values
-                    .map(
-                      (value) => DropdownMenuItem(
-                        value: value,
-                        child: Text(value.label),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) {
-                  if (value != null) setState(() => engine = value);
-                },
-              ),
-            ],
+          title: const Text('Copy backup'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                for (final storage in candidates)
+                  CheckboxListTile(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: Text(storage.name),
+                    subtitle: Text(storage.type.label),
+                    value: selected.contains(storage.id),
+                    onChanged: (checked) {
+                      setState(() {
+                        if (checked == true) {
+                          selected.add(storage.id);
+                        } else {
+                          selected.remove(storage.id);
+                        }
+                      });
+                    },
+                  ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
               child: const Text('Cancel'),
             ),
-            FilledButton.icon(
-              onPressed: () => Navigator.pop(context, true),
-              icon: const Icon(Icons.backup_outlined),
-              label: const Text('Backup now'),
+            FilledButton(
+              onPressed: selected.isEmpty
+                  ? null
+                  : () => Navigator.pop(context, true),
+              child: const Text('Copy'),
             ),
           ],
         ),
       ),
     );
     if (confirmed != true || !context.mounted) return;
-    if (!network.createBackup(selectedServer, engine: engine.name)) {
-      ToastUtils.showToastError('The management bridge is not connected.');
+    if (!network.copyBackup(backup.id, selected.toList())) {
+      ToastUtils.showToastError('Copy request could not be sent.');
     }
   }
 
@@ -325,7 +500,7 @@ class _StorageCard extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
-                Text(storage.type.name.toUpperCase()),
+                Text(storage.type.label),
               ],
             ),
             const SizedBox(height: 12),
@@ -339,12 +514,12 @@ class _StorageCard extends StatelessWidget {
               used == null || storage.totalBytes == null
                   ? '${_formatBytes(storage.backupBytes)} in backups'
                   : '${_formatBytes(used)} used of '
-                        '${_formatBytes(storage.totalBytes!)} · '
+                        '${_formatBytes(storage.totalBytes!)} Â· '
                         '${_formatBytes(storage.freeBytes ?? 0)} free',
             ),
             if (storage.otherBytes != null)
               Text(
-                '${_formatBytes(storage.backupBytes)} backups · '
+                '${_formatBytes(storage.backupBytes)} backups Â· '
                 '${_formatBytes(storage.otherBytes!)} other data',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
@@ -352,7 +527,7 @@ class _StorageCard extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 'Backup soft limit: ${_formatBytes(storage.softLimitBytes!)}'
-                '${storage.backupBytes >= storage.softLimitBytes! ? ' · reached' : ''}',
+                '${storage.backupBytes >= storage.softLimitBytes! ? ' Â· reached' : ''}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -491,7 +666,7 @@ class _RecoveryReadinessCard extends StatelessWidget {
               for (final issue in issues)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4),
-                  child: Text('• $issue'),
+                  child: Text('â€¢ $issue'),
                 ),
             ],
           ],
@@ -634,7 +809,13 @@ class _BackupCard extends StatelessWidget {
               children: [
                 _DetailChip(
                   icon: Icons.memory_outlined,
-                  label: backup.engine.label,
+                  label: backup.engineLabel.isEmpty
+                      ? backup.engine.label
+                      : backup.engineLabel,
+                ),
+                _DetailChip(
+                  icon: Icons.layers_outlined,
+                  label: _backupTypeLabel(backup.backupType),
                 ),
                 _DetailChip(icon: Icons.category_outlined, label: backup.kind),
                 _DetailChip(
@@ -769,6 +950,13 @@ String _weeksRemainingLabel(double weeks) {
   }
   return 'Estimated capacity: ${weeks.round()} weeks at the current backup creation pace';
 }
+
+String _backupTypeLabel(String value) => switch (value) {
+  'full-server' => 'Full server',
+  'world-only' => 'World only',
+  'server-backup' => 'Server backup',
+  _ => 'Custom scope',
+};
 
 String _formatBytes(int bytes) {
   if (bytes < 1024) return '$bytes B';

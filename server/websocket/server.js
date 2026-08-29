@@ -162,6 +162,10 @@ try {
         multicraftServerId: process.env.MULTICRAFT_SERVER_ID,
         statePath: process.env.MANAGEMENT_STATE_PATH,
         storagePath: process.env.MANAGEMENT_STORAGE_PATH,
+        storagesJson: process.env.BACKUP_STORAGES_JSON,
+        enginesJson: process.env.BACKUP_ENGINES_JSON,
+        nativeBackupPath: process.env.MANAGEMENT_NATIVE_BACKUP_PATH,
+        storageProbeMilliseconds: process.env.MANAGEMENT_STORAGE_PROBE_MS,
       },
       {
         multicraft: managementMulticraft,

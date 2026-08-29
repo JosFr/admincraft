@@ -14,5 +14,7 @@ if (!result.ok) process.exit(1);
 
 console.log(
   `RC4 bridge configuration valid: ${result.serverCount} management server(s), `
+  + `${result.backupEngineCount} configured backup engine(s), `
+  + `${result.backupStorageCount} configured backup storage(s), `
   + `${result.updateProjectCount} update project(s).`,
 );

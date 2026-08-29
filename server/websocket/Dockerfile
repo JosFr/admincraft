@@ -8,7 +8,7 @@ WORKDIR /usr/src/app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm ci --omit=dev && apt-get update && apt-get install -y --no-install-recommends docker.io && rm -rf /var/lib/apt/lists/*
+RUN npm ci --omit=dev && apt-get update && apt-get install -y --no-install-recommends docker.io rclone && rm -rf /var/lib/apt/lists/*
 
 # Copy the rest of the application code
 COPY . .

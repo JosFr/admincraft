@@ -80,4 +80,32 @@ void main() {
     expect(sample.cpuPercent, 42.5);
     expect(sample.memoryMb, 4096);
   });
+
+  test('parses advertised RC4 backup engines without private config', () {
+    final engine = BackupEngineDescriptor.fromJson({
+      'id': 'native-smp',
+      'type': 'native',
+      'label': 'AdminCraft Native',
+      'serverIds': ['smp'],
+      'destinationIds': ['nextcloud'],
+      'availableDestinationIds': ['nextcloud', 'local'],
+      'capabilities': {
+        'create': true,
+        'list': true,
+        'progress': true,
+        'restore': true,
+        'delete': true,
+        'remoteDestination': true,
+        'verify': true,
+        'copy': true,
+      },
+    });
+
+    expect(engine.id, 'native-smp');
+    expect(engine.type, BackupEngineType.native);
+    expect(engine.supportsServer('smp'), isTrue);
+    expect(engine.destinationIds, ['nextcloud']);
+    expect(engine.availableDestinationIds, ['nextcloud', 'local']);
+    expect(engine.capabilities.restore, isTrue);
+  });
 }

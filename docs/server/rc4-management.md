@@ -84,3 +84,55 @@ Update checking is explicit rather than guessing plugin identities. Configure `U
 ```
 
 Supported automatic checks are Hangar, Modrinth, Spigot via Spiget, and GitHub Releases. BuiltByBit is deliberately not scraped or used to bypass premium access; configure a project URL for navigation and Admincraft reports the source as unavailable until an authenticated integration exists.
+
+## RC4 backup engines and storage
+
+The management bridge now advertises backup engines and destinations as capabilities. The client only shows engines that the connected bridge actually exposes; an older RC4 bridge falls back to Multicraft only.
+
+Configure destinations with `BACKUP_STORAGES_JSON`. Supported RC4 destination types are:
+
+- `nextcloud` — first-class Nextcloud over WebDAV.
+- `webdav` — generic WebDAV.
+- `local` — a local or bind-mounted filesystem path.
+- `smb` / `nfs` — paths mounted into the bridge container by the host.
+- `sftp` / `s3` / `rclone` — rclone-backed remotes.
+
+Credentials stay server-side. Storage snapshots sent to clients contain names, types and capacity information, never usernames, passwords or remote configuration secrets.
+A minimal Nextcloud destination can be supplied as JSON like this (store the real password in the protected bridge environment, not in source control):
+
+```json
+[
+  {
+    "id": "nextcloud",
+    "name": "Nextcloud",
+    "type": "nextcloud",
+    "url": "https://cloud.example.net/remote.php/dav/files/admincraft",
+    "username": "admincraft-backup",
+    "password": "..."
+  }
+]
+```
+
+For mounted storage, use `type: local`, `smb`, or `nfs` with a `path`. For SFTP/S3-compatible destinations configure an rclone remote and use its name in `remote`; the RC4 container includes rclone.
+Configure non-Multicraft engines with `BACKUP_ENGINES_JSON`. `native` creates an archive from a mounted server path; `plugin` and `custom` dispatch an explicit console command. Plugin/custom completion is not guessed: their records remain non-authoritative unless a later adapter can observe completion.
+
+```json
+[
+  {
+    "id": "native-smp",
+    "type": "native",
+    "serverId": "smp",
+    "label": "AdminCraft Native",
+    "sourcePath": "/minecraft/smp",
+    "destinationIds": ["nextcloud", "local"],
+    "allowRestore": false
+  },
+  {
+    "id": "plugin-smp",
+    "type": "plugin",
+    "serverId": "smp",
+    "label": "Server backup plugin",
+    "command": "backup start"
+  }
+]
+```

@@ -1,6 +1,13 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const {
+  parseBackupStorages, copyToStorage, deleteFromStorage,
+  probeStorage, storageSnapshot,
+} = require("./backup-storage");
+const {
+  parseBackupEngines, engineDescriptors, createNativeArchive, restoreNativeArchive,
+} = require("./backup-engines");
 
 function id(prefix = "item") {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -46,7 +53,10 @@ function parseServers(config = {}) {
       if (!id || !Number.isInteger(multicraftServerId) || multicraftServerId < 1) {
         throw new Error(`Invalid management server mapping at index ${index}.`);
       }
-      return { id, name, multicraftServerId };
+      return {
+        id, name, multicraftServerId,
+        defaultBackupEngineId: String(entry?.defaultBackupEngineId || "multicraft").trim() || "multicraft",
+      };
     });
     const ids = new Set();
     const multicraftIds = new Set();
@@ -70,6 +80,7 @@ function parseServers(config = {}) {
     id: config.serverId || process.env.MANAGEMENT_SERVER_ID || "lobby",
     name: config.serverName || process.env.MANAGEMENT_SERVER_NAME || "Lobby",
     multicraftServerId,
+    defaultBackupEngineId: "multicraft",
   }];
 }
 function validField(expression, min, max) {
@@ -132,6 +143,30 @@ function createManagementService(config = {}, dependencies = {}) {
     || path.join(process.cwd(), "data", "management-state.json");
   const servers = parseServers(config);
   const multicraft = dependencies.multicraft;
+  const storages = parseBackupStorages({ storagesJson: config.storagesJson });
+  const legacyStoragePath = config.storagePath || process.env.MANAGEMENT_STORAGE_PATH || "";
+  if (storages.length === 0 && legacyStoragePath) {
+    storages.push({
+      id: "management-local", name: "Management host", type: "local",
+      path: legacyStoragePath, remote: "", basePath: "", url: "", username: "", password: "",
+      softLimitBytes: null, warningFreePercent: 15, criticalFreePercent: 5,
+    });
+  }
+  const storageById = (storageId) => storages.find((storage) => storage.id === storageId);
+  const engines = parseBackupEngines(
+    { enginesJson: config.enginesJson }, servers, new Set(storages.map((storage) => storage.id)),
+  );
+  const engineById = (engineId) => engines.find((engine) => engine.id === engineId);
+  for (const server of servers) {
+    if (server.defaultBackupEngineId === "multicraft") continue;
+    const engine = engineById(server.defaultBackupEngineId);
+    if (!engine || engine.serverId !== server.id) {
+      throw new Error(`Unknown default backup engine for management server ${server.id}.`);
+    }
+  }
+  const nativeBackupRoot = config.nativeBackupPath
+    || process.env.MANAGEMENT_NATIVE_BACKUP_PATH
+    || path.join(path.dirname(statePath), "backups");
   const state = readJson(statePath, {
     backups: [],
     schedules: [],
@@ -139,10 +174,15 @@ function createManagementService(config = {}, dependencies = {}) {
     performance: [],
     updates: [],
     activity: [],
+    storageMetrics: {},
   });
   let timer = null;
   let ticking = false;
   let lastPerformanceSampleAt = 0;
+  let lastStorageProbeAt = 0;
+  if (!state.storageMetrics || typeof state.storageMetrics !== "object" || Array.isArray(state.storageMetrics)) {
+    state.storageMetrics = {};
+  }
 
   const serverById = (serverId) => servers.find((server) => server.id === serverId);
   for (const key of ["backups", "schedules", "maintenance", "performance", "updates", "activity"]) {
@@ -167,48 +207,43 @@ function createManagementService(config = {}, dependencies = {}) {
 
   function backupCapabilities() {
     return {
+      create: true,
+      list: true,
+      progress: true,
       restore: false,
       download: false,
       delete: false,
       verify: false,
       copy: false,
+      remoteDestination: false,
     };
   }
-  function storageSnapshot() {
-    const root = config.storagePath || process.env.MANAGEMENT_STORAGE_PATH || "";
-    if (!root) return null;
-    let totalBytes = null;
-    let freeBytes = null;
-    try {
-      const stats = fs.statfsSync(root);
-      totalBytes = Number(stats.blocks) * Number(stats.bsize);
-      freeBytes = Number(stats.bavail) * Number(stats.bsize);
-    } catch (_) {
-      // Capacity remains unknown on runtimes without statfs support.
+  function backupPublic(backup) {
+    const { localPath, destinationLocators, ...publicBackup } = backup;
+    return publicBackup;
+  }
+
+  function storageSnapshots() {
+    return storages.map((storage) => storageSnapshot(
+      storage, state.backups, state.storageMetrics[storage.id] || {},
+    ));
+  }
+
+  async function refreshStorageMetrics() {
+    for (const storage of storages) {
+      state.storageMetrics[storage.id] = await probeStorage(storage, dependencies);
     }
-    const backupBytes = state.backups.reduce(
-      (sum, backup) => sum + (Number(backup.sizeBytes) || 0),
-      0,
-    );
-    return {
-      id: "management-local",
-      name: "Management host",
-      type: "local",
-      totalBytes,
-      freeBytes,
-      backupBytes,
-      softLimitBytes: null,
-      warningFreePercent: 15,
-      criticalFreePercent: 5,
-    };
   }
 
   function snapshot() {
     return {
       type: "admincraft.management-state",
       observedAt: isoNow(now),
-      storages: storageSnapshot() == null ? [] : [storageSnapshot()],
-      backups: state.backups,
+      storages: storageSnapshots(),
+      backupEngines: engineDescriptors(
+        engines, servers, Boolean(multicraft), storages.map((storage) => storage.id),
+      ),
+      backups: state.backups.map(backupPublic),
       schedules: state.schedules,
       maintenance: state.maintenance,
       updates: state.updates || [],
@@ -239,7 +274,7 @@ function createManagementService(config = {}, dependencies = {}) {
   async function refreshBackups() {
     if (!multicraft) return;
     for (const backup of state.backups) {
-      if (!['queued', 'running'].includes(backup.status)) continue;
+      if (backup.engine !== "multicraft" || !['queued', 'running'].includes(backup.status)) continue;
       const server = serverById(backup.serverId);
       if (!server) continue;
       try {
@@ -274,7 +309,7 @@ function createManagementService(config = {}, dependencies = {}) {
     ) || null;
   }
 
-  async function createBackup(server, kind = "manual") {
+  async function createMulticraftBackup(server, kind = "manual") {
     if (!multicraft) throw new Error("Multicraft management is not configured.");
     if (activeBackupFor(server.id)) {
       throw new Error("A backup is already in progress for this server.");
@@ -287,6 +322,9 @@ function createManagementService(config = {}, dependencies = {}) {
       sizeBytes: null,
       status: "queued",
       engine: "multicraft",
+      engineId: "multicraft",
+      engineLabel: "Multicraft",
+      backupType: "server-backup",
       kind,
       verified: false,
       destinations: [],
@@ -309,9 +347,78 @@ function createManagementService(config = {}, dependencies = {}) {
     }
   }
 
+  function requestedStorageIds(engine, payload = {}) {
+    const requested = Array.isArray(payload.destinationIds) ? payload.destinationIds
+      : Array.isArray(payload.destinations) ? payload.destinations : [];
+    const values = requested.length > 0 ? requested : engine.destinationIds;
+    return [...new Set(values.map((value) => String(value).trim()).filter(Boolean))];
+  }
+
+  async function copyBackupToDestinations(backup, storageIds) {
+    if (!backup.localPath) throw new Error("Backup has no local source for copying.");
+    backup.destinationLocators ||= {};
+    for (const storageId of storageIds) {
+      const storage = storageById(storageId);
+      if (!storage) throw new Error(`Unknown backup storage: ${storageId}.`);
+      const result = await copyToStorage(storage, backup.localPath, backup.serverId, dependencies);
+      backup.destinationLocators[storageId] = result.locator;
+      if (!backup.destinations.includes(storageId)) backup.destinations.push(storageId);
+    }
+  }
+
+  async function createConfiguredBackup(server, engine, kind, payload = {}) {
+    if (activeBackupFor(server.id)) throw new Error("A backup is already in progress for this server.");
+    const backup = {
+      id: id("backup"), serverId: server.id, serverName: server.name,
+      createdAt: isoNow(now), sizeBytes: 0, status: "running",
+      engine: engine.type, engineId: engine.id, engineLabel: engine.label,
+      backupType: engine.backupType, kind, verified: false,
+      destinations: [], capabilities: { ...engine.capabilities }, message: null,
+      localPath: null, destinationLocators: {},
+    };
+    state.backups.unshift(backup);
+    persist();
+    try {
+      if (engine.type === "native") {
+        backup.localPath = await createNativeArchive(
+          engine, server, nativeBackupRoot, { ...dependencies, now: now() },
+        );
+        backup.sizeBytes = fs.statSync(backup.localPath).size;
+        await copyBackupToDestinations(backup, requestedStorageIds(engine, payload));
+        backup.status = "completed";
+        backup.message = "AdminCraft Native backup completed.";
+        activity(server, "Backup completed", backup.message);
+      } else {
+        if (!multicraft) throw new Error("Multicraft is required to dispatch backup commands.");
+        await multicraft.sendConsole(server.multicraftServerId, engine.command);
+        backup.status = "unknown";
+        backup.message = "Backup command dispatched; completion is not observable by the central bridge.";
+        activity(server, "Backup command sent", `${engine.label}: ${engine.command}`);
+      }
+      persist();
+      return backup;
+    } catch (error) {
+      backup.status = "failed";
+      backup.message = error.message || "Backup failed.";
+      activity(server, "Backup failed", backup.message, true);
+      persist();
+      throw error;
+    }
+  }
+
+  async function createBackupForServer(server, payload = {}, kind = "manual") {
+    const engineId = String(payload.engineId || payload.engine || server.defaultBackupEngineId || "multicraft").trim();
+    if (engineId === "multicraft") return createMulticraftBackup(server, kind);
+    const engine = engineById(engineId);
+    if (!engine || engine.serverId !== server.id) {
+      throw new Error(`Backup engine ${engineId || "<empty>"} is not available for ${server.id}.`);
+    }
+    return createConfiguredBackup(server, engine, kind, payload);
+  }
+
   async function executeAction(server, action, source = "scheduled") {
     if (!multicraft) throw new Error("Multicraft management is not configured.");
-    if (action === "backup") return createBackup(server, source);
+    if (action === "backup") return createBackupForServer(server, { engineId: server.defaultBackupEngineId }, source);
     if (action === "start") await multicraft.start(server.multicraftServerId);
     else if (action === "stop") await multicraft.stop(server.multicraftServerId);
     else if (action === "restart") await multicraft.restart(server.multicraftServerId);
@@ -383,7 +490,9 @@ function createManagementService(config = {}, dependencies = {}) {
         }
         maintenance.stage = "backup";
         maintenance.message = "Starting safety backup.";
-        const backup = await createBackup(server, "maintenance");
+        const backup = await createBackupForServer(
+          server, { engineId: server.defaultBackupEngineId }, "maintenance",
+        );
         maintenance.backupStarted = true;
         maintenance.backupId = backup.id;
         persist();
@@ -465,6 +574,13 @@ function createManagementService(config = {}, dependencies = {}) {
         config.performanceSampleMilliseconds || process.env.MANAGEMENT_PERFORMANCE_SAMPLE_MS,
         10,
       ) || 300000);
+      const storageProbeInterval = Math.max(
+        60000, Number.parseInt(config.storageProbeMilliseconds || process.env.MANAGEMENT_STORAGE_PROBE_MS, 10) || 300000,
+      );
+      if (now().getTime() - lastStorageProbeAt >= storageProbeInterval) {
+        await refreshStorageMetrics();
+        lastStorageProbeAt = now().getTime();
+      }
       if (now().getTime() - lastPerformanceSampleAt >= sampleInterval) {
         for (const server of servers) await recordPerformance(server);
         lastPerformanceSampleAt = now().getTime();
@@ -516,6 +632,22 @@ function createManagementService(config = {}, dependencies = {}) {
     return backup;
   }
 
+  function engineForBackup(backup) {
+    if (backup.engine === "multicraft") return null;
+    return engineById(backup.engineId || "");
+  }
+
+  function localBackupFile(backup) {
+    if (backup.localPath && fs.existsSync(backup.localPath)) return backup.localPath;
+    for (const destination of backup.destinations || []) {
+      if (typeof destination === "string" && fs.existsSync(destination)) return destination;
+    }
+    for (const locator of Object.values(backup.destinationLocators || {})) {
+      if (typeof locator === "string" && fs.existsSync(locator)) return locator;
+    }
+    return null;
+  }
+
   function response(message, events = []) {
     return {
       success: true,
@@ -542,16 +674,13 @@ function createManagementService(config = {}, dependencies = {}) {
 
       if (action === "backup-create") {
         const server = requireServer(payload);
-        if (payload.engine && payload.engine !== "multicraft") {
-          throw new Error(`Backup engine ${payload.engine} is not available.`);
-        }
-        await createBackup(server, "manual");
+        await createBackupForServer(server, payload, "manual");
         return response("Backup started.", [snapshot()]);
       }
 
       if (action === "backup-verify") {
         const backup = findBackup(payload);
-        const destination = backup.destinations.find((item) => fs.existsSync(item));
+        const destination = localBackupFile(backup);
         if (!destination) throw new Error("Backup file is not locally accessible for verification.");
         const digest = await hashFile(destination);
         backup.verified = true;
@@ -560,8 +689,49 @@ function createManagementService(config = {}, dependencies = {}) {
         return response("Backup verified.", [snapshot()]);
       }
 
-      if (["backup-delete", "backup-restore", "backup-download", "backup-copy"].includes(action)) {
-        throw new Error("This backup operation is not supported by the configured engine.");
+      if (action === "backup-copy") {
+        const backup = findBackup(payload);
+        if (backup.engine !== "native") throw new Error("Copy is only available for AdminCraft Native backups.");
+        const destinationIds = Array.isArray(payload.destinationIds) ? payload.destinationIds : [];
+        if (destinationIds.length === 0) throw new Error("Choose at least one backup destination.");
+        await copyBackupToDestinations(backup, destinationIds);
+        persist();
+        return response("Backup copied.", [snapshot()]);
+      }
+
+      if (action === "backup-delete") {
+        const backup = findBackup(payload);
+        const engine = engineForBackup(backup);
+        if (!engine || backup.engine !== "native") throw new Error("Delete is not supported by this backup engine.");
+        for (const [storageId, locator] of Object.entries(backup.destinationLocators || {})) {
+          const storage = storageById(storageId);
+          if (storage && locator) await deleteFromStorage(storage, locator, dependencies);
+        }
+        if (backup.localPath) await fs.promises.rm(backup.localPath, { force: true });
+        state.backups = state.backups.filter((item) => item.id !== backup.id);
+        activity(serverById(backup.serverId), "Backup deleted", backup.id);
+        persist();
+        return response("Backup deleted.", [snapshot()]);
+      }
+
+      if (action === "backup-restore") {
+        const backup = findBackup(payload);
+        const engine = engineForBackup(backup);
+        const server = serverById(backup.serverId);
+        if (!engine || !server || backup.engine !== "native" || engine.allowRestore !== true) {
+          throw new Error("Restore is not supported by this backup engine.");
+        }
+        const archive = localBackupFile(backup);
+        if (!archive) throw new Error("Backup archive is not locally accessible for restore.");
+        await createConfiguredBackup(server, engine, "pre-restore", {});
+        await restoreNativeArchive(engine, server, archive, multicraft, dependencies);
+        activity(server, "Backup restored", backup.id);
+        persist();
+        return response("Backup restored.", [snapshot()]);
+      }
+
+      if (action === "backup-download") {
+        throw new Error("Direct backup download is not available on this bridge yet.");
       }
 
       if (action === "schedule-create") {

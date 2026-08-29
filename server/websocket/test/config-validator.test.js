@@ -69,3 +69,59 @@ test("preflight rejects management without Multicraft", () => {
   assert.equal(result.ok, false);
   assert.ok(result.errors.some((message) => message.includes("requires MULTICRAFT")));
 });
+test("preflight validates backup storage and engine mappings", () => {
+  const env = validEnv();
+  env.MANAGEMENT_SERVERS_JSON = JSON.stringify([{
+    id: "smp",
+    name: "SMP",
+    multicraftServerId: 1,
+    defaultBackupEngineId: "native-smp",
+  }]);
+  env.BACKUP_STORAGES_JSON = JSON.stringify([{
+    id: "nextcloud",
+    type: "nextcloud",
+    url: "https://cloud.example.test/remote.php/dav/files/admincraft",
+    username: "backup-user",
+    password: "secret",
+  }]);
+  env.BACKUP_ENGINES_JSON = JSON.stringify([{
+    id: "native-smp",
+    type: "native",
+    serverId: "smp",
+    sourcePath: "/srv/minecraft/smp",
+    destinationIds: ["nextcloud"],
+  }]);
+  const result = validateEnvironment(env);
+  assert.equal(result.ok, true);
+  assert.equal(result.backupStorageCount, 1);
+  assert.equal(result.backupEngineCount, 1);
+});
+
+test("preflight rejects unknown default backup engines", () => {
+  const env = validEnv();
+  env.MANAGEMENT_SERVERS_JSON = JSON.stringify([{
+    id: "smp",
+    name: "SMP",
+    multicraftServerId: 1,
+    defaultBackupEngineId: "missing-engine",
+  }]);
+  const result = validateEnvironment(env);
+  assert.equal(result.ok, false);
+  assert.ok(
+    result.errors.some((message) => message.includes("Unknown default backup engine")),
+  );
+});
+
+test("preflight rejects backup engines pointing at unknown storage", () => {
+  const env = validEnv();
+  env.BACKUP_ENGINES_JSON = JSON.stringify([{
+    id: "native-lobby",
+    type: "native",
+    serverId: "lobby",
+    sourcePath: "/srv/minecraft/lobby",
+    destinationIds: ["missing-storage"],
+  }]);
+  const result = validateEnvironment(env);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((message) => message.includes("Unknown backup storage")));
+});

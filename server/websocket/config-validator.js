@@ -1,5 +1,7 @@
 const { parseServers } = require("./management-service");
 const { parseProjects } = require("./update-checker");
+const { parseBackupStorages } = require("./backup-storage");
+const { parseBackupEngines } = require("./backup-engines");
 
 function requireValue(env, key, errors) {
   if (!String(env[key] || "").trim()) errors.push(`${key} is required.`);
@@ -37,6 +39,25 @@ function validateEnvironment(env = process.env) {
     }
   }
 
+  let storages = [];
+  let engines = [];
+  if (managementEnabled && servers.length > 0) {
+    try {
+      storages = parseBackupStorages({ storagesJson: env.BACKUP_STORAGES_JSON });
+      const storageIds = new Set(storages.map((storage) => storage.id));
+      if (String(env.MANAGEMENT_STORAGE_PATH || '').trim()) storageIds.add('management-local');
+      engines = parseBackupEngines({ enginesJson: env.BACKUP_ENGINES_JSON }, servers, storageIds);
+      for (const server of servers) {
+        if (server.defaultBackupEngineId === 'multicraft') continue;
+        if (!engines.some((engine) => engine.id === server.defaultBackupEngineId && engine.serverId === server.id)) {
+          errors.push('Unknown default backup engine for management server ' + server.id + '.');
+        }
+      }
+    } catch (error) {
+      errors.push(error.message);
+    }
+  }
+
   let projects = [];
   try {
     projects = parseProjects(env.UPDATE_PROJECTS_JSON || "");
@@ -56,6 +77,8 @@ function validateEnvironment(env = process.env) {
     errors,
     warnings,
     serverCount: servers.length,
+    backupStorageCount: storages.length,
+    backupEngineCount: engines.length,
     updateProjectCount: projects.length,
   };
 }

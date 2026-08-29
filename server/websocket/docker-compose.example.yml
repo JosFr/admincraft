@@ -6,8 +6,10 @@ services:
       - "8080:8080"
     volumes:
       - admincraft-management:/data
-      # Optional: mount the backup root for capacity and SHA-256 verification.
-      # - /path/to/backups:/backups:ro
+      # Optional: mount backup destinations and Native source paths.
+      # Use read-write only where Native restore/delete is explicitly enabled.
+      # - /srv/minecraft/lobby:/minecraft/lobby:ro
+      # - /srv/backups:/backups
     environment:
       TZ: Europe/Amsterdam
       SERVER_TYPE: java
@@ -21,8 +23,17 @@ services:
       MULTICRAFT_USER: admincraft
       MULTICRAFT_API_KEY: CHANGE_ME
       MULTICRAFT_SERVER_ID: "1"
+      MANAGEMENT_ENABLED: "true"
       MANAGEMENT_STATE_PATH: /data/management-state.json
+      # Legacy single local storage path:
       # MANAGEMENT_STORAGE_PATH: /backups
+      # First-class storage/engine config (examples below):
+      BACKUP_STORAGES_JSON: >-
+        []
+      BACKUP_ENGINES_JSON: >-
+        []
+      # MANAGEMENT_NATIVE_BACKUP_PATH: /data/native-staging
+      # MANAGEMENT_STORAGE_PROBE_MS: "300000"
       MANAGEMENT_SERVERS_JSON: >-
         [{"id":"lobby","name":"Lobby","multicraftServerId":1}]
       # Optional plugin update mappings; keep premium sources explicit.

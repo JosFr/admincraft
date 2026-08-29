@@ -108,10 +108,13 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
       return;
     }
     final fingerprint = _fingerprint(lobby);
-    if (_profileFingerprint == fingerprint && (_connected || _connecting)) return;
+    if (_profileFingerprint == fingerprint && (_connected || _connecting)) {
+      return;
+    }
     _profileFingerprint = fingerprint;
     unawaited(_connect(lobby));
   }
+
   Future<void> _connect(ServerProfile profile) async {
     _teardown(keepRetry: true);
     _connecting = true;
@@ -162,10 +165,13 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
       'edition': profile.edition.name,
       'protocol': 2,
       'logTail': 0,
-      'exp': DateTime.now().add(const Duration(hours: 1)).millisecondsSinceEpoch ~/ 1000,
+      'exp':
+          DateTime.now().add(const Duration(hours: 1)).millisecondsSinceEpoch ~/
+          1000,
     }).sign(SecretKey(profile.secretKey));
     channel.sink.add(jsonEncode({'type': 'admincraft.auth', 'token': jwt}));
   }
+
   void _receive(String raw) {
     Map<String, dynamic> decoded;
     try {
@@ -184,8 +190,9 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
             : {};
         _bridgeVersion = decoded['version']?.toString();
         _bridgeScope = decoded['scope']?.toString();
-        _bridgeConnectedAt =
-            DateTime.tryParse(decoded['connectedAt']?.toString() ?? '')?.toLocal();
+        _bridgeConnectedAt = DateTime.tryParse(
+          decoded['connectedAt']?.toString() ?? '',
+        )?.toLocal();
         _connecting = false;
         _connected = true;
         _error = null;
@@ -217,9 +224,9 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         final rawSamples = decoded['samples'];
         _performance = rawSamples is List
             ? rawSamples
-                .whereType<Map<String, dynamic>>()
-                .map(PerformanceSample.fromJson)
-                .toList()
+                  .whereType<Map<String, dynamic>>()
+                  .map(PerformanceSample.fromJson)
+                  .toList()
             : const [];
         notifyListeners();
         return;
@@ -254,6 +261,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         return;
     }
   }
+
   void _updateNetwork(NetworkSnapshot next) {
     final previousByName = {
       for (final server in _snapshot.servers) server.name: server,
@@ -293,9 +301,8 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         .map((entry) => entry.uuid)
         .toSet();
     final hadState = _access.isNotEmpty;
-    _access = [...next]..sort(
-      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-    );
+    _access = [...next]
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
     if (notifications.ruleEnabled(NotificationRule.accessRequests)) {
       final pending = _access
@@ -322,6 +329,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     }
     notifyListeners();
   }
+
   bool executeAccessAction(String action, String uuid) {
     if (!_connected || !accessAvailable) return false;
     _channel?.sink.add('admincraft access $action $uuid');
@@ -349,8 +357,15 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
 
   bool refreshManagement() => _manage('snapshot');
 
-  bool createBackup(String serverId, {String engine = 'multicraft'}) =>
-      _manage('backup-create', {'serverId': serverId, 'engine': engine});
+  bool createBackup(
+    String serverId, {
+    String engineId = 'multicraft',
+    List<String> destinationIds = const [],
+  }) => _manage('backup-create', {
+    'serverId': serverId,
+    'engineId': engineId,
+    if (destinationIds.isNotEmpty) 'destinationIds': destinationIds,
+  });
 
   bool deleteBackup(String backupId) =>
       _manage('backup-delete', {'backupId': backupId});
@@ -364,8 +379,10 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   bool verifyBackup(String backupId) =>
       _manage('backup-verify', {'backupId': backupId});
 
-  bool copyBackup(String backupId) =>
-      _manage('backup-copy', {'backupId': backupId});
+  bool copyBackup(String backupId, List<String> destinationIds) => _manage(
+    'backup-copy',
+    {'backupId': backupId, 'destinationIds': destinationIds},
+  );
 
   bool createSchedule({
     required String serverId,
@@ -380,8 +397,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   bool toggleSchedule(String id, bool enabled) =>
       _manage('schedule-toggle', {'id': id, 'enabled': enabled});
 
-  bool deleteSchedule(String id) =>
-      _manage('schedule-delete', {'id': id});
+  bool deleteSchedule(String id) => _manage('schedule-delete', {'id': id});
 
   bool startMaintenance(
     String serverId, {
@@ -414,12 +430,17 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
 
   void _syncPushRegistration() {
     final controller = push;
-    if (!_connected || controller == null || !_capabilities.contains('push')) return;
+    if (!_connected || controller == null || !_capabilities.contains('push')) {
+      return;
+    }
     final token = controller.token;
     final topic = controller.bundleId;
-    if (token == null || token.isEmpty || topic == null || topic.isEmpty) return;
+    if (token == null || token.isEmpty || topic == null || topic.isEmpty) {
+      return;
+    }
     final rules = {
-      for (final rule in NotificationRule.values) rule.name: notifications.ruleEnabled(rule),
+      for (final rule in NotificationRule.values)
+        rule.name: notifications.ruleEnabled(rule),
     };
     final payload = {
       'token': token,
@@ -429,7 +450,9 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     };
     final fingerprint = jsonEncode(payload);
     if (_pushRegistrationFingerprint == fingerprint) return;
-    final encoded = base64Url.encode(utf8.encode(fingerprint)).replaceAll('=', '');
+    final encoded = base64Url
+        .encode(utf8.encode(fingerprint))
+        .replaceAll('=', '');
     _channel?.sink.add('admincraft push-register $encoded');
     _pushRegistrationFingerprint = fingerprint;
   }
@@ -485,6 +508,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     _managementMessage = null;
     _managementSuccess = null;
   }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {

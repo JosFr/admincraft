@@ -1,6 +1,15 @@
 enum BackupEngineType { multicraft, native, plugin, custom }
 
-enum StorageProviderType { local, nextcloud, webdav, smb, nfs, sftp, s3, rclone }
+enum StorageProviderType {
+  local,
+  nextcloud,
+  webdav,
+  smb,
+  nfs,
+  sftp,
+  s3,
+  rclone,
+}
 
 enum BackupStatus { queued, running, completed, failed, verifying, unknown }
 
@@ -8,7 +17,13 @@ enum ScheduledActionType { start, stop, restart, backup, maintenance }
 
 enum UpdateProvider { hangar, modrinth, spigot, builtByBit, github }
 
-enum PluginUpdateStatus { current, updateAvailable, unmanaged, sourceUnavailable, checking }
+enum PluginUpdateStatus {
+  current,
+  updateAvailable,
+  unmanaged,
+  sourceUnavailable,
+  checking,
+}
 
 T _enumByName<T extends Enum>(Iterable<T> values, Object? raw, T fallback) {
   final name = raw?.toString();
@@ -40,24 +55,23 @@ class BackupStorageSnapshot {
     required this.criticalFreePercent,
   });
 
-  factory BackupStorageSnapshot.fromJson(Map<String, dynamic> json) =>
-      BackupStorageSnapshot(
-        id: json['id']?.toString() ?? '',
-        name: json['name']?.toString() ?? 'Storage',
-        type: _enumByName(
-          StorageProviderType.values,
-          json['type'],
-          StorageProviderType.local,
-        ),
-        totalBytes: (json['totalBytes'] as num?)?.toInt(),
-        freeBytes: (json['freeBytes'] as num?)?.toInt(),
-        backupBytes: (json['backupBytes'] as num?)?.toInt() ?? 0,
-        softLimitBytes: (json['softLimitBytes'] as num?)?.toInt(),
-        warningFreePercent:
-            (json['warningFreePercent'] as num?)?.toDouble() ?? 15,
-        criticalFreePercent:
-            (json['criticalFreePercent'] as num?)?.toDouble() ?? 5,
-      );
+  factory BackupStorageSnapshot.fromJson(
+    Map<String, dynamic> json,
+  ) => BackupStorageSnapshot(
+    id: json['id']?.toString() ?? '',
+    name: json['name']?.toString() ?? 'Storage',
+    type: _enumByName(
+      StorageProviderType.values,
+      json['type'],
+      StorageProviderType.local,
+    ),
+    totalBytes: (json['totalBytes'] as num?)?.toInt(),
+    freeBytes: (json['freeBytes'] as num?)?.toInt(),
+    backupBytes: (json['backupBytes'] as num?)?.toInt() ?? 0,
+    softLimitBytes: (json['softLimitBytes'] as num?)?.toInt(),
+    warningFreePercent: (json['warningFreePercent'] as num?)?.toDouble() ?? 15,
+    criticalFreePercent: (json['criticalFreePercent'] as num?)?.toDouble() ?? 5,
+  );
 
   int? get usedBytes =>
       totalBytes == null || freeBytes == null ? null : totalBytes! - freeBytes!;
@@ -66,20 +80,19 @@ class BackupStorageSnapshot {
       : (usedBytes! - backupBytes).clamp(0, usedBytes!).toInt();
   double? get usedFraction =>
       totalBytes == null || totalBytes == 0 || usedBytes == null
-          ? null
-          : usedBytes! / totalBytes!;
+      ? null
+      : usedBytes! / totalBytes!;
 
   double? get freePercent =>
       totalBytes == null || totalBytes == 0 || freeBytes == null
-          ? null
-          : freeBytes! * 100 / totalBytes!;
+      ? null
+      : freeBytes! * 100 / totalBytes!;
 
   bool get critical =>
       freePercent != null && freePercent! <= criticalFreePercent;
   bool get warning =>
       !critical && freePercent != null && freePercent! <= warningFreePercent;
 }
-
 
 class BackupCapabilities {
   final bool create;
@@ -123,6 +136,58 @@ class BackupCapabilities {
   bool get hasRecordActions => restore || download || delete || verify || copy;
 }
 
+class BackupEngineDescriptor {
+  final String id;
+  final BackupEngineType type;
+  final String label;
+  final String backupType;
+  final List<String> serverIds;
+  final List<String> destinationIds;
+  final List<String> availableDestinationIds;
+  final BackupCapabilities capabilities;
+
+  const BackupEngineDescriptor({
+    required this.id,
+    required this.type,
+    required this.label,
+    required this.backupType,
+    required this.serverIds,
+    required this.destinationIds,
+    required this.availableDestinationIds,
+    required this.capabilities,
+  });
+
+  factory BackupEngineDescriptor.fromJson(Map<String, dynamic> json) =>
+      BackupEngineDescriptor(
+        id: json['id']?.toString() ?? '',
+        type: _enumByName(
+          BackupEngineType.values,
+          json['type'],
+          BackupEngineType.multicraft,
+        ),
+        label: json['label']?.toString() ?? 'Backup engine',
+        backupType: json['backupType']?.toString() ?? 'server-backup',
+        serverIds: json['serverIds'] is List
+            ? (json['serverIds'] as List)
+                  .map((value) => value.toString())
+                  .toList()
+            : const [],
+        destinationIds: json['destinationIds'] is List
+            ? (json['destinationIds'] as List)
+                  .map((value) => value.toString())
+                  .toList()
+            : const [],
+        availableDestinationIds: json['availableDestinationIds'] is List
+            ? (json['availableDestinationIds'] as List)
+                  .map((value) => value.toString())
+                  .toList()
+            : const [],
+        capabilities: BackupCapabilities.fromJson(json['capabilities']),
+      );
+
+  bool supportsServer(String serverId) => serverIds.contains(serverId);
+}
+
 class BackupRecord {
   final String id;
   final String serverId;
@@ -131,6 +196,9 @@ class BackupRecord {
   final int sizeBytes;
   final BackupStatus status;
   final BackupEngineType engine;
+  final String engineId;
+  final String engineLabel;
+  final String backupType;
   final String kind;
   final bool verified;
   final List<String> destinations;
@@ -145,6 +213,9 @@ class BackupRecord {
     required this.sizeBytes,
     required this.status,
     required this.engine,
+    required this.engineId,
+    required this.engineLabel,
+    required this.backupType,
     required this.kind,
     required this.verified,
     required this.destinations,
@@ -153,30 +224,39 @@ class BackupRecord {
   });
 
   factory BackupRecord.fromJson(Map<String, dynamic> json) => BackupRecord(
-        id: json['id']?.toString() ?? '',
-        serverId: json['serverId']?.toString() ?? '',
-        serverName: json['serverName']?.toString() ?? 'Server',
-        createdAt: DateTime.tryParse(json['createdAt']?.toString() ?? '')?.toLocal() ??
-            DateTime.fromMillisecondsSinceEpoch(0),
-        sizeBytes: (json['sizeBytes'] as num?)?.toInt() ?? 0,
-        status: _enumByName(
-          BackupStatus.values,
-          json['status'],
-          BackupStatus.unknown,
-        ),
-        engine: _enumByName(
-          BackupEngineType.values,
-          json['engine'],
-          BackupEngineType.multicraft,
-        ),
-        kind: json['kind']?.toString() ?? 'manual',
-        verified: json['verified'] == true,
-        destinations: json['destinations'] is List
-            ? (json['destinations'] as List).map((value) => value.toString()).toList()
-            : const [],
-        capabilities: BackupCapabilities.fromJson(json['capabilities']),
-        message: json['message']?.toString(),
-      );
+    id: json['id']?.toString() ?? '',
+    serverId: json['serverId']?.toString() ?? '',
+    serverName: json['serverName']?.toString() ?? 'Server',
+    createdAt:
+        DateTime.tryParse(json['createdAt']?.toString() ?? '')?.toLocal() ??
+        DateTime.fromMillisecondsSinceEpoch(0),
+    sizeBytes: (json['sizeBytes'] as num?)?.toInt() ?? 0,
+    status: _enumByName(
+      BackupStatus.values,
+      json['status'],
+      BackupStatus.unknown,
+    ),
+    engine: _enumByName(
+      BackupEngineType.values,
+      json['engine'],
+      BackupEngineType.multicraft,
+    ),
+    engineId:
+        json['engineId']?.toString() ??
+        json['engine']?.toString() ??
+        'multicraft',
+    engineLabel: json['engineLabel']?.toString() ?? '',
+    backupType: json['backupType']?.toString() ?? 'server-backup',
+    kind: json['kind']?.toString() ?? 'manual',
+    verified: json['verified'] == true,
+    destinations: json['destinations'] is List
+        ? (json['destinations'] as List)
+              .map((value) => value.toString())
+              .toList()
+        : const [],
+    capabilities: BackupCapabilities.fromJson(json['capabilities']),
+    message: json['message']?.toString(),
+  );
 }
 
 class ScheduledAction {
@@ -211,7 +291,9 @@ class ScheduledAction {
           ScheduledActionType.restart,
         ),
         schedule: json['schedule']?.toString() ?? '',
-        nextRun: DateTime.tryParse(json['nextRun']?.toString() ?? '')?.toLocal(),
+        nextRun: DateTime.tryParse(
+          json['nextRun']?.toString() ?? '',
+        )?.toLocal(),
         enabled: json['enabled'] != false,
         lastResult: json['lastResult']?.toString(),
       );
@@ -266,7 +348,8 @@ class PerformanceSample {
   factory PerformanceSample.fromJson(Map<String, dynamic> json) =>
       PerformanceSample(
         serverId: json['serverId']?.toString() ?? '',
-        at: DateTime.tryParse(json['at']?.toString() ?? '')?.toLocal() ??
+        at:
+            DateTime.tryParse(json['at']?.toString() ?? '')?.toLocal() ??
             DateTime.fromMillisecondsSinceEpoch(0),
         tps: (json['tps'] as num?)?.toDouble(),
         mspt: (json['mspt'] as num?)?.toDouble(),
@@ -346,7 +429,8 @@ class ManagementActivity {
   factory ManagementActivity.fromJson(Map<String, dynamic> json) =>
       ManagementActivity(
         id: json['id']?.toString() ?? '',
-        at: DateTime.tryParse(json['at']?.toString() ?? '')?.toLocal() ??
+        at:
+            DateTime.tryParse(json['at']?.toString() ?? '')?.toLocal() ??
             DateTime.fromMillisecondsSinceEpoch(0),
         serverName: json['serverName']?.toString() ?? 'Network',
         title: json['title']?.toString() ?? 'Activity',
@@ -358,6 +442,7 @@ class ManagementActivity {
 class ManagementSnapshot {
   final DateTime? observedAt;
   final List<BackupStorageSnapshot> storages;
+  final List<BackupEngineDescriptor> backupEngines;
   final List<BackupRecord> backups;
   final List<ScheduledAction> schedules;
   final List<MaintenanceState> maintenance;
@@ -367,6 +452,7 @@ class ManagementSnapshot {
   const ManagementSnapshot({
     this.observedAt,
     this.storages = const [],
+    this.backupEngines = const [],
     this.backups = const [],
     this.schedules = const [],
     this.maintenance = const [],
@@ -381,8 +467,14 @@ class ManagementSnapshot {
     }
 
     return ManagementSnapshot(
-      observedAt: DateTime.tryParse(json['observedAt']?.toString() ?? '')?.toLocal(),
+      observedAt: DateTime.tryParse(
+        json['observedAt']?.toString() ?? '',
+      )?.toLocal(),
       storages: parseList('storages', BackupStorageSnapshot.fromJson),
+      backupEngines: parseList(
+        'backupEngines',
+        BackupEngineDescriptor.fromJson,
+      ),
       backups: parseList('backups', BackupRecord.fromJson),
       schedules: parseList('schedules', ScheduledAction.fromJson),
       maintenance: parseList('maintenance', MaintenanceState.fromJson),
@@ -399,6 +491,19 @@ extension UpdateProviderLabel on UpdateProvider {
     UpdateProvider.spigot => 'Spigot',
     UpdateProvider.builtByBit => 'BuiltByBit',
     UpdateProvider.github => 'GitHub Releases',
+  };
+}
+
+extension StorageProviderLabel on StorageProviderType {
+  String get label => switch (this) {
+    StorageProviderType.local => 'Local filesystem',
+    StorageProviderType.nextcloud => 'Nextcloud',
+    StorageProviderType.webdav => 'WebDAV',
+    StorageProviderType.smb => 'SMB',
+    StorageProviderType.nfs => 'NFS',
+    StorageProviderType.sftp => 'SFTP',
+    StorageProviderType.s3 => 'S3-compatible',
+    StorageProviderType.rclone => 'rclone remote',
   };
 }
 

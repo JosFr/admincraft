@@ -249,3 +249,69 @@ test("management server mappings fail closed when invalid or duplicated", () => 
   assert.throws(() => parseServers({ serversJson: JSON.stringify([{ id: "lobby", multicraftServerId: 1 }, { id: "lobby", multicraftServerId: 2 }]) }), /Duplicate management server ID/u);
   assert.throws(() => parseServers({ serversJson: JSON.stringify([{ id: "lobby", multicraftServerId: 1 }, { id: "smp", multicraftServerId: 1 }]) }), /Duplicate Multicraft server ID/u);
 });
+
+test("AdminCraft Native backup copies to configured local storage", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "admincraft-native-"));
+  try {
+    const source = path.join(dir, "server");
+    const staging = path.join(dir, "staging");
+    const destination = path.join(dir, "destination");
+    fs.mkdirSync(source, { recursive: true });
+    fs.writeFileSync(path.join(source, "server.properties"), "motd=test", "utf8");
+    const service = createManagementService({
+      serversJson: JSON.stringify([{
+        id: "lobby",
+        name: "Lobby",
+        multicraftServerId: 7,
+        defaultBackupEngineId: "native-lobby",
+      }]),
+      statePath: path.join(dir, "state.json"),
+      nativeBackupPath: staging,
+      storagesJson: JSON.stringify([{
+        id: "local",
+        name: "Local backup disk",
+        type: "local",
+        path: destination,
+      }]),
+      enginesJson: JSON.stringify([{
+        id: "native-lobby",
+        type: "native",
+        serverId: "lobby",
+        label: "AdminCraft Native",
+        sourcePath: source,
+        destinationIds: ["local"],
+      }]),
+    }, {
+      multicraft: {},
+      execFile: async (command, args) => {
+        assert.equal(command, "tar");
+        const output = args[1];
+        fs.mkdirSync(path.dirname(output), { recursive: true });
+        fs.writeFileSync(output, "native-archive", "utf8");
+        return { stdout: "", stderr: "" };
+      },
+    });
+
+    const result = await service.handle("backup-create", {
+      serverId: "lobby",
+      engineId: "native-lobby",
+    });
+    assert.equal(result.success, true);
+    const backup = service.snapshot().backups[0];
+    assert.equal(backup.engine, "native");
+    assert.equal(backup.status, "completed");
+    assert.deepEqual(backup.destinations, ["local"]);
+    assert.equal(backup.capabilities.verify, true);
+    assert.equal(backup.capabilities.delete, true);
+    assert.equal(Object.hasOwn(backup, "localPath"), false);
+    assert.equal(Object.hasOwn(backup, "destinationLocators"), false);
+    const copied = fs.readdirSync(path.join(destination, "lobby"));
+    assert.equal(copied.length, 1);
+    assert.equal(
+      fs.readFileSync(path.join(destination, "lobby", copied[0]), "utf8"),
+      "native-archive",
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
