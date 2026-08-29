@@ -87,6 +87,10 @@ extension on _WorkspaceDestination {
     _WorkspaceDestination.serverTools => true,
     _WorkspaceDestination.servers ||
     _WorkspaceDestination.network ||
+    _WorkspaceDestination.networkActivity ||
+    _WorkspaceDestination.networkBackups ||
+    _WorkspaceDestination.networkSchedules ||
+    _WorkspaceDestination.networkUpdates ||
     _WorkspaceDestination.serverEditor ||
     _WorkspaceDestination.dataSync ||
     _WorkspaceDestination.preferences ||
