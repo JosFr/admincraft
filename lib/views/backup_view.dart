@@ -49,7 +49,15 @@ class BackupView extends StatelessWidget {
           if (snapshot.storages.isNotEmpty) ...[
             Text('Storage', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
-            ...snapshot.storages.map((storage) => _StorageCard(storage: storage)),
+            ...snapshot.storages.map((storage) => _StorageCard(
+                  storage: storage,
+                  backups: snapshot.backups,
+                  storageCount: snapshot.storages.length,
+                )),
+            const SizedBox(height: 12),
+          ],
+          if (serverId == null && backups.isNotEmpty) ...[
+            _BackupFootprintCard(backups: backups),
             const SizedBox(height: 12),
           ],
           Row(
@@ -263,13 +271,23 @@ class _InfoCard extends StatelessWidget {
 
 class _StorageCard extends StatelessWidget {
   final BackupStorageSnapshot storage;
+  final List<BackupRecord> backups;
+  final int storageCount;
 
-  const _StorageCard({required this.storage});
+  const _StorageCard({
+    required this.storage,
+    required this.backups,
+    required this.storageCount,
+  });
 
   @override
   Widget build(BuildContext context) {
     final used = storage.usedBytes;
     final fraction = storage.usedFraction;
+    final recentBytes = _recentBackupBytes(storage, backups, storageCount);
+    final weeksRemaining = recentBytes > 0 && storage.freeBytes != null
+        ? storage.freeBytes! / recentBytes
+        : null;
     final color = storage.critical
         ? Theme.of(context).colorScheme.error
         : storage.warning
@@ -306,7 +324,6 @@ class _StorageCard extends StatelessWidget {
             Text(
               used == null || storage.totalBytes == null
                   ? '${_formatBytes(storage.backupBytes)} in backups'
-
                   : '${_formatBytes(used)} used of '
                       '${_formatBytes(storage.totalBytes!)} · '
                       '${_formatBytes(storage.freeBytes ?? 0)} free',
@@ -316,6 +333,93 @@ class _StorageCard extends StatelessWidget {
                 '${_formatBytes(storage.backupBytes)} backups · '
                 '${_formatBytes(storage.otherBytes!)} other data',
                 style: Theme.of(context).textTheme.bodySmall,
+              ),
+            if (storage.softLimitBytes != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Backup soft limit: ${_formatBytes(storage.softLimitBytes!)}'
+                '${storage.backupBytes >= storage.softLimitBytes! ? ' · reached' : ''}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+            if (recentBytes > 0) ...[
+              const SizedBox(height: 6),
+              Text(
+                '${_formatBytes(recentBytes)} of completed backups created in the last 7 days',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              if (weeksRemaining != null)
+                Text(
+                  _weeksRemainingLabel(weeksRemaining),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+            ],
+            if (storage.critical || storage.warning ||
+                (storage.softLimitBytes != null &&
+                    storage.backupBytes >= storage.softLimitBytes!)) ...[
+              const SizedBox(height: 10),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(10),
+                  child: Text(
+                    storage.critical
+                        ? 'Critical: storage is below the configured free-space threshold.'
+                        : storage.warning
+                            ? 'Warning: storage is approaching the configured free-space threshold.'
+                            : 'Warning: backup storage has reached its configured soft limit.',
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _BackupFootprintCard extends StatelessWidget {
+  final List<BackupRecord> backups;
+
+  const _BackupFootprintCard({required this.backups});
+
+  @override
+  Widget build(BuildContext context) {
+    final totals = <String, int>{};
+    for (final backup in backups) {
+      if (backup.status != BackupStatus.completed) continue;
+      totals.update(
+        backup.serverName,
+        (value) => value + backup.sizeBytes,
+        ifAbsent: () => backup.sizeBytes,
+      );
+    }
+    final rows = totals.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    if (rows.isEmpty) return const SizedBox.shrink();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Backup footprint by server',
+                style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            for (final row in rows)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 6),
+                child: Row(
+                  children: [
+                    Expanded(child: Text(row.key)),
+                    Text(_formatBytes(row.value)),
+                  ],
+                ),
               ),
           ],
         ),
@@ -487,6 +591,39 @@ class _DetailChip extends StatelessWidget {
         label: Text(label),
         visualDensity: VisualDensity.compact,
       );
+}
+
+int _recentBackupBytes(
+  BackupStorageSnapshot storage,
+  List<BackupRecord> backups,
+  int storageCount,
+) {
+  final cutoff = DateTime.now().subtract(const Duration(days: 7));
+  var total = 0;
+  for (final backup in backups) {
+    if (backup.status != BackupStatus.completed || backup.createdAt.isBefore(cutoff)) {
+      continue;
+    }
+    final destinations = backup.destinations
+        .map((value) => value.trim().toLowerCase())
+        .where((value) => value.isNotEmpty)
+        .toSet();
+    final storageId = storage.id.trim().toLowerCase();
+    final storageName = storage.name.trim().toLowerCase();
+    final matched = destinations.contains(storageId) || destinations.contains(storageName);
+    final implicitSingleStorage = storageCount == 1 && destinations.isEmpty;
+    if (matched || implicitSingleStorage) total += backup.sizeBytes;
+  }
+  return total;
+}
+
+String _weeksRemainingLabel(double weeks) {
+  if (!weeks.isFinite) return 'Capacity forecast unavailable';
+  if (weeks < 1) return 'Estimated capacity: less than 1 week at the current backup creation pace';
+  if (weeks < 10) {
+    return 'Estimated capacity: ${weeks.toStringAsFixed(1)} weeks at the current backup creation pace';
+  }
+  return 'Estimated capacity: ${weeks.round()} weeks at the current backup creation pace';
 }
 
 String _formatBytes(int bytes) {
