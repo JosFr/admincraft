@@ -146,4 +146,43 @@ void main() {
     expect(snapshot.retention.forServer('smp').enforce, isTrue);
     expect(snapshot.retention.summaryFor('smp')?.prunable, 3);
   });
+  test('parses one-time schedules and job history', () {
+    final snapshot = ManagementSnapshot.fromJson({
+      'schedules': [
+        {
+          'id': 'once-1',
+          'serverId': 'smp',
+          'serverName': 'SMP',
+          'action': 'restart',
+          'schedule': '',
+          'recurring': false,
+          'runAt': '2026-08-30T19:00:00Z',
+          'nextRun': '2026-08-30T19:00:00Z',
+          'enabled': true,
+        },
+      ],
+      'jobHistory': [
+        {
+          'id': 'job-1',
+          'scheduleId': 'once-1',
+          'serverId': 'smp',
+          'serverName': 'SMP',
+          'action': 'restart',
+          'source': 'scheduled',
+          'startedAt': '2026-08-30T19:00:00Z',
+          'finishedAt': '2026-08-30T19:00:02Z',
+          'success': true,
+          'message': 'restart completed.',
+        },
+      ],
+    });
+    final schedule = snapshot.schedules.single;
+    expect(schedule.recurring, isFalse);
+    expect(schedule.runAt, isNotNull);
+    final job = snapshot.jobHistory.single;
+    expect(job.scheduleId, 'once-1');
+    expect(job.action, ScheduledActionType.restart);
+    expect(job.success, isTrue);
+    expect(job.message, 'restart completed.');
+  });
 }

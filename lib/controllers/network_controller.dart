@@ -387,11 +387,13 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   bool createSchedule({
     required String serverId,
     required String action,
-    required String schedule,
+    String schedule = '',
+    DateTime? runAt,
   }) => _manage('schedule-create', {
     'serverId': serverId,
     'action': action,
-    'schedule': schedule,
+    if (schedule.isNotEmpty) 'schedule': schedule,
+    if (runAt != null) 'runAt': runAt.toUtc().toIso8601String(),
   });
 
   bool toggleSchedule(String id, bool enabled) =>

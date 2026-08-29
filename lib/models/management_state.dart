@@ -271,6 +271,8 @@ class ScheduledAction {
   final String serverName;
   final ScheduledActionType action;
   final String schedule;
+  final bool recurring;
+  final DateTime? runAt;
   final DateTime? nextRun;
   final bool enabled;
   final String? lastResult;
@@ -281,6 +283,8 @@ class ScheduledAction {
     required this.serverName,
     required this.action,
     required this.schedule,
+    this.recurring = true,
+    this.runAt,
     required this.nextRun,
     required this.enabled,
     this.lastResult,
@@ -297,11 +301,61 @@ class ScheduledAction {
           ScheduledActionType.restart,
         ),
         schedule: json['schedule']?.toString() ?? '',
+        recurring: json['recurring'] != false,
+        runAt: DateTime.tryParse(json['runAt']?.toString() ?? '')?.toLocal(),
         nextRun: DateTime.tryParse(
           json['nextRun']?.toString() ?? '',
         )?.toLocal(),
         enabled: json['enabled'] != false,
         lastResult: json['lastResult']?.toString(),
+      );
+}
+
+class ScheduledJobHistory {
+  final String id;
+  final String? scheduleId;
+  final String serverId;
+  final String serverName;
+  final ScheduledActionType action;
+  final String source;
+  final DateTime startedAt;
+  final DateTime? finishedAt;
+  final bool? success;
+  final String message;
+
+  const ScheduledJobHistory({
+    required this.id,
+    required this.scheduleId,
+    required this.serverId,
+    required this.serverName,
+    required this.action,
+    required this.source,
+    required this.startedAt,
+    required this.finishedAt,
+    required this.success,
+    required this.message,
+  });
+
+  factory ScheduledJobHistory.fromJson(Map<String, dynamic> json) =>
+      ScheduledJobHistory(
+        id: json['id']?.toString() ?? '',
+        scheduleId: json['scheduleId']?.toString(),
+        serverId: json['serverId']?.toString() ?? '',
+        serverName: json['serverName']?.toString() ?? 'Server',
+        action: _enumByName(
+          ScheduledActionType.values,
+          json['action'],
+          ScheduledActionType.restart,
+        ),
+        source: json['source']?.toString() ?? 'scheduled',
+        startedAt:
+            DateTime.tryParse(json['startedAt']?.toString() ?? '')?.toLocal() ??
+            DateTime.fromMillisecondsSinceEpoch(0),
+        finishedAt: DateTime.tryParse(
+          json['finishedAt']?.toString() ?? '',
+        )?.toLocal(),
+        success: json['success'] is bool ? json['success'] as bool : null,
+        message: json['message']?.toString() ?? '',
       );
 }
 
@@ -541,6 +595,7 @@ class ManagementSnapshot {
   final List<BackupEngineDescriptor> backupEngines;
   final List<BackupRecord> backups;
   final List<ScheduledAction> schedules;
+  final List<ScheduledJobHistory> jobHistory;
   final List<MaintenanceState> maintenance;
   final List<PluginUpdate> updates;
   final List<ManagementActivity> activity;
@@ -552,6 +607,7 @@ class ManagementSnapshot {
     this.backupEngines = const [],
     this.backups = const [],
     this.schedules = const [],
+    this.jobHistory = const [],
     this.maintenance = const [],
     this.updates = const [],
     this.activity = const [],
@@ -575,6 +631,7 @@ class ManagementSnapshot {
       ),
       backups: parseList('backups', BackupRecord.fromJson),
       schedules: parseList('schedules', ScheduledAction.fromJson),
+      jobHistory: parseList('jobHistory', ScheduledJobHistory.fromJson),
       maintenance: parseList('maintenance', MaintenanceState.fromJson),
       updates: parseList('updates', PluginUpdate.fromJson),
       activity: parseList('activity', ManagementActivity.fromJson),

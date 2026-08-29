@@ -156,3 +156,11 @@ Configure retention with `BACKUP_RETENTION_JSON`. Global defaults can be overrid
 A storage destination can also define `minimumFreeBytes` (for example 150 GiB = `161061273600`). When the provider reports free capacity at or below that value, a new AdminCraft Native backup targeting that destination is blocked before the archive is created. `softLimitBytes` remains available for providers where a real quota is absent or unreliable.
 
 Retention never makes unsupported Multicraft/plugin/custom backups deletable. AdminCraft does not silently remove backups outside the configured retention rules.
+
+## Scheduled actions and job history
+
+RC4 schedules are persisted in the management state and execute on the bridge, not in the mobile/desktop client. Supported actions are start, stop, restart, backup and maintenance.
+
+Recurring schedules use the documented safe five-field cron subset in the bridge timezone. One-time schedules use an absolute future `runAt` timestamp and disable themselves after execution.
+
+Every scheduled execution creates a bounded persistent `jobHistory` record with server, action, source, start/end timestamps and success/failure details. The client shows this history below the active schedule list, so failed jobs remain visible after the next refresh.

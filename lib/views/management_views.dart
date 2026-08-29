@@ -68,7 +68,9 @@ class SchedulesView extends StatelessWidget {
     }
     final scheduleController = TextEditingController();
     var action = ScheduledActionType.restart;
+    var recurring = true;
     var preset = 'custom';
+    var runAt = DateTime.now().add(const Duration(hours: 1));
 
     final created = await showDialog<bool>(
       context: context,
@@ -114,49 +116,100 @@ class SchedulesView extends StatelessWidget {
                   },
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  initialValue: preset,
-                  decoration: const InputDecoration(labelText: 'Cron preset'),
-                  items: const [
-                    DropdownMenuItem(value: 'custom', child: Text('Custom')),
-                    DropdownMenuItem(
-                      value: 'daily4',
-                      child: Text('Daily at 04:00'),
+                SegmentedButton<bool>(
+                  segments: const [
+                    ButtonSegment(
+                      value: true,
+                      label: Text('Recurring'),
+                      icon: Icon(Icons.repeat),
                     ),
-                    DropdownMenuItem(
-                      value: 'weekly4',
-                      child: Text('Sunday at 04:00'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'sixhour',
-                      child: Text('Every 6 hours'),
+                    ButtonSegment(
+                      value: false,
+                      label: Text('One-time'),
+                      icon: Icon(Icons.event_outlined),
                     ),
                   ],
-                  onChanged: (value) {
-                    if (value == null) return;
-                    setState(() {
-                      preset = value;
-                      scheduleController.text = switch (value) {
-                        'daily4' => '0 4 * * *',
-                        'weekly4' => '0 4 * * 0',
-                        'sixhour' => '0 */6 * * *',
-                        _ => scheduleController.text,
-                      };
-                    });
-                  },
+                  selected: {recurring},
+                  onSelectionChanged: (value) =>
+                      setState(() => recurring = value.first),
                 ),
                 const SizedBox(height: 12),
-                TextField(
-                  controller: scheduleController,
-                  decoration: const InputDecoration(
-                    labelText: 'Schedule expression',
-                    hintText: 'Cron or backend-supported expression',
-                    helperText: 'Cron uses the bridge/server timezone.',
+                if (recurring) ...[
+                  DropdownButtonFormField<String>(
+                    initialValue: preset,
+                    decoration: const InputDecoration(labelText: 'Cron preset'),
+                    items: const [
+                      DropdownMenuItem(value: 'custom', child: Text('Custom')),
+                      DropdownMenuItem(
+                        value: 'daily4',
+                        child: Text('Daily at 04:00'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'weekly4',
+                        child: Text('Sunday at 04:00'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'sixhour',
+                        child: Text('Every 6 hours'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) return;
+                      setState(() {
+                        preset = value;
+                        scheduleController.text = switch (value) {
+                          'daily4' => '0 4 * * *',
+                          'weekly4' => '0 4 * * 0',
+                          'sixhour' => '0 */6 * * *',
+                          _ => scheduleController.text,
+                        };
+                      });
+                    },
                   ),
-                  onChanged: (_) {
-                    if (preset != 'custom') setState(() => preset = 'custom');
-                  },
-                ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: scheduleController,
+                    decoration: const InputDecoration(
+                      labelText: 'Schedule expression',
+                      hintText: '0 4 * * *',
+                      helperText: 'Cron uses the bridge/server timezone.',
+                    ),
+                    onChanged: (_) {
+                      if (preset != 'custom') setState(() => preset = 'custom');
+                    },
+                  ),
+                ] else ...[
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.event_outlined),
+                    title: const Text('Run once at'),
+                    subtitle: Text(_formatDateTime(runAt)),
+                    trailing: const Icon(Icons.edit_calendar_outlined),
+                    onTap: () async {
+                      final date = await showDatePicker(
+                        context: context,
+                        initialDate: runAt,
+                        firstDate: DateTime.now(),
+                        lastDate: DateTime.now().add(const Duration(days: 366)),
+                      );
+                      if (date == null || !context.mounted) return;
+                      final time = await showTimePicker(
+                        context: context,
+                        initialTime: TimeOfDay.fromDateTime(runAt),
+                      );
+                      if (time == null) return;
+                      setState(
+                        () => runAt = DateTime(
+                          date.year,
+                          date.month,
+                          date.day,
+                          time.hour,
+                          time.minute,
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ],
             ),
           ),
@@ -167,8 +220,9 @@ class SchedulesView extends StatelessWidget {
             ),
             FilledButton(
               onPressed: () {
-                final schedule = scheduleController.text.trim();
-                if (selectedServer.isEmpty || schedule.isEmpty) return;
+                if (selectedServer.isEmpty) return;
+                if (recurring && scheduleController.text.trim().isEmpty) return;
+                if (!recurring && !runAt.isAfter(DateTime.now())) return;
                 Navigator.pop(dialogContext, true);
               },
               child: const Text('Create'),
@@ -181,7 +235,8 @@ class SchedulesView extends StatelessWidget {
       network.createSchedule(
         serverId: selectedServer,
         action: action.name,
-        schedule: scheduleController.text.trim(),
+        schedule: recurring ? scheduleController.text.trim() : '',
+        runAt: recurring ? null : runAt,
       );
     }
     scheduleController.dispose();
@@ -198,7 +253,7 @@ class SchedulesView extends StatelessWidget {
         title: const Text('Delete schedule?'),
         content: Text(
           '${schedule.serverName} · ${_scheduleActionLabel(schedule.action)}\n'
-          '${schedule.schedule}',
+          '${schedule.recurring ? schedule.schedule : 'Once: ${schedule.runAt == null ? 'unknown time' : _formatDateTime(schedule.runAt!)}'}',
         ),
         actions: [
           TextButton(
@@ -234,6 +289,11 @@ class SchedulesView extends StatelessWidget {
             }
             return a.serverName.compareTo(b.serverName);
           });
+    final jobs =
+        network.management.jobHistory
+            .where((job) => serverId == null || job.serverId == serverId)
+            .toList()
+          ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
     return _ManagementList(
       title: serverId == null ? 'Scheduled actions' : 'Server schedules',
       count: schedules.length,
@@ -258,7 +318,7 @@ class SchedulesView extends StatelessWidget {
                 '${schedule.serverName} · ${_scheduleActionLabel(schedule.action)}',
               ),
               subtitle: Text(
-                '${schedule.schedule}'
+                '${schedule.recurring ? schedule.schedule : 'One-time'}'
                 '${schedule.nextRun == null ? '' : '\nNext: ${_formatDateTime(schedule.nextRun!)}'}'
                 '${schedule.lastResult == null || schedule.lastResult!.trim().isEmpty ? '' : '\nLast: ${schedule.lastResult}'}',
               ),
@@ -283,6 +343,29 @@ class SchedulesView extends StatelessWidget {
               ),
             ),
           ),
+        if (jobs.isNotEmpty) ...[
+          const SizedBox(height: 18),
+          Text('Job history', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          for (final job in jobs.take(50))
+            Card(
+              child: ListTile(
+                leading: Icon(
+                  job.success == true
+                      ? Icons.check_circle_outline
+                      : job.success == false
+                      ? Icons.error_outline
+                      : Icons.hourglass_top,
+                ),
+                title: Text(
+                  '${job.serverName} · ${_scheduleActionLabel(job.action)}',
+                ),
+                subtitle: Text(
+                  '${_formatDateTime(job.startedAt)} · ${job.source}\n${job.message}',
+                ),
+              ),
+            ),
+        ],
       ],
     );
   }

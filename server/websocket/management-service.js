@@ -177,6 +177,7 @@ function createManagementService(config = {}, dependencies = {}) {
   const state = readJson(statePath, {
     backups: [],
     schedules: [],
+    jobHistory: [],
     maintenance: [],
     performance: [],
     updates: [],
@@ -192,7 +193,7 @@ function createManagementService(config = {}, dependencies = {}) {
   }
 
   const serverById = (serverId) => servers.find((server) => server.id === serverId);
-  for (const key of ["backups", "schedules", "maintenance", "performance", "updates", "activity"]) {
+  for (const key of ["backups", "schedules", "jobHistory", "maintenance", "performance", "updates", "activity"]) {
     if (!Array.isArray(state[key])) state[key] = [];
   }
 
@@ -252,6 +253,7 @@ function createManagementService(config = {}, dependencies = {}) {
       ),
       backups: state.backups.map(backupPublic),
       schedules: state.schedules,
+      jobHistory: state.jobHistory,
       maintenance: state.maintenance,
       updates: state.updates || [],
       activity: state.activity,
@@ -454,6 +456,29 @@ function createManagementService(config = {}, dependencies = {}) {
     activity(server, `${action[0].toUpperCase()}${action.slice(1)} completed`, source);
     return null;
   }
+  async function executeJob(server, action, source, scheduleId = null) {
+    const job = {
+      id: id("job"), scheduleId, serverId: server.id, serverName: server.name,
+      action, source, startedAt: isoNow(now), finishedAt: null,
+      success: null, message: "Running",
+    };
+    state.jobHistory.unshift(job);
+    state.jobHistory = state.jobHistory.slice(0, 250);
+    try {
+      await executeAction(server, action, source);
+      job.success = true;
+      job.message = action === "maintenance" ? "Maintenance flow started." : `${action} completed.`;
+      return job;
+    } catch (error) {
+      job.success = false;
+      job.message = error.message || "Job failed.";
+      throw error;
+    } finally {
+      job.finishedAt = isoNow(now);
+      persist();
+    }
+  }
+
   function startMaintenance(server, options = {}) {
     const countdownSeconds = Math.max(0, Number.parseInt(options.countdownSeconds, 10) || 600);
     const existing = state.maintenance.find((item) => item.serverId === server.id);
@@ -549,7 +574,7 @@ function createManagementService(config = {}, dependencies = {}) {
 
     maintenance.stage = "restarting";
     maintenance.message = "Restarting server.";
-    await multicraft.restart(server.multicraftServerId);
+    await executeJob(server, "restart", "maintenance");
     maintenance.active = false;
     maintenance.stage = "completed";
     maintenance.message = "Maintenance completed.";
@@ -566,15 +591,20 @@ function createManagementService(config = {}, dependencies = {}) {
         schedule.lastResult = "Server mapping unavailable.";
       } else {
         try {
-          await executeAction(server, schedule.action, "scheduled");
+          await executeJob(server, schedule.action, "scheduled", schedule.id);
           schedule.lastResult = `Success at ${isoNow(now)}`;
         } catch (error) {
           schedule.lastResult = `Failed: ${error.message}`;
           activity(server, "Scheduled action failed", error.message, true);
         }
       }
-      const next = nextCron(schedule.schedule, now());
-      schedule.nextRun = next?.toISOString() || null;
+      if (schedule.recurring === false) {
+        schedule.enabled = false;
+        schedule.nextRun = null;
+      } else {
+        const next = nextCron(schedule.schedule, now());
+        schedule.nextRun = next?.toISOString() || null;
+      }
     }
   }
 
@@ -787,15 +817,30 @@ function createManagementService(config = {}, dependencies = {}) {
         const scheduledAction = String(payload.action || "").trim();
         const allowed = ["start", "stop", "restart", "backup", "maintenance"];
         if (!allowed.includes(scheduledAction)) throw new Error("Unsupported scheduled action.");
-        const expression = String(payload.schedule || "").trim();
-        const nextRun = nextCron(expression, now());
-        if (!nextRun) throw new Error("Invalid or unsupported cron expression.");
+        const runAtRaw = String(payload.runAt || "").trim();
+        const recurring = runAtRaw.length === 0;
+        const expression = recurring ? String(payload.schedule || "").trim() : "";
+        let runAt = null;
+        let nextRun = null;
+        if (recurring) {
+          nextRun = nextCron(expression, now());
+          if (!nextRun) throw new Error("Invalid or unsupported cron expression.");
+        } else {
+          const parsed = new Date(runAtRaw);
+          if (Number.isNaN(parsed.getTime()) || parsed.getTime() <= now().getTime()) {
+            throw new Error("One-time schedule must be a valid future date/time.");
+          }
+          runAt = parsed.toISOString();
+          nextRun = parsed;
+        }
         state.schedules.push({
           id: id("schedule"),
           serverId: server.id,
           serverName: server.name,
           action: scheduledAction,
           schedule: expression,
+          recurring,
+          runAt,
           nextRun: nextRun.toISOString(),
           enabled: true,
           lastResult: null,
@@ -808,9 +853,17 @@ function createManagementService(config = {}, dependencies = {}) {
         const schedule = state.schedules.find((item) => item.id === String(payload.id || ""));
         if (!schedule) throw new Error("Schedule not found.");
         schedule.enabled = payload.enabled === true;
-        schedule.nextRun = schedule.enabled
-          ? nextCron(schedule.schedule, now())?.toISOString() || null
-          : null;
+        if (!schedule.enabled) {
+          schedule.nextRun = null;
+        } else if (schedule.recurring === false) {
+          const runAt = new Date(schedule.runAt || "");
+          if (Number.isNaN(runAt.getTime()) || runAt.getTime() <= now().getTime()) {
+            throw new Error("The one-time schedule time has already passed.");
+          }
+          schedule.nextRun = runAt.toISOString();
+        } else {
+          schedule.nextRun = nextCron(schedule.schedule, now())?.toISOString() || null;
+        }
         persist();
         return response(schedule.enabled ? "Schedule enabled." : "Schedule disabled.", [snapshot()]);
       }

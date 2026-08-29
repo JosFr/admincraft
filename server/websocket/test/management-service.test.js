@@ -347,3 +347,47 @@ test("minimum-free-space safeguard blocks a native backup before archiving", asy
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("one-time schedules persist, execute once, and record job history", async () => {
+  const fx = fixture();
+  try {
+    const created = await fx.service.handle("schedule-create", {
+      serverId: "lobby",
+      action: "restart",
+      runAt: "2026-08-29T04:05:00Z",
+    });
+    assert.equal(created.success, true);
+    let schedule = fx.service.snapshot().schedules.at(-1);
+    assert.equal(schedule.recurring, false);
+    assert.equal(schedule.nextRun, "2026-08-29T04:05:00.000Z");
+    fx.setNow("2026-08-29T04:05:01Z");
+    await fx.service.tick();
+    schedule = fx.service.snapshot().schedules.at(-1);
+    assert.equal(schedule.enabled, false);
+    assert.equal(schedule.nextRun, null);
+    const job = fx.service.snapshot().jobHistory[0];
+    assert.equal(job.scheduleId, schedule.id);
+    assert.equal(job.success, true);
+    assert.equal(job.action, "restart");
+  } finally { fx.cleanup(); }
+});
+
+test("scheduled failures are preserved in job history", async () => {
+  const fx = fixture();
+  try {
+    fx.setRestartError(new Error("restart denied"));
+    await fx.service.handle("schedule-create", {
+      serverId: "lobby",
+      action: "restart",
+      runAt: "2026-08-29T04:05:00Z",
+    });
+    fx.setNow("2026-08-29T04:05:01Z");
+    await fx.service.tick();
+    const job = fx.service.snapshot().jobHistory[0];
+    assert.equal(job.success, false);
+    assert.equal(job.message, "restart denied");
+    assert.equal(fx.service.snapshot().activity.some(
+      (entry) => entry.title === "Scheduled action failed" && entry.error === true,
+    ), true);
+  } finally { fx.cleanup(); }
+});
