@@ -39,11 +39,26 @@ function parseServers(config = {}) {
   if (raw.trim()) {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) throw new Error("MANAGEMENT_SERVERS_JSON must be an array.");
-    return parsed.map((entry) => ({
-      id: String(entry.id || entry.name || "").trim(),
-      name: String(entry.name || entry.id || "Server").trim(),
-      multicraftServerId: Number.parseInt(entry.multicraftServerId, 10),
-    })).filter((entry) => entry.id && Number.isInteger(entry.multicraftServerId));
+    const servers = parsed.map((entry, index) => {
+      const id = String(entry?.id || entry?.name || "").trim();
+      const name = String(entry?.name || entry?.id || "Server").trim();
+      const multicraftServerId = Number.parseInt(entry?.multicraftServerId, 10);
+      if (!id || !Number.isInteger(multicraftServerId) || multicraftServerId < 1) {
+        throw new Error(`Invalid management server mapping at index ${index}.`);
+      }
+      return { id, name, multicraftServerId };
+    });
+    const ids = new Set();
+    const multicraftIds = new Set();
+    for (const server of servers) {
+      if (ids.has(server.id)) throw new Error(`Duplicate management server ID: ${server.id}.`);
+      if (multicraftIds.has(server.multicraftServerId)) {
+        throw new Error(`Duplicate Multicraft server ID: ${server.multicraftServerId}.`);
+      }
+      ids.add(server.id);
+      multicraftIds.add(server.multicraftServerId);
+    }
+    return servers;
   }
 
   const multicraftServerId = Number.parseInt(

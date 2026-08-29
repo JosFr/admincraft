@@ -3,7 +3,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
-const { createManagementService, nextCron } = require("../management-service");
+const { createManagementService, nextCron, parseServers } = require("../management-service");
 
 process.env.TZ = "Europe/Amsterdam";
 
@@ -242,4 +242,10 @@ test("disabled schedules clear nextRun until re-enabled", async () => {
     assert.equal(schedule.enabled, true);
     assert.ok(schedule.nextRun);
   } finally { fx.cleanup(); }
+});
+
+test("management server mappings fail closed when invalid or duplicated", () => {
+  assert.throws(() => parseServers({ serversJson: JSON.stringify([{ id: "bad", multicraftServerId: 0 }]) }), /Invalid management server mapping/u);
+  assert.throws(() => parseServers({ serversJson: JSON.stringify([{ id: "lobby", multicraftServerId: 1 }, { id: "lobby", multicraftServerId: 2 }]) }), /Duplicate management server ID/u);
+  assert.throws(() => parseServers({ serversJson: JSON.stringify([{ id: "lobby", multicraftServerId: 1 }, { id: "smp", multicraftServerId: 1 }]) }), /Duplicate Multicraft server ID/u);
 });
