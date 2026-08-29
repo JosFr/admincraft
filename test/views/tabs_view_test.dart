@@ -78,14 +78,14 @@ void main() {
 
     expect(find.text('Overview'), findsWidgets);
     expect(find.text('Data & Sync'), findsOneWidget);
-    expect(find.text('Configuration'), findsOneWidget);
+    expect(find.text('Tools'), findsOneWidget);
     expect(find.text('Docs'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('connection-status-label')),
       findsOneWidget,
     );
     expect(find.byIcon(Icons.link_off_rounded), findsOneWidget);
-    expect(find.byIcon(Icons.unfold_more), findsNothing);
+    expect(find.byIcon(Icons.unfold_more), findsOneWidget);
     expect(find.text('Servers'), findsOneWidget);
     expect(find.text('Google Drive sync'), findsNothing);
     expect(tester.widget<Image>(find.byType(Image).first).width, 32);

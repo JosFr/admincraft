@@ -811,7 +811,7 @@ class _TabsState extends State<Tabs> {
             onPressed: () => _go(_WorkspaceDestination.more),
             icon: const Icon(Icons.settings_outlined),
           ),
-          if (!networkScope)
+          if (!networkScope && !nestedSettings)
             Padding(
               key: const ValueKey('mobile-connection-action'),
               padding: const EdgeInsets.only(right: 8),
