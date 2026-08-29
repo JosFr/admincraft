@@ -349,18 +349,18 @@ void main() {
     const first = ServerProfile(
       id: 'first',
       alias: 'First server',
-      ip: '',
+      ip: 'first.example.test',
       port: 8080,
-      secretKey: '',
+      secretKey: 'secret',
       certificate: '',
       security: ConnectionSecurity.privateNetwork,
     );
     const second = ServerProfile(
       id: 'second',
       alias: 'Second server',
-      ip: '',
+      ip: 'second.example.test',
       port: 8080,
-      secretKey: '',
+      secretKey: 'secret',
       certificate: '',
       security: ConnectionSecurity.privateNetwork,
     );
@@ -397,7 +397,7 @@ void main() {
       port: 443,
       bridgePath: '/lobby',
       secretKey: 'secret',
-      certificate: '',
+      certificate: 'certificate',
       security: ConnectionSecurity.trustedCertificate,
     );
     await pumpApp(
