@@ -568,19 +568,11 @@ class _TabsState extends State<Tabs> {
         ),
         onMaintenance: () => _openPage(
           'Maintenance',
-          const ManagementPlaceholderView(
-            title: 'Maintenance',
-            icon: Icons.build_circle_outlined,
-            message: 'Countdown and maintenance job controls are connected in the next backend slice.',
-          ),
+          MaintenanceView(serverId: model.selectedServerId),
         ),
         onPerformance: () => _openPage(
           'Performance history',
-          const ManagementPlaceholderView(
-            title: 'Performance history',
-            icon: Icons.query_stats_outlined,
-            message: 'TPS, MSPT and player history will be plotted from server-side samples.',
-          ),
+          PerformanceHistoryView(serverId: model.selectedServerId),
         ),
         onPlugins: () => _openPage(
           'Plugins & updates',

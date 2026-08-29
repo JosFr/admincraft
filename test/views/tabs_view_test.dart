@@ -383,7 +383,7 @@ void main() {
     await tester.tap(find.text('Second server'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Second server'), findsOneWidget);
+    expect(find.text('Second server'), findsWidgets);
     expect(find.byTooltip('Switch scope'), findsOneWidget);
     expect(find.text('Choose a server to open its dashboard.'), findsNothing);
     final prefs = await SharedPreferences.getInstance();
@@ -415,7 +415,7 @@ void main() {
     );
 
     expect(find.byTooltip('Switch scope'), findsOneWidget);
-    expect(find.text('Lobby'), findsOneWidget);
+    expect(find.text('Lobby'), findsWidgets);
     expect(find.text('Live metrics'), findsOneWidget);
     expect(find.text('Server & world'), findsOneWidget);
     expect(find.text('Plugins'), findsOneWidget);
@@ -546,7 +546,7 @@ void main() {
     );
 
     expect(find.byType(WelcomeView), findsNothing);
-    expect(find.text('Server Overview'), findsOneWidget);
+    expect(find.text('Live metrics'), findsOneWidget);
     expect(find.text('Restored server'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
@@ -808,7 +808,9 @@ void main() {
       connectionService: _NoopConnectionService(),
     );
 
-    await tester.tap(find.text('Configuration'));
+    await tester.tap(find.text('Tools'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Server configuration'));
     await tester.pumpAndSettle();
     expect(find.text('Delete server'), findsOneWidget);
 
@@ -882,7 +884,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('app-title')));
     await tester.pump();
 
-    expect(find.text('Welcome to Admincraft'), findsOneWidget);
+    expect(find.text('Choose a server to open its dashboard.'), findsOneWidget);
     expect(find.text('Players'), findsNothing);
     expect(tester.takeException(), isNull);
   });

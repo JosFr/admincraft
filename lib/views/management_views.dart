@@ -123,6 +123,191 @@ class UpdatesView extends StatelessWidget {
   }
 }
 
+class MaintenanceView extends StatelessWidget {
+  final String serverId;
+  const MaintenanceView({super.key, required this.serverId});
+
+  @override
+  Widget build(BuildContext context) {
+    final network = context.watch<NetworkController?>();
+    if (network == null) return const _ManagementUnavailable();
+    MaintenanceState? state;
+    for (final item in network.management.maintenance) {
+      if (item.serverId == serverId) {
+        state = item;
+        break;
+      }
+    }
+    final active = state?.active == true;
+    return _ManagementList(
+      title: 'Maintenance',
+      count: active ? 1 : 0,
+      onRefresh: network.refreshManagement,
+      action: FilledButton.icon(
+        onPressed: !network.managementAvailable
+            ? null
+            : active
+                ? () => network.cancelMaintenance(serverId)
+                : () => network.startMaintenance(serverId),
+        icon: Icon(active ? Icons.cancel_outlined : Icons.play_arrow),
+        label: Text(active ? 'Cancel' : 'Start'),
+      ),
+      emptyIcon: Icons.build_circle_outlined,
+      emptyTitle: 'No maintenance running',
+      emptyMessage: 'Start the default countdown, backup and restart flow when the bridge supports it.',
+      children: active
+          ? [
+              Card(
+                child: ListTile(
+                  leading: const Icon(Icons.build_circle_outlined),
+                  title: Text(state!.serverName),
+                  subtitle: Text(
+                    '${state.stage}${state.message.isEmpty ? '' : '\n${state.message}'}'
+                    '${state.endsAt == null ? '' : '\nEnds: ${_formatDateTime(state.endsAt!)}'}',
+                  ),
+                ),
+              ),
+            ]
+          : const [],
+    );
+  }
+}
+
+class PerformanceHistoryView extends StatefulWidget {
+  final String serverId;
+  const PerformanceHistoryView({super.key, required this.serverId});
+
+  @override
+  State<PerformanceHistoryView> createState() => _PerformanceHistoryViewState();
+}
+
+class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
+  String range = '1h';
+
+  void _request(NetworkController network, String next) {
+    setState(() => range = next);
+    network.requestPerformance(widget.serverId, next);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final network = context.watch<NetworkController?>();
+    if (network == null) return const _ManagementUnavailable();
+    final samples = network.performance
+        .where((sample) => sample.serverId == widget.serverId)
+        .toList()
+      ..sort((a, b) => a.at.compareTo(b.at));
+    final latest = samples.isEmpty ? null : samples.last;
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Performance history',
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
+            ),
+            IconButton(
+              tooltip: 'Refresh performance',
+              onPressed: network.managementAvailable
+                  ? () => network.requestPerformance(widget.serverId, range)
+                  : null,
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final option in const ['1h', '6h', '24h', '7d', '30d'])
+              ChoiceChip(
+                label: Text(option),
+                selected: range == option,
+                onSelected: (_) => _request(network, option),
+              ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (latest != null)
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _MetricCard(label: 'TPS', value: latest.tps?.toStringAsFixed(1) ?? '—'),
+              _MetricCard(label: 'MSPT', value: latest.mspt?.toStringAsFixed(1) ?? '—'),
+              _MetricCard(label: 'Players', value: latest.players?.toString() ?? '—'),
+              _MetricCard(
+                label: 'CPU',
+                value: latest.cpuPercent == null
+                    ? '—'
+                    : '${latest.cpuPercent!.toStringAsFixed(0)}%',
+              ),
+              _MetricCard(
+                label: 'RAM',
+                value: latest.memoryMb == null
+                    ? '—'
+                    : '${latest.memoryMb!.toStringAsFixed(0)} MB',
+              ),
+            ],
+          ),
+        const SizedBox(height: 16),
+        if (samples.isEmpty)
+          const Card(
+            child: Padding(
+              padding: EdgeInsets.all(24),
+              child: Text('No performance samples for this range yet.'),
+            ),
+          )
+        else
+          Card(
+            child: Column(
+              children: [
+                for (final sample in samples.reversed.take(30))
+                  ListTile(
+                    dense: true,
+                    title: Text(_formatDateTime(sample.at)),
+                    subtitle: Text(
+                      'TPS ${sample.tps?.toStringAsFixed(1) ?? '—'} · '
+                      'MSPT ${sample.mspt?.toStringAsFixed(1) ?? '—'} · '
+                      'Players ${sample.players ?? '—'}',
+                    ),
+                  ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _MetricCard extends StatelessWidget {
+  final String label;
+  final String value;
+  const _MetricCard({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        width: 150,
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: Theme.of(context).textTheme.labelLarge),
+                const SizedBox(height: 4),
+                Text(value, style: Theme.of(context).textTheme.headlineSmall),
+              ],
+            ),
+          ),
+        ),
+      );
+}
+
 class ServerToolsView extends StatelessWidget {
   final VoidCallback onBackups;
   final VoidCallback onSchedules;
