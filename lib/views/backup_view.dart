@@ -23,8 +23,7 @@ class BackupView extends StatelessWidget {
     final snapshot = network.management;
     final backups = snapshot.backups.where((backup) {
       return serverId == null || backup.serverId == serverId;
-    }).toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    }).toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     return RefreshIndicator(
       onRefresh: () async => network.refreshManagement(),
@@ -49,11 +48,13 @@ class BackupView extends StatelessWidget {
           if (snapshot.storages.isNotEmpty) ...[
             Text('Storage', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
-            ...snapshot.storages.map((storage) => _StorageCard(
-                  storage: storage,
-                  backups: snapshot.backups,
-                  storageCount: snapshot.storages.length,
-                )),
+            ...snapshot.storages.map(
+              (storage) => _StorageCard(
+                storage: storage,
+                backups: snapshot.backups,
+                storageCount: snapshot.storages.length,
+              ),
+            ),
             const SizedBox(height: 12),
           ],
           if (backups.isNotEmpty) ...[
@@ -80,33 +81,35 @@ class BackupView extends StatelessWidget {
             const _InfoCard(
               icon: Icons.inventory_2_outlined,
               title: 'No backups yet',
-              message: 'Manual, scheduled and maintenance backups will appear here.',
+              message:
+                  'Manual, scheduled and maintenance backups will appear here.',
             )
           else
             ...backups.map(
               (backup) => _BackupCard(
                 backup: backup,
-                onRestore: backup.status == BackupStatus.completed &&
+                onRestore:
+                    backup.status == BackupStatus.completed &&
                         backup.capabilities.restore
                     ? () => _restore(context, network, backup)
                     : null,
                 onDownload: backup.capabilities.download
                     ? () => _send(
-                          network.downloadBackup(backup.id),
-                          'Download request could not be sent.',
-                        )
+                        network.downloadBackup(backup.id),
+                        'Download request could not be sent.',
+                      )
                     : null,
                 onVerify: backup.capabilities.verify
                     ? () => _send(
-                          network.verifyBackup(backup.id),
-                          'Verification could not be started.',
-                        )
+                        network.verifyBackup(backup.id),
+                        'Verification could not be started.',
+                      )
                     : null,
                 onCopy: backup.capabilities.copy
                     ? () => _send(
-                          network.copyBackup(backup.id),
-                          'Copy request could not be sent.',
-                        )
+                        network.copyBackup(backup.id),
+                        'Copy request could not be sent.',
+                      )
                     : null,
                 onDelete: backup.capabilities.delete
                     ? () => _delete(context, network, backup)
@@ -117,12 +120,14 @@ class BackupView extends StatelessWidget {
       ),
     );
   }
+
   Future<void> _createBackup(
     BuildContext context,
     NetworkController network,
     Model model,
   ) async {
-    String selectedServer = serverId ?? model.selectedServerId;
+    String selectedServer =
+        serverId ?? model.selectedServer.effectiveManagementServerId;
     BackupEngineType engine = BackupEngineType.multicraft;
     final confirmed = await showDialog<bool>(
       context: context,
@@ -140,7 +145,7 @@ class BackupView extends StatelessWidget {
                       .where((server) => server.isComplete)
                       .map(
                         (server) => DropdownMenuItem(
-                          value: server.id,
+                          value: server.effectiveManagementServerId,
                           child: Text(server.alias),
                         ),
                       )
@@ -200,7 +205,9 @@ class BackupView extends StatelessWidget {
       confirmLabel: 'Restore',
     );
     if (confirmed && !network.restoreBackup(backup.id)) {
-      ToastUtils.showToastError('Restore could not be sent to the management backend.');
+      ToastUtils.showToastError(
+        'Restore could not be sent to the management backend.',
+      );
     }
   }
 
@@ -216,11 +223,14 @@ class BackupView extends StatelessWidget {
     final confirmed = await DialogUtils.confirmAction(
       context,
       title: 'Delete backup?',
-      message: 'This removes this backup from all destinations managed by AdminCraft.',
+      message:
+          'This removes this backup from all destinations managed by AdminCraft.',
       confirmLabel: 'Delete',
     );
     if (confirmed && !network.deleteBackup(backup.id)) {
-      ToastUtils.showToastError('Delete could not be sent to the management backend.');
+      ToastUtils.showToastError(
+        'Delete could not be sent to the management backend.',
+      );
     }
   }
 }
@@ -238,17 +248,17 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Row(
-        children: [
-          Expanded(
-            child: Text(title, style: Theme.of(context).textTheme.headlineMedium),
-          ),
-          FilledButton.icon(
-            onPressed: available ? onBackup : null,
-            icon: const Icon(Icons.add),
-            label: const Text('Create backup'),
-          ),
-        ],
-      );
+    children: [
+      Expanded(
+        child: Text(title, style: Theme.of(context).textTheme.headlineMedium),
+      ),
+      FilledButton.icon(
+        onPressed: available ? onBackup : null,
+        icon: const Icon(Icons.add),
+        label: const Text('Create backup'),
+      ),
+    ],
+  );
 }
 
 class _InfoCard extends StatelessWidget {
@@ -264,13 +274,13 @@ class _InfoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Card(
-        margin: const EdgeInsets.only(bottom: 12),
-        child: ListTile(
-          leading: Icon(icon),
-          title: Text(title),
-          subtitle: Text(message),
-        ),
-      );
+    margin: const EdgeInsets.only(bottom: 12),
+    child: ListTile(
+      leading: Icon(icon),
+      title: Text(title),
+      subtitle: Text(message),
+    ),
+  );
 }
 
 class _StorageCard extends StatelessWidget {
@@ -295,8 +305,8 @@ class _StorageCard extends StatelessWidget {
     final color = storage.critical
         ? Theme.of(context).colorScheme.error
         : storage.warning
-            ? Colors.orange
-            : Theme.of(context).colorScheme.primary;
+        ? Colors.orange
+        : Theme.of(context).colorScheme.primary;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -329,8 +339,8 @@ class _StorageCard extends StatelessWidget {
               used == null || storage.totalBytes == null
                   ? '${_formatBytes(storage.backupBytes)} in backups'
                   : '${_formatBytes(used)} used of '
-                      '${_formatBytes(storage.totalBytes!)} · '
-                      '${_formatBytes(storage.freeBytes ?? 0)} free',
+                        '${_formatBytes(storage.totalBytes!)} · '
+                        '${_formatBytes(storage.freeBytes ?? 0)} free',
             ),
             if (storage.otherBytes != null)
               Text(
@@ -358,7 +368,8 @@ class _StorageCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
             ],
-            if (storage.critical || storage.warning ||
+            if (storage.critical ||
+                storage.warning ||
                 (storage.softLimitBytes != null &&
                     storage.backupBytes >= storage.softLimitBytes!)) ...[
               const SizedBox(height: 10),
@@ -373,8 +384,8 @@ class _StorageCard extends StatelessWidget {
                     storage.critical
                         ? 'Critical: storage is below the configured free-space threshold.'
                         : storage.warning
-                            ? 'Warning: storage is approaching the configured free-space threshold.'
-                            : 'Warning: backup storage has reached its configured soft limit.',
+                        ? 'Warning: storage is approaching the configured free-space threshold.'
+                        : 'Warning: backup storage has reached its configured soft limit.',
                   ),
                 ),
               ),
@@ -393,18 +404,23 @@ class _RecoveryReadinessCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final completed = backups
-        .where((backup) => backup.status == BackupStatus.completed)
-        .toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final completed =
+        backups
+            .where((backup) => backup.status == BackupStatus.completed)
+            .toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     final verified = completed.where((backup) => backup.verified).toList();
     final multipleDestinations = completed
         .where((backup) => backup.destinations.toSet().length >= 2)
         .toList();
     final cutoff = DateTime.now().subtract(const Duration(days: 7));
-    final recentFailures = backups.where((backup) =>
-      backup.status == BackupStatus.failed && backup.createdAt.isAfter(cutoff),
-    ).length;
+    final recentFailures = backups
+        .where(
+          (backup) =>
+              backup.status == BackupStatus.failed &&
+              backup.createdAt.isAfter(cutoff),
+        )
+        .length;
     final latest = completed.isEmpty ? null : completed.first;
     final latestVerified = verified.isEmpty ? null : verified.first;
     final latestRedundant = multipleDestinations.isEmpty
@@ -413,12 +429,16 @@ class _RecoveryReadinessCard extends StatelessWidget {
 
     final issues = <String>[];
     if (latest == null) issues.add('No completed backup is available.');
-    if (latestVerified == null) issues.add('No verified restore point is available.');
+    if (latestVerified == null) {
+      issues.add('No verified restore point is available.');
+    }
     if (latestRedundant == null) {
       issues.add('No completed backup is recorded on multiple destinations.');
     }
     if (recentFailures > 0) {
-      issues.add('$recentFailures backup failure(s) recorded in the last 7 days.');
+      issues.add(
+        '$recentFailures backup failure(s) recorded in the last 7 days.',
+      );
     }
     return Card(
       child: Padding(
@@ -428,13 +448,17 @@ class _RecoveryReadinessCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Icon(issues.isEmpty
-                    ? Icons.verified_user_outlined
-                    : Icons.health_and_safety_outlined),
+                Icon(
+                  issues.isEmpty
+                      ? Icons.verified_user_outlined
+                      : Icons.health_and_safety_outlined,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text('Recovery readiness',
-                      style: Theme.of(context).textTheme.titleMedium),
+                  child: Text(
+                    'Recovery readiness',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                 ),
                 Chip(label: Text(issues.isEmpty ? 'Ready' : 'Needs attention')),
               ],
@@ -442,7 +466,9 @@ class _RecoveryReadinessCard extends StatelessWidget {
             const SizedBox(height: 10),
             _RecoveryRow(
               label: 'Latest completed',
-              value: latest == null ? 'None' : _formatDateTime(latest.createdAt),
+              value: latest == null
+                  ? 'None'
+                  : _formatDateTime(latest.createdAt),
             ),
             _RecoveryRow(
               label: 'Latest verified',
@@ -483,19 +509,18 @@ class _RecoveryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(bottom: 6),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-              width: 170,
-              child: Text(label,
-                  style: Theme.of(context).textTheme.labelLarge),
-            ),
-            Expanded(child: Text(value)),
-          ],
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 170,
+          child: Text(label, style: Theme.of(context).textTheme.labelLarge),
         ),
-      );
+        Expanded(child: Text(value)),
+      ],
+    ),
+  );
 }
 
 class _BackupFootprintCard extends StatelessWidget {
@@ -524,8 +549,10 @@ class _BackupFootprintCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Backup footprint by server',
-                style: Theme.of(context).textTheme.titleMedium),
+            Text(
+              'Backup footprint by server',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
             const SizedBox(height: 8),
             for (final row in rows)
               Padding(
@@ -564,12 +591,11 @@ class _BackupCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final statusColor = switch (backup.status) {
-
       BackupStatus.completed => Colors.green,
       BackupStatus.failed => Theme.of(context).colorScheme.error,
       BackupStatus.running || BackupStatus.verifying => Colors.orange,
-      BackupStatus.queued || BackupStatus.unknown =>
-        Theme.of(context).colorScheme.outline,
+      BackupStatus.queued ||
+      BackupStatus.unknown => Theme.of(context).colorScheme.outline,
     };
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -610,10 +636,7 @@ class _BackupCard extends StatelessWidget {
                   icon: Icons.memory_outlined,
                   label: backup.engine.label,
                 ),
-                _DetailChip(
-                  icon: Icons.category_outlined,
-                  label: backup.kind,
-                ),
+                _DetailChip(icon: Icons.category_outlined, label: backup.kind),
                 _DetailChip(
                   icon: Icons.data_usage_outlined,
                   label: _formatBytes(backup.sizeBytes),
@@ -658,7 +681,11 @@ class _BackupCard extends StatelessWidget {
                     if (onRestore != null)
                       _actionItem('restore', Icons.restore, 'Restore'),
                     if (onDownload != null)
-                      _actionItem('download', Icons.download_outlined, 'Download'),
+                      _actionItem(
+                        'download',
+                        Icons.download_outlined,
+                        'Download',
+                      ),
                     if (onVerify != null)
                       _actionItem('verify', Icons.verified_outlined, 'Verify'),
                     if (onCopy != null)
@@ -673,7 +700,6 @@ class _BackupCard extends StatelessWidget {
                 ),
               ),
             ],
-
           ],
         ),
       ),
@@ -681,11 +707,7 @@ class _BackupCard extends StatelessWidget {
   }
 }
 
-PopupMenuItem<String> _actionItem(
-  String value,
-  IconData icon,
-  String label,
-) =>
+PopupMenuItem<String> _actionItem(String value, IconData icon, String label) =>
     PopupMenuItem(
       value: value,
       child: ListTile(
@@ -703,10 +725,10 @@ class _DetailChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Chip(
-        avatar: Icon(icon, size: 16),
-        label: Text(label),
-        visualDensity: VisualDensity.compact,
-      );
+    avatar: Icon(icon, size: 16),
+    label: Text(label),
+    visualDensity: VisualDensity.compact,
+  );
 }
 
 int _recentBackupBytes(
@@ -717,7 +739,8 @@ int _recentBackupBytes(
   final cutoff = DateTime.now().subtract(const Duration(days: 7));
   var total = 0;
   for (final backup in backups) {
-    if (backup.status != BackupStatus.completed || backup.createdAt.isBefore(cutoff)) {
+    if (backup.status != BackupStatus.completed ||
+        backup.createdAt.isBefore(cutoff)) {
       continue;
     }
     final destinations = backup.destinations
@@ -726,16 +749,21 @@ int _recentBackupBytes(
         .toSet();
     final storageId = storage.id.trim().toLowerCase();
     final storageName = storage.name.trim().toLowerCase();
-    final matched = destinations.contains(storageId) || destinations.contains(storageName);
+    final matched =
+        destinations.contains(storageId) || destinations.contains(storageName);
     final implicitSingleStorage = storageCount == 1 && destinations.isEmpty;
-    if (matched || implicitSingleStorage) total += backup.sizeBytes;
+    if (matched || implicitSingleStorage) {
+      total += backup.sizeBytes;
+    }
   }
   return total;
 }
 
 String _weeksRemainingLabel(double weeks) {
   if (!weeks.isFinite) return 'Capacity forecast unavailable';
-  if (weeks < 1) return 'Estimated capacity: less than 1 week at the current backup creation pace';
+  if (weeks < 1) {
+    return 'Estimated capacity: less than 1 week at the current backup creation pace';
+  }
   if (weeks < 10) {
     return 'Estimated capacity: ${weeks.toStringAsFixed(1)} weeks at the current backup creation pace';
   }
@@ -752,7 +780,11 @@ String _formatBytes(int bytes) {
     unit++;
   }
 
-  final digits = value >= 100 ? 0 : value >= 10 ? 1 : 2;
+  final digits = value >= 100
+      ? 0
+      : value >= 10
+      ? 1
+      : 2;
   return '${value.toStringAsFixed(digits)} ${units[unit]}';
 }
 

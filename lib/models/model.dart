@@ -60,6 +60,7 @@ class Model with ChangeNotifier {
     entries.sort((a, b) => b.entry.occurredAt.compareTo(a.entry.occurredAt));
     return List.unmodifiable(entries.take(200));
   }
+
   Set<String> get bridgeCapabilities => Set.unmodifiable(_bridgeCapabilities);
   int? get bridgeProtocol => _bridgeProtocol;
   String? get bridgeVersion => _bridgeVersion;
@@ -70,7 +71,8 @@ class Model with ChangeNotifier {
   DateTime? get lastHeartbeatAt => _lastHeartbeatAt;
   DateTime? get lastLogAt => _lastLogAt;
   DateTime? get lastServerStateAt => _lastServerStateAt;
-  List<NetworkAccessEntry> get networkAccess => List.unmodifiable(_networkAccess);
+  List<NetworkAccessEntry> get networkAccess =>
+      List.unmodifiable(_networkAccess);
   DateTime? get networkAccessObservedAt => _networkAccessObservedAt;
   bool get networkAccessAvailable => _networkAccessObservedAt != null;
 
@@ -489,6 +491,7 @@ class Model with ChangeNotifier {
     required String ip,
     required int port,
     String? bridgePath,
+    String? managementServerId,
     required String secretKey,
     required String certificate,
     required ConnectionSecurity connectionSecurity,
@@ -504,6 +507,7 @@ class Model with ChangeNotifier {
                   ip: ip,
                   port: port,
                   bridgePath: bridgePath,
+                  managementServerId: managementServerId,
                   secretKey: secretKey,
                   certificate: certificate,
                   security: connectionSecurity,

@@ -53,11 +53,18 @@ class SchedulesView extends StatelessWidget {
     NetworkController network,
   ) async {
     final model = context.read<Model>();
-    final completeServers = model.servers.where((server) => server.isComplete).toList();
-    var selectedServer = serverId ?? model.selectedServerId;
+    final completeServers = model.servers
+        .where((server) => server.isComplete)
+        .toList();
+    var selectedServer =
+        serverId ?? model.selectedServer.effectiveManagementServerId;
     if (serverId == null &&
-        !completeServers.any((server) => server.id == selectedServer)) {
-      selectedServer = completeServers.isEmpty ? '' : completeServers.first.id;
+        !completeServers.any(
+          (server) => server.effectiveManagementServerId == selectedServer,
+        )) {
+      selectedServer = completeServers.isEmpty
+          ? ''
+          : completeServers.first.effectiveManagementServerId;
     }
     final scheduleController = TextEditingController();
     var action = ScheduledActionType.restart;
@@ -75,11 +82,14 @@ class SchedulesView extends StatelessWidget {
               children: [
                 if (serverId == null)
                   DropdownButtonFormField<String>(
-                    initialValue: selectedServer.isEmpty ? null : selectedServer,
+                    initialValue: selectedServer.isEmpty
+                        ? null
+                        : selectedServer,
                     decoration: const InputDecoration(labelText: 'Server'),
-                    items: completeServers.map(
+                    items: completeServers
+                        .map(
                           (server) => DropdownMenuItem(
-                            value: server.id,
+                            value: server.effectiveManagementServerId,
                             child: Text(server.alias),
                           ),
                         )
@@ -109,9 +119,18 @@ class SchedulesView extends StatelessWidget {
                   decoration: const InputDecoration(labelText: 'Cron preset'),
                   items: const [
                     DropdownMenuItem(value: 'custom', child: Text('Custom')),
-                    DropdownMenuItem(value: 'daily4', child: Text('Daily at 04:00')),
-                    DropdownMenuItem(value: 'weekly4', child: Text('Sunday at 04:00')),
-                    DropdownMenuItem(value: 'sixhour', child: Text('Every 6 hours')),
+                    DropdownMenuItem(
+                      value: 'daily4',
+                      child: Text('Daily at 04:00'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'weekly4',
+                      child: Text('Sunday at 04:00'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'sixhour',
+                      child: Text('Every 6 hours'),
+                    ),
                   ],
                   onChanged: (value) {
                     if (value == null) return;
@@ -200,18 +219,21 @@ class SchedulesView extends StatelessWidget {
   Widget build(BuildContext context) {
     final network = context.watch<NetworkController?>();
     if (network == null) return const _ManagementUnavailable();
-    final schedules = network.management.schedules
-        .where((schedule) => serverId == null || schedule.serverId == serverId)
-        .toList()
-      ..sort((a, b) {
-        if (a.enabled != b.enabled) return a.enabled ? -1 : 1;
-        if (a.nextRun == null && b.nextRun != null) return 1;
-        if (a.nextRun != null && b.nextRun == null) return -1;
-        if (a.nextRun != null && b.nextRun != null) {
-          return a.nextRun!.compareTo(b.nextRun!);
-        }
-        return a.serverName.compareTo(b.serverName);
-      });
+    final schedules =
+        network.management.schedules
+            .where(
+              (schedule) => serverId == null || schedule.serverId == serverId,
+            )
+            .toList()
+          ..sort((a, b) {
+            if (a.enabled != b.enabled) return a.enabled ? -1 : 1;
+            if (a.nextRun == null && b.nextRun != null) return 1;
+            if (a.nextRun != null && b.nextRun == null) return -1;
+            if (a.nextRun != null && b.nextRun != null) {
+              return a.nextRun!.compareTo(b.nextRun!);
+            }
+            return a.serverName.compareTo(b.serverName);
+          });
     return _ManagementList(
       title: serverId == null ? 'Scheduled actions' : 'Server schedules',
       count: schedules.length,
@@ -247,7 +269,7 @@ class SchedulesView extends StatelessWidget {
                     value: schedule.enabled,
                     onChanged: network.managementAvailable
                         ? (enabled) =>
-                            network.toggleSchedule(schedule.id, enabled)
+                              network.toggleSchedule(schedule.id, enabled)
                         : null,
                   ),
                   IconButton(
@@ -266,9 +288,7 @@ class SchedulesView extends StatelessWidget {
   }
 }
 
-
 class UpdatesView extends StatelessWidget {
-
   final String? serverId;
 
   const UpdatesView({super.key, this.serverId});
@@ -277,10 +297,14 @@ class UpdatesView extends StatelessWidget {
   Widget build(BuildContext context) {
     final network = context.watch<NetworkController?>();
     if (network == null) return const _ManagementUnavailable();
-    final updates = network.management.updates
-        .where((update) => serverId == null || update.serverId == serverId)
-        .toList()
-      ..sort((a, b) => _updatePriority(a.status).compareTo(_updatePriority(b.status)));
+    final updates =
+        network.management.updates
+            .where((update) => serverId == null || update.serverId == serverId)
+            .toList()
+          ..sort(
+            (a, b) =>
+                _updatePriority(a.status).compareTo(_updatePriority(b.status)),
+          );
     return _ManagementList(
       title: serverId == null ? 'Network updates' : 'Plugin updates',
       count: updates.length,
@@ -294,7 +318,8 @@ class UpdatesView extends StatelessWidget {
       ),
       emptyIcon: Icons.system_update_alt_outlined,
       emptyTitle: 'No update results',
-      emptyMessage: 'Enabled providers will report plugin and platform updates here.',
+      emptyMessage:
+          'Enabled providers will report plugin and platform updates here.',
       children: [
         for (final update in updates)
           Card(
@@ -375,7 +400,8 @@ class MaintenanceView extends StatelessWidget {
                     'Wait for players to leave before the restart stage.',
                   ),
                   value: restartWhenEmpty,
-                  onChanged: (value) => setState(() => restartWhenEmpty = value),
+                  onChanged: (value) =>
+                      setState(() => restartWhenEmpty = value),
                 ),
               ],
             ),
@@ -449,14 +475,15 @@ class MaintenanceView extends StatelessWidget {
         onPressed: !network.managementAvailable
             ? null
             : active
-                ? () => _cancelMaintenance(context, network)
-                : () => _startMaintenance(context, network),
+            ? () => _cancelMaintenance(context, network)
+            : () => _startMaintenance(context, network),
         icon: Icon(active ? Icons.cancel_outlined : Icons.play_arrow),
         label: Text(active ? 'Cancel' : 'Start'),
       ),
       emptyIcon: Icons.build_circle_outlined,
       emptyTitle: 'No maintenance running',
-      emptyMessage: 'Start a configurable countdown, optional safety backup and restart flow when the bridge supports it.',
+      emptyMessage:
+          'Start a configurable countdown, optional safety backup and restart flow when the bridge supports it.',
       children: active
           ? [
               Card(
@@ -509,6 +536,7 @@ class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
     if (present.isEmpty) return null;
     return present.reduce((a, b) => a + b) / present.length;
   }
+
   int? _maximum(Iterable<int?> values) {
     final present = values.whereType<int>().toList();
     if (present.isEmpty) return null;
@@ -534,10 +562,11 @@ class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
   Widget build(BuildContext context) {
     final network = context.watch<NetworkController?>();
     if (network == null) return const _ManagementUnavailable();
-    final samples = network.performance
-        .where((sample) => sample.serverId == widget.serverId)
-        .toList()
-      ..sort((a, b) => a.at.compareTo(b.at));
+    final samples =
+        network.performance
+            .where((sample) => sample.serverId == widget.serverId)
+            .toList()
+          ..sort((a, b) => a.at.compareTo(b.at));
     final latest = samples.isEmpty ? null : samples.last;
     final averageTps = _average(samples.map((sample) => sample.tps));
     final averageMspt = _average(samples.map((sample) => sample.mspt));
@@ -588,9 +617,18 @@ class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
             spacing: 10,
             runSpacing: 10,
             children: [
-              _MetricCard(label: 'TPS', value: latest.tps?.toStringAsFixed(1) ?? '—'),
-              _MetricCard(label: 'MSPT', value: latest.mspt?.toStringAsFixed(1) ?? '—'),
-              _MetricCard(label: 'Players', value: latest.players?.toString() ?? '—'),
+              _MetricCard(
+                label: 'TPS',
+                value: latest.tps?.toStringAsFixed(1) ?? '—',
+              ),
+              _MetricCard(
+                label: 'MSPT',
+                value: latest.mspt?.toStringAsFixed(1) ?? '—',
+              ),
+              _MetricCard(
+                label: 'Players',
+                value: latest.players?.toString() ?? '—',
+              ),
               _MetricCard(
                 label: 'CPU',
                 value: latest.cpuPercent == null
@@ -681,7 +719,6 @@ class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
   }
 }
 
-
 class _MetricCard extends StatelessWidget {
   final String label;
   final String value;
@@ -689,21 +726,21 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-        width: 150,
-        child: Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: Theme.of(context).textTheme.labelLarge),
-                const SizedBox(height: 4),
-                Text(value, style: Theme.of(context).textTheme.headlineSmall),
-              ],
-            ),
-          ),
+    width: 150,
+    child: Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: Theme.of(context).textTheme.labelLarge),
+            const SizedBox(height: 4),
+            Text(value, style: Theme.of(context).textTheme.headlineSmall),
+          ],
         ),
-      );
+      ),
+    ),
+  );
 }
 
 class DiagnosticsView extends StatelessWidget {
@@ -718,9 +755,14 @@ class DiagnosticsView extends StatelessWidget {
     final failure = connection.lastFailure;
     final path = server.bridgePath.trim();
     final endpoint =
-        '${server.ip}:${server.port}${path.isEmpty ? '' : path.startsWith('/') ? path : '/$path'}';
+        '${server.ip}:${server.port}${path.isEmpty
+            ? ''
+            : path.startsWith('/')
+            ? path
+            : '/$path'}';
     final bridgeCapabilities =
-        network == null ? <String>[] : network.capabilities.toList()..sort();
+        network == null ? <String>[] : network.capabilities.toList()
+          ..sort();
     final managementObserved = network?.management.observedAt;
     final managementMessage = network?.managementMessage?.trim();
     final managementResultLabel = switch (network?.managementSuccess) {
@@ -728,7 +770,8 @@ class DiagnosticsView extends StatelessWidget {
       false => 'Failed',
       _ => 'Result',
     };
-    final managementResult = managementMessage == null || managementMessage.isEmpty
+    final managementResult =
+        managementMessage == null || managementMessage.isEmpty
         ? null
         : '$managementResultLabel · $managementMessage';
 
@@ -784,14 +827,18 @@ class DiagnosticsView extends StatelessWidget {
             if (network?.bridgeScope != null) 'Scope': network!.bridgeScope!,
             if (network?.bridgeConnectedAt != null)
               'Bridge connected': _formatDateTime(network!.bridgeConnectedAt!),
-            'Capabilities':
-                bridgeCapabilities.isEmpty ? 'None' : bridgeCapabilities.join(', '),
-            'Network state':
-                network?.networkAvailable == true ? 'Available' : 'Unavailable',
-            'Access management':
-                network?.accessAvailable == true ? 'Available' : 'Unavailable',
-            'Management':
-                network?.managementAvailable == true ? 'Available' : 'Unavailable',
+            'Capabilities': bridgeCapabilities.isEmpty
+                ? 'None'
+                : bridgeCapabilities.join(', '),
+            'Network state': network?.networkAvailable == true
+                ? 'Available'
+                : 'Unavailable',
+            'Access management': network?.accessAvailable == true
+                ? 'Available'
+                : 'Unavailable',
+            'Management': network?.managementAvailable == true
+                ? 'Available'
+                : 'Unavailable',
             if (managementObserved != null)
               'Management snapshot': _formatDateTime(managementObserved),
             if (managementResult != null)
@@ -803,7 +850,6 @@ class DiagnosticsView extends StatelessWidget {
     );
   }
 }
-
 
 class _DiagnosticCard extends StatelessWidget {
   final String title;
@@ -818,41 +864,41 @@ class _DiagnosticCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Card(
-        margin: const EdgeInsets.only(bottom: 12),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    margin: const EdgeInsets.only(bottom: 12),
+    child: Padding(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              Row(
-                children: [
-                  Icon(icon),
-                  const SizedBox(width: 8),
-                  Text(title, style: Theme.of(context).textTheme.titleMedium),
-                ],
-              ),
-              const SizedBox(height: 12),
-              for (final row in rows.entries)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      SizedBox(
-                        width: 150,
-                        child: Text(
-                          row.key,
-                          style: Theme.of(context).textTheme.labelLarge,
-                        ),
-                      ),
-                      Expanded(child: SelectableText(row.value)),
-                    ],
-                  ),
-                ),
+              Icon(icon),
+              const SizedBox(width: 8),
+              Text(title, style: Theme.of(context).textTheme.titleMedium),
             ],
           ),
-        ),
-      );
+          const SizedBox(height: 12),
+          for (final row in rows.entries)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 150,
+                    child: Text(
+                      row.key,
+                      style: Theme.of(context).textTheme.labelLarge,
+                    ),
+                  ),
+                  Expanded(child: SelectableText(row.value)),
+                ],
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
 }
 
 class ServerToolsView extends StatelessWidget {
@@ -877,54 +923,54 @@ class ServerToolsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          Text('Server tools', style: Theme.of(context).textTheme.headlineMedium),
-          const SizedBox(height: 12),
-          _ToolTile(
-            icon: Icons.inventory_2_outlined,
-            title: 'Backups',
-            subtitle: 'Browse, create, verify and restore server backups.',
-            onTap: onBackups,
-          ),
-          _ToolTile(
-            icon: Icons.schedule_outlined,
-            title: 'Schedules',
-            subtitle: 'Persistent actions that run without an open app.',
-            onTap: onSchedules,
-          ),
-          _ToolTile(
-            icon: Icons.build_circle_outlined,
-            title: 'Maintenance',
-            subtitle: 'Countdown, backup, restart and health-check flows.',
-            onTap: onMaintenance,
-          ),
-          _ToolTile(
-            icon: Icons.query_stats_outlined,
-            title: 'Performance history',
-            subtitle: 'TPS, MSPT, players, CPU and memory over time.',
-            onTap: onPerformance,
-          ),
-          _ToolTile(
-            icon: Icons.extension_outlined,
-            title: 'Plugins & updates',
-            subtitle: 'Provider matching and available versions.',
-            onTap: onPlugins,
-          ),
-          _ToolTile(
-            icon: Icons.health_and_safety_outlined,
-            title: 'Diagnostics',
-            subtitle: 'Connection, bridge and server health information.',
-            onTap: onDiagnostics,
-          ),
-          _ToolTile(
-            icon: Icons.tune_outlined,
-            title: 'Server configuration',
-            subtitle: 'Connection details and server-specific settings.',
-            onTap: onConfiguration,
-          ),
-        ],
-      );
+    padding: const EdgeInsets.all(20),
+    children: [
+      Text('Server tools', style: Theme.of(context).textTheme.headlineMedium),
+      const SizedBox(height: 12),
+      _ToolTile(
+        icon: Icons.inventory_2_outlined,
+        title: 'Backups',
+        subtitle: 'Browse, create, verify and restore server backups.',
+        onTap: onBackups,
+      ),
+      _ToolTile(
+        icon: Icons.schedule_outlined,
+        title: 'Schedules',
+        subtitle: 'Persistent actions that run without an open app.',
+        onTap: onSchedules,
+      ),
+      _ToolTile(
+        icon: Icons.build_circle_outlined,
+        title: 'Maintenance',
+        subtitle: 'Countdown, backup, restart and health-check flows.',
+        onTap: onMaintenance,
+      ),
+      _ToolTile(
+        icon: Icons.query_stats_outlined,
+        title: 'Performance history',
+        subtitle: 'TPS, MSPT, players, CPU and memory over time.',
+        onTap: onPerformance,
+      ),
+      _ToolTile(
+        icon: Icons.extension_outlined,
+        title: 'Plugins & updates',
+        subtitle: 'Provider matching and available versions.',
+        onTap: onPlugins,
+      ),
+      _ToolTile(
+        icon: Icons.health_and_safety_outlined,
+        title: 'Diagnostics',
+        subtitle: 'Connection, bridge and server health information.',
+        onTap: onDiagnostics,
+      ),
+      _ToolTile(
+        icon: Icons.tune_outlined,
+        title: 'Server configuration',
+        subtitle: 'Connection details and server-specific settings.',
+        onTap: onConfiguration,
+      ),
+    ],
+  );
 }
 
 class ManagementPlaceholderView extends StatelessWidget {
@@ -941,26 +987,26 @@ class ManagementPlaceholderView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
-          child: Card(
-            margin: const EdgeInsets.all(24),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(icon, size: 42),
-                  const SizedBox(height: 12),
-                  Text(title, style: Theme.of(context).textTheme.headlineSmall),
-                  const SizedBox(height: 8),
-                  Text(message, textAlign: TextAlign.center),
-                ],
-              ),
-            ),
+    child: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 520),
+      child: Card(
+        margin: const EdgeInsets.all(24),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 42),
+              const SizedBox(height: 12),
+              Text(title, style: Theme.of(context).textTheme.headlineSmall),
+              const SizedBox(height: 8),
+              Text(message, textAlign: TextAlign.center),
+            ],
           ),
         ),
-      );
+      ),
+    ),
+  );
 }
 
 class _ManagementUnavailable extends StatelessWidget {
@@ -968,10 +1014,10 @@ class _ManagementUnavailable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const ManagementPlaceholderView(
-        title: 'Management unavailable',
-        icon: Icons.cloud_off_outlined,
-        message: 'Connect a Network/Lobby bridge with management support.',
-      );
+    title: 'Management unavailable',
+    icon: Icons.cloud_off_outlined,
+    message: 'Connect a Network/Lobby bridge with management support.',
+  );
 }
 
 class _ManagementList extends StatelessWidget {
@@ -996,45 +1042,48 @@ class _ManagementList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => RefreshIndicator(
-        onRefresh: () async => onRefresh(),
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(20),
+    onRefresh: () async => onRefresh(),
+    child: ListView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(20),
+      children: [
+        Row(
           children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    title,
-                    style: Theme.of(context).textTheme.headlineMedium,
-                  ),
-                ),
-                if (action != null) action!,
-                const SizedBox(width: 8),
-                Chip(label: Text('$count')),
-              ],
+            Expanded(
+              child: Text(
+                title,
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
             ),
-            const SizedBox(height: 12),
-            if (children.isEmpty)
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    children: [
-                      Icon(emptyIcon, size: 36),
-                      const SizedBox(height: 10),
-                      Text(emptyTitle, style: Theme.of(context).textTheme.titleMedium),
-                      const SizedBox(height: 4),
-                      Text(emptyMessage, textAlign: TextAlign.center),
-                    ],
-                  ),
-                ),
-              )
-            else
-              ...children,
+            if (action != null) action!,
+            const SizedBox(width: 8),
+            Chip(label: Text('$count')),
           ],
         ),
-      );
+        const SizedBox(height: 12),
+        if (children.isEmpty)
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  Icon(emptyIcon, size: 36),
+                  const SizedBox(height: 10),
+                  Text(
+                    emptyTitle,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(emptyMessage, textAlign: TextAlign.center),
+                ],
+              ),
+            ),
+          )
+        else
+          ...children,
+      ],
+    ),
+  );
 }
 
 class _ToolTile extends StatelessWidget {
@@ -1052,47 +1101,47 @@ class _ToolTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Card(
-        margin: const EdgeInsets.only(bottom: 10),
-        child: ListTile(
-          leading: Icon(icon),
-          title: Text(title),
-          subtitle: Text(subtitle),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: onTap,
-        ),
-      );
+    margin: const EdgeInsets.only(bottom: 10),
+    child: ListTile(
+      leading: Icon(icon),
+      title: Text(title),
+      subtitle: Text(subtitle),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: onTap,
+    ),
+  );
 }
 
 String _scheduleActionLabel(ScheduledActionType action) => switch (action) {
-      ScheduledActionType.start => 'Start',
-      ScheduledActionType.stop => 'Stop',
-      ScheduledActionType.restart => 'Restart',
-      ScheduledActionType.backup => 'Backup',
-      ScheduledActionType.maintenance => 'Maintenance',
-    };
+  ScheduledActionType.start => 'Start',
+  ScheduledActionType.stop => 'Stop',
+  ScheduledActionType.restart => 'Restart',
+  ScheduledActionType.backup => 'Backup',
+  ScheduledActionType.maintenance => 'Maintenance',
+};
 IconData _scheduleIcon(ScheduledActionType action) => switch (action) {
-      ScheduledActionType.start => Icons.play_arrow,
-      ScheduledActionType.stop => Icons.stop,
-      ScheduledActionType.restart => Icons.restart_alt,
-      ScheduledActionType.backup => Icons.inventory_2_outlined,
-      ScheduledActionType.maintenance => Icons.build_circle_outlined,
-    };
+  ScheduledActionType.start => Icons.play_arrow,
+  ScheduledActionType.stop => Icons.stop,
+  ScheduledActionType.restart => Icons.restart_alt,
+  ScheduledActionType.backup => Icons.inventory_2_outlined,
+  ScheduledActionType.maintenance => Icons.build_circle_outlined,
+};
 
 int _updatePriority(PluginUpdateStatus status) => switch (status) {
-      PluginUpdateStatus.updateAvailable => 0,
-      PluginUpdateStatus.sourceUnavailable => 1,
-      PluginUpdateStatus.unmanaged => 2,
-      PluginUpdateStatus.checking => 3,
-      PluginUpdateStatus.current => 4,
-    };
+  PluginUpdateStatus.updateAvailable => 0,
+  PluginUpdateStatus.sourceUnavailable => 1,
+  PluginUpdateStatus.unmanaged => 2,
+  PluginUpdateStatus.checking => 3,
+  PluginUpdateStatus.current => 4,
+};
 
 String _updateStatusLabel(PluginUpdateStatus status) => switch (status) {
-      PluginUpdateStatus.current => 'Current',
-      PluginUpdateStatus.updateAvailable => 'Update available',
-      PluginUpdateStatus.unmanaged => 'Unmanaged',
-      PluginUpdateStatus.sourceUnavailable => 'Source unavailable',
-      PluginUpdateStatus.checking => 'Checking',
-    };
+  PluginUpdateStatus.current => 'Current',
+  PluginUpdateStatus.updateAvailable => 'Update available',
+  PluginUpdateStatus.unmanaged => 'Unmanaged',
+  PluginUpdateStatus.sourceUnavailable => 'Source unavailable',
+  PluginUpdateStatus.checking => 'Checking',
+};
 
 String _updateSourceLabel(PluginUpdate update) {
   final provider = update.provider?.label ?? 'Unknown source';
@@ -1101,13 +1150,14 @@ String _updateSourceLabel(PluginUpdate update) {
       ? provider
       : '$provider · $projectId';
 }
+
 IconData _updateIcon(PluginUpdateStatus status) => switch (status) {
-      PluginUpdateStatus.current => Icons.check_circle_outline,
-      PluginUpdateStatus.updateAvailable => Icons.system_update_alt,
-      PluginUpdateStatus.unmanaged => Icons.help_outline,
-      PluginUpdateStatus.sourceUnavailable => Icons.cloud_off_outlined,
-      PluginUpdateStatus.checking => Icons.hourglass_top,
-    };
+  PluginUpdateStatus.current => Icons.check_circle_outline,
+  PluginUpdateStatus.updateAvailable => Icons.system_update_alt,
+  PluginUpdateStatus.unmanaged => Icons.help_outline,
+  PluginUpdateStatus.sourceUnavailable => Icons.cloud_off_outlined,
+  PluginUpdateStatus.checking => Icons.hourglass_top,
+};
 
 String _formatDateTime(DateTime value) {
   String two(int number) => number.toString().padLeft(2, '0');

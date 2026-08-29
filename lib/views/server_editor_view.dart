@@ -75,6 +75,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
   final _hostController = TextEditingController();
   final _portController = TextEditingController();
   final _pathController = TextEditingController();
+  final _managementIdController = TextEditingController();
   final _secretController = TextEditingController();
   final _certificateController = TextEditingController();
 
@@ -112,6 +113,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
       _hostController,
       _portController,
       _pathController,
+      _managementIdController,
       _secretController,
     ]) {
       controller.addListener(_reportDirty);
@@ -126,6 +128,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
     _hostController.text = server.ip;
     _portController.text = server.port.toString();
     _pathController.text = server.bridgePath;
+    _managementIdController.text = server.managementServerId;
     _secretController.text = server.secretKey;
     _certificateContent = server.certificate;
     _iconAsset = server.iconAsset;
@@ -164,6 +167,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
       _hostController,
       _portController,
       _pathController,
+      _managementIdController,
       _secretController,
       _certificateController,
     ]) {
@@ -400,6 +404,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
         ip: _hostController.text.trim(),
         port: int.parse(_portController.text),
         bridgePath: _security.isDirectRcon ? '' : bridgePath,
+        managementServerId: _managementIdController.text.trim(),
         secretKey: _secretController.text,
         certificate: _certificateContent,
         connectionSecurity: _security,
@@ -788,6 +793,16 @@ class _ServerEditorViewState extends State<ServerEditorView> {
                           },
                         ),
                       ],
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _managementIdController,
+                        decoration: const InputDecoration(
+                          labelText: 'Management server ID (optional)',
+                          helperText:
+                              'Leave empty to derive it from the final bridge-path segment.',
+                          helperMaxLines: 2,
+                        ),
+                      ),
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: _secretController,

@@ -455,7 +455,8 @@ class _TabsState extends State<Tabs> {
         final stopConfirmed = await DialogUtils.confirmAction(
           context,
           title: 'Stop ${profile.alias}?',
-          message: 'Connected players will be disconnected when the server stops.',
+          message:
+              'Connected players will be disconnected when the server stops.',
           confirmLabel: 'Stop',
         );
         if (stopConfirmed) await connection.stopServer(model);
@@ -560,28 +561,35 @@ class _TabsState extends State<Tabs> {
       _WorkspaceDestination.serverTools => ServerToolsView(
         onBackups: () => _openPage(
           'Backups',
-          BackupView(serverId: model.selectedServerId),
+          BackupView(
+            serverId: model.selectedServer.effectiveManagementServerId,
+          ),
         ),
         onSchedules: () => _openPage(
           'Schedules',
-          SchedulesView(serverId: model.selectedServerId),
+          SchedulesView(
+            serverId: model.selectedServer.effectiveManagementServerId,
+          ),
         ),
         onMaintenance: () => _openPage(
           'Maintenance',
-          MaintenanceView(serverId: model.selectedServerId),
+          MaintenanceView(
+            serverId: model.selectedServer.effectiveManagementServerId,
+          ),
         ),
         onPerformance: () => _openPage(
           'Performance history',
-          PerformanceHistoryView(serverId: model.selectedServerId),
+          PerformanceHistoryView(
+            serverId: model.selectedServer.effectiveManagementServerId,
+          ),
         ),
         onPlugins: () => _openPage(
           'Plugins & updates',
-          UpdatesView(serverId: model.selectedServerId),
+          UpdatesView(
+            serverId: model.selectedServer.effectiveManagementServerId,
+          ),
         ),
-        onDiagnostics: () => _openPage(
-          'Diagnostics',
-          const DiagnosticsView(),
-        ),
+        onDiagnostics: () => _openPage('Diagnostics', const DiagnosticsView()),
         onConfiguration: () => _go(_WorkspaceDestination.serverEditor),
       ),
       _WorkspaceDestination.servers => ServersView(
@@ -803,10 +811,7 @@ class _TabsState extends State<Tabs> {
             Padding(
               key: const ValueKey('mobile-connection-action'),
               padding: const EdgeInsets.only(right: 8),
-              child: _ConnectionAction(
-                model: model,
-                connection: connection,
-              ),
+              child: _ConnectionAction(model: model, connection: connection),
             ),
         ],
       ),
@@ -821,8 +826,7 @@ class _TabsState extends State<Tabs> {
           backgroundColor: Colors.transparent,
           elevation: 0,
           selectedIndex: _mobileIndex,
-          onDestinationSelected: (index) =>
-              _go(_mobileDestinations[index]),
+          onDestinationSelected: (index) => _go(_mobileDestinations[index]),
           destinations: networkScope
               ? const [
                   NavigationDestination(
@@ -1092,7 +1096,7 @@ class _WorkspaceHeader extends StatelessWidget {
       model.ip.isEmpty
           ? model.selectedServer.edition.label
           : '${model.selectedServer.edition.label} · '
-              '${model.ip}:${model.port}${model.bridgePath}',
+                '${model.ip}:${model.port}${model.bridgePath}',
     _WorkspaceDestination.servers => 'Manage saved server profiles',
     _WorkspaceDestination.network => 'Velocity network overview',
     _WorkspaceDestination.networkActivity => 'Technical audit log',
@@ -1106,49 +1110,49 @@ class _WorkspaceHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _ScopeSwitcher(
-                      model: model,
-                      networkScope: networkScope,
-                      onNetwork: onNetwork,
-                      onServer: onServer,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${destination.label} · $_subtitle',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-              const NotificationInboxButton(),
-              IconButton(
-                tooltip: 'Settings',
-                onPressed: onSettings,
-                icon: const Icon(Icons.settings_outlined),
-              ),
-              if (!networkScope) ...[
-                const SizedBox(width: 4),
-                _ConnectionAction(
+    bottom: false,
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _ScopeSwitcher(
                   model: model,
-                  connection: connection,
-                  showStatusLabel: true,
+                  networkScope: networkScope,
+                  onNetwork: onNetwork,
+                  onServer: onServer,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${destination.label} · $_subtitle',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
-            ],
+            ),
           ),
-        ),
-      );
+          const NotificationInboxButton(),
+          IconButton(
+            tooltip: 'Settings',
+            onPressed: onSettings,
+            icon: const Icon(Icons.settings_outlined),
+          ),
+          if (!networkScope) ...[
+            const SizedBox(width: 4),
+            _ConnectionAction(
+              model: model,
+              connection: connection,
+              showStatusLabel: true,
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
 }
 
 class _NavigationTile extends StatelessWidget {

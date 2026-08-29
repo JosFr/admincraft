@@ -68,4 +68,37 @@ void main() {
     expect(restored.iconAsset, isEmpty);
     expect(restored.customIconBase64, 'aWNvbg==');
   });
+  test('management server ID defaults to the final bridge path segment', () {
+    const profile = ServerProfile(
+      id: 'local-profile-id',
+      alias: 'SMP',
+      ip: 'admincraft.example.com',
+      port: 443,
+      bridgePath: '/gateway/smp',
+      secretKey: 'secret',
+      certificate: '',
+      security: ConnectionSecurity.trustedCertificate,
+    );
+    expect(profile.effectiveManagementServerId, 'smp');
+  });
+
+  test(
+    'explicit management server ID survives serialization and overrides path',
+    () {
+      const profile = ServerProfile(
+        id: 'local-profile-id',
+        alias: 'Custom',
+        ip: 'admincraft.example.com',
+        port: 443,
+        bridgePath: '/proxy/route',
+        managementServerId: 'paper-prod',
+        secretKey: 'secret',
+        certificate: '',
+        security: ConnectionSecurity.trustedCertificate,
+      );
+      final restored = ServerProfile.fromJson(profile.toJson());
+      expect(restored.managementServerId, 'paper-prod');
+      expect(restored.effectiveManagementServerId, 'paper-prod');
+    },
+  );
 }

@@ -9,6 +9,7 @@ class ServerProfile {
   final String ip;
   final int port;
   final String bridgePath;
+  final String managementServerId;
   final String secretKey;
   final String certificate;
   final ConnectionSecurity security;
@@ -22,6 +23,7 @@ class ServerProfile {
     required this.ip,
     required this.port,
     this.bridgePath = '',
+    this.managementServerId = '',
     required this.secretKey,
     required this.certificate,
     required this.security,
@@ -48,6 +50,7 @@ class ServerProfile {
     String? ip,
     int? port,
     String? bridgePath,
+    String? managementServerId,
     String? secretKey,
     String? certificate,
     ConnectionSecurity? security,
@@ -61,6 +64,7 @@ class ServerProfile {
       ip: ip ?? this.ip,
       port: port ?? this.port,
       bridgePath: bridgePath ?? this.bridgePath,
+      managementServerId: managementServerId ?? this.managementServerId,
       secretKey: secretKey ?? this.secretKey,
       certificate: certificate ?? this.certificate,
       security: security ?? this.security,
@@ -68,6 +72,20 @@ class ServerProfile {
       iconAsset: iconAsset ?? this.iconAsset,
       customIconBase64: customIconBase64 ?? this.customIconBase64,
     );
+  }
+
+  /// Stable management identifier used by the network management bridge.
+  ///
+  /// Existing gateway profiles need no migration: `/smp` resolves to `smp`.
+  /// Community/custom deployments can override it explicitly.
+  String get effectiveManagementServerId {
+    final explicit = managementServerId.trim();
+    if (explicit.isNotEmpty) return explicit;
+    final segments = bridgePath
+        .split('/')
+        .where((part) => part.trim().isNotEmpty)
+        .toList();
+    return segments.isEmpty ? id : segments.last;
   }
 
   /// True once there is enough here to attempt a connection.
@@ -81,6 +99,7 @@ class ServerProfile {
     'ip': ip,
     'port': port,
     if (bridgePath.isNotEmpty) 'bridgePath': bridgePath,
+    if (managementServerId.isNotEmpty) 'managementServerId': managementServerId,
     if (includeSecrets) 'secretKey': secretKey,
     if (includeSecrets) 'certificate': certificate,
     'security': security.name,
@@ -96,6 +115,7 @@ class ServerProfile {
       ip: json['ip'] as String? ?? '',
       port: json['port'] as int? ?? 8080,
       bridgePath: json['bridgePath'] as String? ?? '',
+      managementServerId: json['managementServerId'] as String? ?? '',
       secretKey: json['secretKey'] as String? ?? '',
       certificate: json['certificate'] as String? ?? '',
       security: ConnectionSecurity.values.firstWhere(
