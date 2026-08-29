@@ -13,13 +13,14 @@ function fixture() {
   const calls = [];
   let backupState = { status: "running" };
   let restartError = null;
+  let backupStartError = null;
   const backupFile = path.join(dir, "backup.zip");
   fs.writeFileSync(backupFile, "backup-data", "utf8");
   const multicraft = {
     async start(id) { calls.push(["start", id]); },
     async stop(id) { calls.push(["stop", id]); },
     async restart(id) { calls.push(["restart", id]); if (restartError) throw restartError; },
-    async startBackup(id) { calls.push(["backup", id]); },
+    async startBackup(id) { calls.push(["backup", id]); if (backupStartError) throw backupStartError; },
     async backupStatus() { return { ...backupState }; },
     async statusDetails() { return { onlinePlayers: 0 }; },
     async resources() { return { cpuPercent: 12, memoryMb: 512 }; },
@@ -44,6 +45,7 @@ function fixture() {
     backupFile,
     setBackupState(value) { backupState = value; },
     setRestartError(value) { restartError = value; },
+    setBackupStartError(value) { backupStartError = value; },
     setNow(value) { current = new Date(value); },
     advance(milliseconds) { current = new Date(current.getTime() + milliseconds); },
     cleanup() { fs.rmSync(dir, { recursive: true, force: true }); },
@@ -207,5 +209,20 @@ test("maintenance failures are isolated and recorded", async () => {
     assert.equal(maintenance.stage, "failed");
     assert.equal(maintenance.message, "restart denied");
     assert.equal(fx.service.snapshot().activity[0].error, true);
+  } finally { fx.cleanup(); }
+});
+
+test("failed backup starts are recorded and do not stay active", async () => {
+  const fx = fixture();
+  try {
+    fx.setBackupStartError(new Error("Multicraft refused backup"));
+    const result = await fx.service.handle("backup-create", { serverId: "lobby", engine: "multicraft" });
+    assert.equal(result.success, false);
+    const backup = fx.service.snapshot().backups[0];
+    assert.equal(backup.status, "failed");
+    assert.equal(backup.message, "Multicraft refused backup");
+    fx.setBackupStartError(null);
+    const retry = await fx.service.handle("backup-create", { serverId: "lobby", engine: "multicraft" });
+    assert.equal(retry.success, true);
   } finally { fx.cleanup(); }
 });

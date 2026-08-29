@@ -279,11 +279,19 @@ function createManagementService(config = {}, dependencies = {}) {
       message: null,
     };
     state.backups.unshift(backup);
-    await multicraft.startBackup(server.multicraftServerId);
-    backup.status = "running";
-    activity(server, "Backup started", `${kind} Multicraft backup started.`);
-    persist();
-    return backup;
+    try {
+      await multicraft.startBackup(server.multicraftServerId);
+      backup.status = "running";
+      activity(server, "Backup started", `${kind} Multicraft backup started.`);
+      persist();
+      return backup;
+    } catch (error) {
+      backup.status = "failed";
+      backup.message = error.message || "Multicraft backup could not be started.";
+      activity(server, "Backup failed", backup.message, true);
+      persist();
+      throw error;
+    }
   }
 
   async function executeAction(server, action, source = "scheduled") {
