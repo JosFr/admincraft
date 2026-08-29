@@ -383,7 +383,7 @@ void main() {
     await tester.tap(find.text('Second server'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Server Overview'), findsOneWidget);
+    expect(find.text('Second server'), findsOneWidget);
     expect(find.byTooltip('Switch scope'), findsOneWidget);
     expect(find.text('Choose a server to open its dashboard.'), findsNothing);
     final prefs = await SharedPreferences.getInstance();
@@ -415,7 +415,7 @@ void main() {
     );
 
     expect(find.byTooltip('Switch scope'), findsOneWidget);
-    expect(find.text('Server Overview'), findsOneWidget);
+    expect(find.text('Lobby'), findsOneWidget);
     expect(find.text('Live metrics'), findsOneWidget);
     expect(find.text('Server & world'), findsOneWidget);
     expect(find.text('Plugins'), findsOneWidget);
