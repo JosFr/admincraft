@@ -13,7 +13,12 @@ class BackupView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final network = context.watch<NetworkController>();
+    final network = context.watch<NetworkController?>();
+    if (network == null) {
+      return const Center(
+        child: Text('Connect a Network/Lobby bridge with RC4 management support.'),
+      );
+    }
     final model = context.watch<Model>();
     final snapshot = network.management;
     final backups = snapshot.backups.where((backup) {

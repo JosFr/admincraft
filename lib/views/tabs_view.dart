@@ -14,6 +14,7 @@ import 'package:admincraft/utils/url_utils.dart';
 import 'package:admincraft/views/backup_view.dart';
 import 'package:admincraft/views/control_tab_view.dart';
 import 'package:admincraft/views/data_sync_view.dart';
+import 'package:admincraft/views/management_views.dart';
 import 'package:admincraft/views/more_view.dart';
 import 'package:admincraft/views/network_view.dart';
 import 'package:admincraft/views/overview_view.dart';
@@ -36,8 +37,13 @@ enum _WorkspaceDestination {
   console,
   controls,
   players,
+  serverTools,
   servers,
   network,
+  networkActivity,
+  networkBackups,
+  networkSchedules,
+  networkUpdates,
   serverEditor,
   dataSync,
   preferences,
@@ -52,8 +58,13 @@ extension on _WorkspaceDestination {
     _WorkspaceDestination.console => 'Console',
     _WorkspaceDestination.controls => 'Actions',
     _WorkspaceDestination.players => 'Players',
+    _WorkspaceDestination.serverTools => 'Tools',
     _WorkspaceDestination.servers => 'Servers',
-    _WorkspaceDestination.network => 'Network',
+    _WorkspaceDestination.network => 'Dashboard',
+    _WorkspaceDestination.networkActivity => 'Activity',
+    _WorkspaceDestination.networkBackups => 'Backups',
+    _WorkspaceDestination.networkSchedules => 'Schedules',
+    _WorkspaceDestination.networkUpdates => 'Updates',
     _WorkspaceDestination.serverEditor => 'Configuration',
     _WorkspaceDestination.dataSync => 'Data & Sync',
     _WorkspaceDestination.preferences => 'Preferences',
@@ -72,7 +83,8 @@ extension on _WorkspaceDestination {
     _WorkspaceDestination.overview ||
     _WorkspaceDestination.console ||
     _WorkspaceDestination.controls ||
-    _WorkspaceDestination.players => true,
+    _WorkspaceDestination.players ||
+    _WorkspaceDestination.serverTools => true,
     _WorkspaceDestination.servers ||
     _WorkspaceDestination.network ||
     _WorkspaceDestination.serverEditor ||
@@ -86,8 +98,13 @@ extension on _WorkspaceDestination {
     _WorkspaceDestination.console => Icons.terminal,
     _WorkspaceDestination.controls => Icons.bolt_outlined,
     _WorkspaceDestination.players => Icons.people_alt_outlined,
+    _WorkspaceDestination.serverTools => Icons.construction_outlined,
     _WorkspaceDestination.servers => Icons.dns_outlined,
-    _WorkspaceDestination.network => Icons.hub_outlined,
+    _WorkspaceDestination.network => Icons.dashboard_outlined,
+    _WorkspaceDestination.networkActivity => Icons.history_outlined,
+    _WorkspaceDestination.networkBackups => Icons.inventory_2_outlined,
+    _WorkspaceDestination.networkSchedules => Icons.schedule_outlined,
+    _WorkspaceDestination.networkUpdates => Icons.system_update_alt_outlined,
     _WorkspaceDestination.serverEditor => Icons.edit_outlined,
     _WorkspaceDestination.dataSync => Icons.sync_outlined,
     _WorkspaceDestination.preferences => Icons.palette_outlined,
@@ -101,8 +118,13 @@ extension on _WorkspaceDestination {
     _WorkspaceDestination.console ||
     _WorkspaceDestination.controls ||
     _WorkspaceDestination.players ||
+    _WorkspaceDestination.serverTools ||
     _WorkspaceDestination.servers ||
-    _WorkspaceDestination.network => this,
+    _WorkspaceDestination.network ||
+    _WorkspaceDestination.networkActivity ||
+    _WorkspaceDestination.networkBackups ||
+    _WorkspaceDestination.networkSchedules ||
+    _WorkspaceDestination.networkUpdates => this,
     _WorkspaceDestination.serverEditor => _WorkspaceDestination.servers,
     _WorkspaceDestination.dataSync ||
     _WorkspaceDestination.preferences ||
@@ -502,6 +524,19 @@ class _TabsState extends State<Tabs> {
     }
   }
 
+  void _openPage(String title, Widget child) {
+    unawaited(
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => Scaffold(
+            appBar: AppBar(title: Text(title)),
+            body: child,
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _pageAt(int index, Model model, ConnectionController connection) {
     final destination = _WorkspaceDestination.values[index];
     return switch (destination) {
@@ -518,6 +553,45 @@ class _TabsState extends State<Tabs> {
       _WorkspaceDestination.players => PlayersView(
         isEnabled: connection.status == ConnectionStatus.connected,
       ),
+      _WorkspaceDestination.serverTools => ServerToolsView(
+        onBackups: () => _openPage(
+          'Backups',
+          BackupView(serverId: model.selectedServerId),
+        ),
+        onSchedules: () => _openPage(
+          'Schedules',
+          SchedulesView(serverId: model.selectedServerId),
+        ),
+        onMaintenance: () => _openPage(
+          'Maintenance',
+          const ManagementPlaceholderView(
+            title: 'Maintenance',
+            icon: Icons.build_circle_outlined,
+            message: 'Countdown and maintenance job controls are connected in the next backend slice.',
+          ),
+        ),
+        onPerformance: () => _openPage(
+          'Performance history',
+          const ManagementPlaceholderView(
+            title: 'Performance history',
+            icon: Icons.query_stats_outlined,
+            message: 'TPS, MSPT and player history will be plotted from server-side samples.',
+          ),
+        ),
+        onPlugins: () => _openPage(
+          'Plugins & updates',
+          UpdatesView(serverId: model.selectedServerId),
+        ),
+        onDiagnostics: () => _openPage(
+          'Diagnostics',
+          const ManagementPlaceholderView(
+            title: 'Diagnostics',
+            icon: Icons.health_and_safety_outlined,
+            message: 'Bridge, connection and server diagnostics will be combined here.',
+          ),
+        ),
+        onConfiguration: () => _go(_WorkspaceDestination.serverEditor),
+      ),
       _WorkspaceDestination.servers => ServersView(
         onSelect: _selectServer,
         onAdd: _addServer,
@@ -526,15 +600,12 @@ class _TabsState extends State<Tabs> {
       ),
       _WorkspaceDestination.network => NetworkView(
         onServerAction: _networkServerAction,
-        onBackups: () => Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => Scaffold(
-              appBar: AppBar(title: const Text('Network backups')),
-              body: const BackupView(),
-            ),
-          ),
-        ),
+        onBackups: () => _go(_WorkspaceDestination.networkBackups),
       ),
+      _WorkspaceDestination.networkActivity => const NetworkActivityView(),
+      _WorkspaceDestination.networkBackups => const BackupView(),
+      _WorkspaceDestination.networkSchedules => const SchedulesView(),
+      _WorkspaceDestination.networkUpdates => const UpdatesView(),
       _WorkspaceDestination.serverEditor => ServerEditorView(
         key: ValueKey(model.selectedServerId),
         controller: _serverEditorController,
@@ -657,6 +728,7 @@ class _TabsState extends State<Tabs> {
             child: _WorkspaceSidebar(
               model: model,
               destination: _destination,
+              networkScope: _networkScope,
               onDestination: _go,
             ),
           ),
@@ -668,6 +740,10 @@ class _TabsState extends State<Tabs> {
                   destination: _destination,
                   model: model,
                   connection: connection,
+                  networkScope: _networkScope,
+                  onNetwork: () => _go(_WorkspaceDestination.network),
+                  onServer: (id) => unawaited(_selectServer(id)),
+                  onSettings: () => _go(_WorkspaceDestination.more),
                 ),
                 const Divider(height: 1),
                 Expanded(child: _pageHost(model, connection)),
@@ -679,6 +755,15 @@ class _TabsState extends State<Tabs> {
     );
   }
 
+  bool get _networkScope => switch (_destination) {
+    _WorkspaceDestination.network ||
+    _WorkspaceDestination.networkActivity ||
+    _WorkspaceDestination.networkBackups ||
+    _WorkspaceDestination.networkSchedules ||
+    _WorkspaceDestination.networkUpdates => true,
+    _ => false,
+  };
+
   Widget _buildMobile(
     BuildContext context,
     Model model,
@@ -686,126 +771,38 @@ class _TabsState extends State<Tabs> {
   ) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final networkScope = _networkScope;
     final navigationColor = theme.brightness == Brightness.light
         ? scheme.surfaceContainerHigh
         : scheme.surfaceContainerLow;
-    final serverOverview = _destination == _WorkspaceDestination.overview;
-    final networkOverview = _destination == _WorkspaceDestination.network;
-    final nestedSettings = {
-      _WorkspaceDestination.serverEditor,
-      _WorkspaceDestination.dataSync,
-      _WorkspaceDestination.preferences,
-    }.contains(_destination);
-    final showConnectionLabel =
-        !serverOverview &&
-        !networkOverview && !nestedSettings &&
-        MediaQuery.sizeOf(context).width >= 480;
 
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        leading: serverOverview
-            ? IconButton(
-                tooltip: 'Back to Servers',
-                onPressed: () => _go(_WorkspaceDestination.servers),
-                icon: const Icon(Icons.arrow_back_ios_new),
-              )
-            : networkOverview
-                ? IconButton(
-                    tooltip: 'Back to Servers',
-                    onPressed: () => _go(_WorkspaceDestination.servers),
-                    icon: const Icon(Icons.arrow_back_ios_new),
-                  )
-                : nestedSettings
-                ? IconButton(
-                    tooltip: _destination == _WorkspaceDestination.serverEditor
-                        ? 'Back to Servers'
-                        : 'Back to Settings',
-                    onPressed: _back,
-                    icon: const Icon(Icons.arrow_back),
-                  )
-                : null,
-        titleSpacing:
-            serverOverview || networkOverview || nestedSettings
-                ? 0
-                : 16,
-        centerTitle: serverOverview || networkOverview,
-        title: serverOverview
-            ? Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    model.alias.isEmpty ? 'Server' : model.alias,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  Text(
-                    'Server Overview',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ],
-              )
-            : Text(_destination.label),
-        actions: serverOverview
-            ? [
-                PopupMenuButton<String>(
-                  tooltip: 'Server options',
-                  icon: const Icon(Icons.more_horiz),
-                  onSelected: (value) {
-                    switch (value) {
-                      case 'connect':
-                        unawaited(connection.attemptConnection(model));
-                      case 'disconnect':
-                        unawaited(connection.disconnect(model));
-                      case 'edit':
-                        unawaited(_go(_WorkspaceDestination.serverEditor));
-                    }
-                  },
-                  itemBuilder: (context) => [
-                    if (connection.status == ConnectionStatus.connected)
-                      const PopupMenuItem(
-                        value: 'disconnect',
-                        child: ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(Icons.link_off_rounded),
-                          title: Text('Disconnect'),
-                        ),
-                      )
-                    else
-                      const PopupMenuItem(
-                        value: 'connect',
-                        child: ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: Icon(Icons.link_rounded),
-                          title: Text('Connect'),
-                        ),
-                      ),
-                    const PopupMenuItem(
-                      value: 'edit',
-                      child: ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(Icons.edit_outlined),
-                        title: Text('Edit server'),
-                      ),
-                    ),
-                  ],
-                ),
-              ]
-            : networkOverview
-                ? [const NotificationInboxButton()]
-                : [
-                const NotificationInboxButton(),
-                if (!nestedSettings)
-                  Padding(
-                    key: const ValueKey('mobile-connection-action'),
-                    padding: const EdgeInsets.only(right: 8),
-                    child: _ConnectionAction(
-                      model: model,
-                      connection: connection,
-                      showStatusLabel: showConnectionLabel,
-                    ),
-                  ),
-              ],
+        titleSpacing: 12,
+        title: _ScopeSwitcher(
+          model: model,
+          networkScope: networkScope,
+          onNetwork: () => _go(_WorkspaceDestination.network),
+          onServer: (id) => unawaited(_selectServer(id)),
+        ),
+        actions: [
+          const NotificationInboxButton(),
+          IconButton(
+            tooltip: 'Settings',
+            onPressed: () => _go(_WorkspaceDestination.more),
+            icon: const Icon(Icons.settings_outlined),
+          ),
+          if (!networkScope)
+            Padding(
+              key: const ValueKey('mobile-connection-action'),
+              padding: const EdgeInsets.only(right: 8),
+              child: _ConnectionAction(
+                model: model,
+                connection: connection,
+              ),
+            ),
+        ],
       ),
       body: _pageHost(model, connection),
       bottomNavigationBar: DecoratedBox(
@@ -818,76 +815,198 @@ class _TabsState extends State<Tabs> {
           backgroundColor: Colors.transparent,
           elevation: 0,
           selectedIndex: _mobileIndex,
-          onDestinationSelected: (index) => _go(switch (index) {
-            0 => _WorkspaceDestination.servers,
-            1 => _WorkspaceDestination.console,
-            2 => _WorkspaceDestination.controls,
-            3 => _WorkspaceDestination.players,
-            _ => _WorkspaceDestination.more,
-          }),
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.home_outlined),
-              selectedIcon: Icon(Icons.home),
-              label: 'Servers',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.terminal_outlined),
-              selectedIcon: Icon(Icons.terminal),
-              label: 'Console',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.bolt_outlined),
-              selectedIcon: Icon(Icons.bolt),
-              label: 'Actions',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.people_alt_outlined),
-              selectedIcon: Icon(Icons.people_alt),
-              label: 'Players',
-            ),
-            NavigationDestination(
-              icon: Icon(Icons.settings_outlined),
-              selectedIcon: Icon(Icons.settings),
-              label: 'Settings',
-            ),
-          ],
+          onDestinationSelected: (index) =>
+              _go(_mobileDestinations[index]),
+          destinations: networkScope
+              ? const [
+                  NavigationDestination(
+                    icon: Icon(Icons.dashboard_outlined),
+                    selectedIcon: Icon(Icons.dashboard),
+                    label: 'Dashboard',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.history_outlined),
+                    selectedIcon: Icon(Icons.history),
+                    label: 'Activity',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.inventory_2_outlined),
+                    selectedIcon: Icon(Icons.inventory_2),
+                    label: 'Backups',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.schedule_outlined),
+                    selectedIcon: Icon(Icons.schedule),
+                    label: 'Schedules',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.system_update_alt_outlined),
+                    selectedIcon: Icon(Icons.system_update_alt),
+                    label: 'Updates',
+                  ),
+                ]
+              : const [
+                  NavigationDestination(
+                    icon: Icon(Icons.dashboard_outlined),
+                    selectedIcon: Icon(Icons.dashboard),
+                    label: 'Overview',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.terminal_outlined),
+                    selectedIcon: Icon(Icons.terminal),
+                    label: 'Console',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.bolt_outlined),
+                    selectedIcon: Icon(Icons.bolt),
+                    label: 'Actions',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.people_alt_outlined),
+                    selectedIcon: Icon(Icons.people_alt),
+                    label: 'Players',
+                  ),
+                  NavigationDestination(
+                    icon: Icon(Icons.construction_outlined),
+                    selectedIcon: Icon(Icons.construction),
+                    label: 'Tools',
+                  ),
+                ],
         ),
       ),
     );
   }
 
-  int get _mobileIndex => switch (_destination) {
-    _WorkspaceDestination.overview ||
-    _WorkspaceDestination.servers ||
-    _WorkspaceDestination.network ||
-    _WorkspaceDestination.serverEditor => 0,
-    _WorkspaceDestination.console => 1,
-    _WorkspaceDestination.controls => 2,
-    _WorkspaceDestination.players => 3,
-    _ => 4,
-  };
+  List<_WorkspaceDestination> get _mobileDestinations => _networkScope
+      ? const [
+          _WorkspaceDestination.network,
+          _WorkspaceDestination.networkActivity,
+          _WorkspaceDestination.networkBackups,
+          _WorkspaceDestination.networkSchedules,
+          _WorkspaceDestination.networkUpdates,
+        ]
+      : const [
+          _WorkspaceDestination.overview,
+          _WorkspaceDestination.console,
+          _WorkspaceDestination.controls,
+          _WorkspaceDestination.players,
+          _WorkspaceDestination.serverTools,
+        ];
+
+  int get _mobileIndex {
+    final index = _mobileDestinations.indexOf(_destination);
+    return index < 0 ? 0 : index;
+  }
+}
+
+class _ScopeSwitcher extends StatelessWidget {
+  static const _networkValue = '__network__';
+
+  final Model model;
+  final bool networkScope;
+  final VoidCallback onNetwork;
+  final ValueChanged<String> onServer;
+
+  const _ScopeSwitcher({
+    required this.model,
+    required this.networkScope,
+    required this.onNetwork,
+    required this.onServer,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final label = networkScope
+        ? 'Network'
+        : (model.alias.isEmpty ? 'Server' : model.alias);
+    return PopupMenuButton<String>(
+      key: const ValueKey('scope-switcher'),
+      tooltip: 'Switch scope',
+      onSelected: (value) {
+        if (value == _networkValue) {
+          onNetwork();
+        } else {
+          onServer(value);
+        }
+      },
+      itemBuilder: (context) => [
+        const PopupMenuItem(
+          value: _networkValue,
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.hub_outlined),
+            title: Text('Network'),
+            subtitle: Text('All managed servers'),
+          ),
+        ),
+        const PopupMenuDivider(),
+        for (final server in model.servers.where((server) => server.isComplete))
+          PopupMenuItem(
+            value: server.id,
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.dns_outlined),
+              title: Text(server.alias),
+              subtitle: Text(server.edition.label),
+            ),
+          ),
+      ],
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(networkScope ? Icons.hub_outlined : Icons.dns_outlined),
+          const SizedBox(width: 8),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 160),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+          const SizedBox(width: 4),
+          const Icon(Icons.unfold_more, size: 18),
+        ],
+      ),
+    );
+  }
 }
 
 class _WorkspaceSidebar extends StatelessWidget {
   final Model model;
   final _WorkspaceDestination destination;
+  final bool networkScope;
   final ValueChanged<_WorkspaceDestination> onDestination;
 
   const _WorkspaceSidebar({
     required this.model,
     required this.destination,
+    required this.networkScope,
     required this.onDestination,
   });
+
+  List<_WorkspaceDestination> get _destinations => networkScope
+      ? const [
+          _WorkspaceDestination.network,
+          _WorkspaceDestination.networkActivity,
+          _WorkspaceDestination.networkBackups,
+          _WorkspaceDestination.networkSchedules,
+          _WorkspaceDestination.networkUpdates,
+        ]
+      : const [
+          _WorkspaceDestination.overview,
+          _WorkspaceDestination.console,
+          _WorkspaceDestination.controls,
+          _WorkspaceDestination.players,
+          _WorkspaceDestination.serverTools,
+        ];
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     return ColoredBox(
-      // The rail reads as chrome by sitting away from the page in tone, which
-      // means deeper in light mode and lighter in dark: the page is the lightest
-      // surface in one and the darkest in the other.
       color: theme.brightness == Brightness.light
           ? scheme.surfaceContainerHigh
           : scheme.surfaceContainerLow,
@@ -898,51 +1017,23 @@ class _WorkspaceSidebar extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               _AppTitle(
-                onTap: () => onDestination(
-                  model.onboardingCompleted
-                      ? _WorkspaceDestination.servers
-                      : _WorkspaceDestination.overview,
-                ),
+                onTap: () => onDestination(_WorkspaceDestination.servers),
               ),
               const SizedBox(height: 16),
-              const _SectionLabel(label: 'Server'),
+              _SectionLabel(label: networkScope ? 'Network' : 'Server'),
+              for (final item in _destinations)
+                _NavigationTile(
+                  destination: item,
+                  selected: destination == item,
+                  onTap: onDestination,
+                ),
+              const Spacer(),
+              const _SectionLabel(label: 'Application'),
               _NavigationTile(
                 destination: _WorkspaceDestination.servers,
                 selected: destination == _WorkspaceDestination.servers,
                 onTap: onDestination,
               ),
-              _NavigationTile(
-                destination: _WorkspaceDestination.network,
-                selected: destination == _WorkspaceDestination.network,
-                onTap: onDestination,
-              ),
-              _NavigationTile(
-                destination: _WorkspaceDestination.overview,
-                selected: destination == _WorkspaceDestination.overview,
-                onTap: onDestination,
-              ),
-              _NavigationTile(
-                destination: _WorkspaceDestination.console,
-                selected: destination == _WorkspaceDestination.console,
-                onTap: onDestination,
-              ),
-              _NavigationTile(
-                destination: _WorkspaceDestination.controls,
-                selected: destination == _WorkspaceDestination.controls,
-                onTap: onDestination,
-              ),
-              _NavigationTile(
-                destination: _WorkspaceDestination.players,
-                selected: destination == _WorkspaceDestination.players,
-                onTap: onDestination,
-              ),
-              _NavigationTile(
-                destination: _WorkspaceDestination.serverEditor,
-                selected: destination == _WorkspaceDestination.serverEditor,
-                onTap: onDestination,
-              ),
-              const Spacer(),
-              const _SectionLabel(label: 'Application'),
               _NavigationTile(
                 destination: _WorkspaceDestination.dataSync,
                 selected: destination == _WorkspaceDestination.dataSync,
@@ -970,11 +1061,19 @@ class _WorkspaceHeader extends StatelessWidget {
   final _WorkspaceDestination destination;
   final Model model;
   final ConnectionController connection;
+  final bool networkScope;
+  final VoidCallback onNetwork;
+  final ValueChanged<String> onServer;
+  final VoidCallback onSettings;
 
   const _WorkspaceHeader({
     required this.destination,
     required this.model,
     required this.connection,
+    required this.networkScope,
+    required this.onNetwork,
+    required this.onServer,
+    required this.onSettings,
   });
 
   String get _subtitle => switch (destination) {
@@ -982,57 +1081,68 @@ class _WorkspaceHeader extends StatelessWidget {
     _WorkspaceDestination.console ||
     _WorkspaceDestination.controls ||
     _WorkspaceDestination.players ||
+    _WorkspaceDestination.serverTools ||
     _WorkspaceDestination.serverEditor =>
       model.ip.isEmpty
           ? model.selectedServer.edition.label
-          : '${model.selectedServer.edition.label} · ${model.ip}:${model.port}${model.bridgePath}',
+          : '${model.selectedServer.edition.label} · '
+              '${model.ip}:${model.port}${model.bridgePath}',
     _WorkspaceDestination.servers => 'Manage saved server profiles',
     _WorkspaceDestination.network => 'Velocity network overview',
+    _WorkspaceDestination.networkActivity => 'Technical audit log',
+    _WorkspaceDestination.networkBackups => 'Network-wide backup inventory',
+    _WorkspaceDestination.networkSchedules => 'Persistent server-side jobs',
+    _WorkspaceDestination.networkUpdates => 'Plugin and platform updates',
     _WorkspaceDestination.dataSync => 'Back up and transfer application data',
     _WorkspaceDestination.preferences => 'Application-wide settings',
     _WorkspaceDestination.more => 'Application tools and settings',
   };
 
   @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      bottom: false,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    destination.label,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  Tooltip(
-                    message: _subtitle,
-                    child: Text(
-                      _subtitle,
+  Widget build(BuildContext context) => SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _ScopeSwitcher(
+                      model: model,
+                      networkScope: networkScope,
+                      onNetwork: onNetwork,
+                      onServer: onServer,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${destination.label} · $_subtitle',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            const NotificationInboxButton(),
-            const SizedBox(width: 4),
-            _ConnectionAction(
-              model: model,
-              connection: connection,
-              showStatusLabel: true,
-            ),
-          ],
+              const NotificationInboxButton(),
+              IconButton(
+                tooltip: 'Settings',
+                onPressed: onSettings,
+                icon: const Icon(Icons.settings_outlined),
+              ),
+              if (!networkScope) ...[
+                const SizedBox(width: 4),
+                _ConnectionAction(
+                  model: model,
+                  connection: connection,
+                  showStatusLabel: true,
+                ),
+              ],
+            ],
+          ),
         ),
-      ),
-    );
-  }
+      );
 }
 
 class _NavigationTile extends StatelessWidget {
