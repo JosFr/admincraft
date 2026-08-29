@@ -307,15 +307,7 @@ class ConnectionService {
                     (entry) => entry.status == NetworkAccessStatus.pending,
                   )
                   .toList();
-              if (!hadSnapshot && pending.isNotEmpty) {
-                onBridgeNotification?.call(
-                  'Network access',
-                  pending.length == 1
-                      ? '${pending.first.name} wacht op toegang.'
-                      : '${pending.length} toegangsverzoeken wachten op beoordeling.',
-                  false,
-                );
-              } else if (hadSnapshot) {
+              if (hadSnapshot) {
                 for (final entry in pending) {
                   if (previousPending.contains(entry.uuid)) continue;
                   final target = entry.requestedTarget?.trim();

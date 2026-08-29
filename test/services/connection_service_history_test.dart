@@ -95,7 +95,10 @@ void main() {
     addTearDown(() => service.disconnect(model));
 
     await service.connect(model);
-    await Future<void>.delayed(const Duration(milliseconds: 50));
+    final deadline = DateTime.now().add(const Duration(seconds: 1));
+    while (model.networkAccess.isEmpty && DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+    }
 
     expect(model.output, contains('Historical server line'));
     expect(model.consoleHistoryLoading, isFalse);
@@ -110,9 +113,11 @@ void main() {
     expect(model.world.pluginNames, containsAll(['AdmincraftWeather', 'LuckPerms']));
     expect(model.networkAccess, hasLength(1));
     expect(model.networkAccess.single.name, 'PendingPlayer');
-    expect(notificationTitle, 'Network access');
-    expect(notificationMessage, contains('PendingPlayer'));
-    expect(notificationError, isFalse);
+    // The first access snapshot establishes a baseline. Existing pending
+    // requests must not be re-announced every time the user switches servers.
+    expect(notificationTitle, isNull);
+    expect(notificationMessage, isNull);
+    expect(notificationError, isNull);
     expect(model.onlinePlayers, containsAll(['Alex', 'Steve']));
     expect(model.lastLogAt, isNotNull);
   });

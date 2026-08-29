@@ -398,7 +398,7 @@ class _TabsState extends State<Tabs> {
     if (!mounted) return;
     _setServerEditorDirty(false);
     if (model.selectedServer.isComplete) {
-      await connection.attemptConnection(model);
+      await connection.attemptConnection(model, announce: false);
     }
     if (mounted) _goWithoutHistory(_WorkspaceDestination.overview);
   }
@@ -437,7 +437,7 @@ class _TabsState extends State<Tabs> {
     }
     if (!mounted) return;
     if (connection.status != ConnectionStatus.connected && profile.isComplete) {
-      await connection.attemptConnection(model);
+      await connection.attemptConnection(model, announce: false);
     }
     if (!mounted) return;
 
