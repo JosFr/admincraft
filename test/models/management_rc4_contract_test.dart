@@ -1,0 +1,83 @@
+import 'package:admincraft/models/management_state.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+void main() {
+  test('parses the complete RC4 management snapshot contract', () {
+    final snapshot = ManagementSnapshot.fromJson({
+      'observedAt': '2026-08-29T13:00:00Z',
+      'schedules': [
+        {
+          'id': 'schedule-1',
+          'serverId': 'lobby',
+          'serverName': 'Lobby',
+          'action': 'backup',
+          'schedule': '0 4 * * *',
+          'nextRun': '2026-08-30T02:00:00Z',
+          'enabled': true,
+          'lastResult': 'Success',
+        },
+      ],
+      'maintenance': [
+        {
+          'serverId': 'lobby',
+          'serverName': 'Lobby',
+          'active': true,
+          'endsAt': '2026-08-29T13:10:00Z',
+          'stage': 'countdown',
+          'message': 'Restart scheduled.',
+        },
+      ],
+      'updates': [
+        {
+          'serverId': 'lobby',
+          'serverName': 'Lobby',
+          'plugin': 'ViaVersion',
+          'currentVersion': '5.11.0',
+          'latestVersion': '5.12.0',
+          'provider': 'hangar',
+          'projectId': 'ViaVersion',
+          'status': 'updateAvailable',
+          'url': 'https://hangar.papermc.io/ViaVersion/versions',
+        },
+      ],
+      'activity': [
+        {
+          'id': 'activity-1',
+          'at': '2026-08-29T12:59:00Z',
+          'serverName': 'Lobby',
+          'title': 'Backup completed',
+          'detail': 'Multicraft backup completed.',
+          'error': false,
+        },
+      ],
+    });
+
+    expect(snapshot.schedules.single.action, ScheduledActionType.backup);
+    expect(snapshot.schedules.single.enabled, isTrue);
+    expect(snapshot.maintenance.single.active, isTrue);
+    expect(snapshot.maintenance.single.stage, 'countdown');
+    expect(snapshot.updates.single.provider, UpdateProvider.hangar);
+    expect(snapshot.updates.single.status, PluginUpdateStatus.updateAvailable);
+    expect(snapshot.activity.single.title, 'Backup completed');
+    expect(snapshot.activity.single.error, isFalse);
+  });
+
+  test('parses RC4 performance history samples', () {
+    final sample = PerformanceSample.fromJson({
+      'serverId': 'smp',
+      'at': '2026-08-29T12:00:00Z',
+      'tps': 19.8,
+      'mspt': 31.4,
+      'players': 8,
+      'cpuPercent': 42.5,
+      'memoryMb': 4096,
+    });
+
+    expect(sample.serverId, 'smp');
+    expect(sample.tps, 19.8);
+    expect(sample.mspt, 31.4);
+    expect(sample.players, 8);
+    expect(sample.cpuPercent, 42.5);
+    expect(sample.memoryMb, 4096);
+  });
+}

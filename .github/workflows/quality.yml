@@ -17,8 +17,13 @@ jobs:
       - uses: actions/checkout@v6
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: 3.47.0
+          flutter-version: 3.47.2
           cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/websocket/package-lock.json
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
@@ -69,5 +74,10 @@ jobs:
       - name: Test view components
         run: |
           flutter test             test/views/control_tab_view_test.dart             test/views/data_sync_view_test.dart             test/views/overview_view_test.dart             test/views/players_view_test.dart             test/views/server_editor_view_test.dart             test/views/server_icon_test.dart             test/views/terminal_tab_view_test.dart
+      - name: Test RC4 WebSocket backend
+        working-directory: server/websocket
+        run: |
+          npm ci
+          npm test
       - name: Build documentation
         run: python -m mkdocs build --strict
