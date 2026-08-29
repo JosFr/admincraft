@@ -52,7 +52,14 @@ jobs:
           flutter test test/views/tabs_view_test.dart --reporter expanded 2>&1 | tee /tmp/workspace-shell.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            details="$(tail -n 160 /tmp/workspace-shell.log)"
+            failure_line="$(grep -n -m 1 'A RenderFlex overflowed' /tmp/workspace-shell.log | cut -d: -f1)"
+            if [ -n "$failure_line" ]; then
+              start=$((failure_line > 30 ? failure_line - 30 : 1))
+              end=$((failure_line + 100))
+              details="$(sed -n "${start},${end}p" /tmp/workspace-shell.log)"
+            else
+              details="$(tail -n 160 /tmp/workspace-shell.log)"
+            fi
             details="${details//'%'/'%25'}"
             details="${details//$'\r'/'%0D'}"
             details="${details//$'\n'/'%0A'}"
