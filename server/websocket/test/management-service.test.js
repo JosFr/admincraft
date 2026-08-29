@@ -26,6 +26,7 @@ function fixture(dependencyOverrides = {}) {
     async statusDetails() { return { onlinePlayers: 0 }; },
     async status() { return serverStatus; },
     async resources() { return { cpuPercent: 12, memoryMb: 512 }; },
+    async tickPerformance() { return { tps: 19.8, mspt: 24.5 }; },
     async sendConsole(id, command) { calls.push(["console", id, command]); },
   };
   const service = createManagementService(
@@ -168,6 +169,8 @@ test("performance sampling is bounded and range-filtered", async () => {
     assert.equal(frame.success, true);
     assert.equal(frame.events[0].samples.length, 1);
     assert.equal(frame.events[0].samples[0].cpuPercent, 12);
+    assert.equal(frame.events[0].samples[0].tps, 19.8);
+    assert.equal(frame.events[0].samples[0].mspt, 24.5);
 
     fx.advance(300001);
     await fx.service.tick();

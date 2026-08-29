@@ -284,9 +284,12 @@ function createManagementService(config = {}, dependencies = {}) {
 
   async function recordPerformance(server) {
     if (!multicraft) return;
-    const [resources, status] = await Promise.all([
+    const [resources, status, ticks] = await Promise.all([
       multicraft.resources(server.multicraftServerId).catch(() => ({})),
       multicraft.statusDetails(server.multicraftServerId).catch(() => ({})),
+      typeof multicraft.tickPerformance === "function"
+        ? multicraft.tickPerformance(server.multicraftServerId).catch(() => ({}))
+        : Promise.resolve({}),
     ]);
     state.performance.push({
       serverId: server.id,
@@ -294,8 +297,8 @@ function createManagementService(config = {}, dependencies = {}) {
       players: Number.parseInt(status.onlinePlayers, 10) || 0,
       cpuPercent: resources.cpuPercent ?? null,
       memoryMb: resources.memoryMb ?? null,
-      tps: null,
-      mspt: null,
+      tps: Number.isFinite(Number(ticks.tps)) ? Number(ticks.tps) : null,
+      mspt: Number.isFinite(Number(ticks.mspt)) ? Number(ticks.mspt) : null,
     });
     const cutoff = now().getTime() - 30 * 24 * 60 * 60 * 1000;
     state.performance = state.performance.filter(
