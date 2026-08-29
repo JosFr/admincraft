@@ -226,3 +226,20 @@ test("failed backup starts are recorded and do not stay active", async () => {
     assert.equal(retry.success, true);
   } finally { fx.cleanup(); }
 });
+
+test("disabled schedules clear nextRun until re-enabled", async () => {
+  const fx = fixture();
+  try {
+    await fx.service.handle("schedule-create", { serverId: "lobby", action: "restart", schedule: "0 4 * * *" });
+    let schedule = fx.service.snapshot().schedules[0];
+    assert.ok(schedule.nextRun);
+    await fx.service.handle("schedule-toggle", { id: schedule.id, enabled: false });
+    schedule = fx.service.snapshot().schedules[0];
+    assert.equal(schedule.enabled, false);
+    assert.equal(schedule.nextRun, null);
+    await fx.service.handle("schedule-toggle", { id: schedule.id, enabled: true });
+    schedule = fx.service.snapshot().schedules[0];
+    assert.equal(schedule.enabled, true);
+    assert.ok(schedule.nextRun);
+  } finally { fx.cleanup(); }
+});

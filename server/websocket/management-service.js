@@ -575,9 +575,9 @@ function createManagementService(config = {}, dependencies = {}) {
         const schedule = state.schedules.find((item) => item.id === String(payload.id || ""));
         if (!schedule) throw new Error("Schedule not found.");
         schedule.enabled = payload.enabled === true;
-        if (schedule.enabled) {
-          schedule.nextRun = nextCron(schedule.schedule, now())?.toISOString() || null;
-        }
+        schedule.nextRun = schedule.enabled
+          ? nextCron(schedule.schedule, now())?.toISOString() || null
+          : null;
         persist();
         return response(schedule.enabled ? "Schedule enabled." : "Schedule disabled.", [snapshot()]);
       }
