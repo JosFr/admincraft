@@ -883,6 +883,7 @@ function createManagementService(config = {}, dependencies = {}) {
         const digest = await hashFile(destination);
         backup.verified = true;
         backup.checksum = `sha256:${digest}`;
+        activity(serverById(backup.serverId), "Backup verified", backup.id);
         persist();
         return response("Backup verified.", [snapshot()]);
       }
@@ -893,6 +894,10 @@ function createManagementService(config = {}, dependencies = {}) {
         const destinationIds = Array.isArray(payload.destinationIds) ? payload.destinationIds : [];
         if (destinationIds.length === 0) throw new Error("Choose at least one backup destination.");
         await copyBackupToDestinations(backup, destinationIds);
+        activity(
+          serverById(backup.serverId), "Backup copied",
+          `${backup.id} to ${destinationIds.join(", ")}`,
+        );
         persist();
         return response("Backup copied.", [snapshot()]);
       }
@@ -957,6 +962,10 @@ function createManagementService(config = {}, dependencies = {}) {
           enabled: true,
           lastResult: null,
         });
+        activity(
+          server, "Schedule created",
+          recurring ? `${scheduledAction} · ${expression}` : `${scheduledAction} · ${runAt}`,
+        );
         persist();
         return response("Schedule created.", [snapshot()]);
       }
@@ -976,14 +985,20 @@ function createManagementService(config = {}, dependencies = {}) {
         } else {
           schedule.nextRun = nextCron(schedule.schedule, now())?.toISOString() || null;
         }
+        activity(
+          serverById(schedule.serverId),
+          schedule.enabled ? "Schedule enabled" : "Schedule disabled",
+          `${schedule.action} · ${schedule.id}`,
+        );
         persist();
         return response(schedule.enabled ? "Schedule enabled." : "Schedule disabled.", [snapshot()]);
       }
 
       if (action === "schedule-delete") {
-        const before = state.schedules.length;
-        state.schedules = state.schedules.filter((item) => item.id !== String(payload.id || ""));
-        if (state.schedules.length === before) throw new Error("Schedule not found.");
+        const schedule = state.schedules.find((item) => item.id === String(payload.id || ""));
+        if (!schedule) throw new Error("Schedule not found.");
+        state.schedules = state.schedules.filter((item) => item.id !== schedule.id);
+        activity(serverById(schedule.serverId), "Schedule deleted", schedule.action + " · " + schedule.id);
         persist();
         return response("Schedule deleted.", [snapshot()]);
       }
@@ -1030,6 +1045,10 @@ function createManagementService(config = {}, dependencies = {}) {
             servers: servers.map((server) => ({ ...server })), providers: payload.providers || {},
             serverId: payload.serverId || null, sourceOverrides: state.updateSourceOverrides,
           });
+          activity(
+            payload.serverId ? serverById(payload.serverId) : null,
+            "Update check completed", `${state.updates.length} result(s)`,
+          );
           persist();
           return response("Update check completed.", [snapshot()]);
         }

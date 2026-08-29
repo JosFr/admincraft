@@ -11,6 +11,7 @@ import 'package:admincraft/models/network_access_entry.dart';
 import 'package:admincraft/models/network_snapshot.dart';
 import 'package:admincraft/models/server_profile.dart';
 import 'package:admincraft/services/websocket_connector.dart';
+import 'package:admincraft/utils/toast_utils.dart';
 import 'package:dart_jsonwebtoken/dart_jsonwebtoken.dart';
 import 'package:flutter/widgets.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -39,6 +40,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   DateTime? _bridgeConnectedAt;
   NetworkSnapshot _snapshot = const NetworkSnapshot();
   List<NetworkAccessEntry> _access = const [];
+  bool _accessSnapshotInitialized = false;
   ManagementSnapshot _management = const ManagementSnapshot();
   List<PerformanceSample> _performance = const [];
   String? _managementMessage;
@@ -172,6 +174,9 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     channel.sink.add(jsonEncode({'type': 'admincraft.auth', 'token': jwt}));
   }
 
+  @visibleForTesting
+  void debugReceive(String raw) => _receive(raw);
+
   void _receive(String raw) {
     Map<String, dynamic> decoded;
     try {
@@ -251,13 +256,13 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         );
         return;
       case 'admincraft.access-result':
-        notifications.add(
-          kind: decoded['success'] == true
-              ? AppNotificationKind.success
-              : AppNotificationKind.error,
-          title: 'Network access',
-          message: decoded['message']?.toString() ?? 'Access action completed.',
-        );
+        final accessMessage =
+            decoded['message']?.toString() ?? 'Access action completed.';
+        if (decoded['success'] == true) {
+          ToastUtils.showToastSuccess(accessMessage);
+        } else {
+          ToastUtils.showToastError(accessMessage);
+        }
         return;
     }
   }
@@ -300,31 +305,23 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         .where((entry) => entry.status == NetworkAccessStatus.pending)
         .map((entry) => entry.uuid)
         .toSet();
-    final hadState = _access.isNotEmpty;
+    final wasInitialized = _accessSnapshotInitialized;
     _access = [...next]
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    _accessSnapshotInitialized = true;
 
-    if (notifications.ruleEnabled(NotificationRule.accessRequests)) {
+    if (wasInitialized &&
+        notifications.ruleEnabled(NotificationRule.accessRequests)) {
       final pending = _access
           .where((entry) => entry.status == NetworkAccessStatus.pending)
           .toList();
-      if (!hadState && pending.isNotEmpty) {
+      for (final entry in pending) {
+        if (previousPending.contains(entry.uuid)) continue;
         notifications.add(
           kind: AppNotificationKind.info,
-          title: 'Network access',
-          message: pending.length == 1
-              ? '${pending.first.name} wacht op toegang.'
-              : '${pending.length} toegangsverzoeken wachten op beoordeling.',
+          title: 'Nieuw toegangsverzoek',
+          message: '${entry.name} vraagt toegang tot het netwerk.',
         );
-      } else {
-        for (final entry in pending) {
-          if (previousPending.contains(entry.uuid)) continue;
-          notifications.add(
-            kind: AppNotificationKind.info,
-            title: 'Nieuw toegangsverzoek',
-            message: '${entry.name} vraagt toegang tot het netwerk.',
-          );
-        }
       }
     }
     notifyListeners();
@@ -433,8 +430,10 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     PluginUpdate update,
     UpdateSourceCandidate candidate,
   ) => _manage('updates-source-set', {
-    'serverId': update.serverId, 'plugin': update.plugin,
-    'provider': candidate.provider.name, 'projectId': candidate.projectId,
+    'serverId': update.serverId,
+    'plugin': update.plugin,
+    'provider': candidate.provider.name,
+    'projectId': candidate.projectId,
     'providers': {
       for (final provider in UpdateProvider.values)
         provider.name: updateProviderEnabled(provider),
@@ -523,6 +522,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     _bridgeConnectedAt = null;
     _managementMessage = null;
     _managementSuccess = null;
+    _accessSnapshotInitialized = false;
   }
 
   @override

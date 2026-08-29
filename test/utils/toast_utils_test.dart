@@ -50,4 +50,32 @@ void main() {
     expect(find.text('Connected'), findsNothing);
     expect(tester.takeException(), isNull);
   });
+  testWidgets(
+    'success and info popups are transient while errors stay durable',
+    (tester) async {
+      SharedPreferences.setMockInitialValues({});
+      final preferences = await SharedPreferences.getInstance();
+      final notifications = NotificationController(preferences);
+      ToastUtils.initialize(notifications);
+      addTearDown(() => ToastUtils.detach(notifications));
+
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: ToastUtils.navigatorKey,
+          home: const Scaffold(body: SizedBox()),
+        ),
+      );
+      ToastUtils.showInfo('Connected', 'Ready.');
+      await tester.pump();
+      expect(notifications.entries, isEmpty);
+      ToastUtils.showToastSuccess('Saved.');
+      await tester.pump();
+      expect(notifications.entries, isEmpty);
+      ToastUtils.showToastError('Failed.');
+      await tester.pump();
+      expect(notifications.entries, hasLength(1));
+      expect(notifications.entries.single.kind.name, 'error');
+      ToastUtils.dismissPopups();
+    },
+  );
 }

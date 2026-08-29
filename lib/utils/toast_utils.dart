@@ -36,12 +36,7 @@ class ToastUtils {
   }
 
   static void showToastSuccess(String message) {
-    final added = _notifications?.add(
-      kind: AppNotificationKind.success,
-      title: 'Completed',
-      message: message,
-    );
-    if (added == false || _notifications?.popupsEnabled == false) return;
+    if (_notifications?.popupsEnabled == false) return;
     _showPopup(
       kind: AppNotificationKind.success,
       title: message,
@@ -50,12 +45,7 @@ class ToastUtils {
   }
 
   static void showInfo(String title, String message) {
-    final added = _notifications?.add(
-      kind: AppNotificationKind.info,
-      title: title,
-      message: message,
-    );
-    if (added == false || _notifications?.popupsEnabled == false) return;
+    if (_notifications?.popupsEnabled == false) return;
     _showPopup(
       kind: AppNotificationKind.info,
       title: title,
@@ -70,7 +60,7 @@ class ToastUtils {
     String? message,
     required Duration duration,
   }) {
-    // Popups are only a glanceable hint; the inbox keeps the durable copy.
+    // Popups are glanceable feedback. Only attention-worthy errors are durable inbox items.
     // The visual card ignores pointers so controls underneath remain usable.
     // A separate, tightly bounded close button is the only interactive part
     // of the overlay.

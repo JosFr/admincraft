@@ -432,3 +432,42 @@ test("confirmed update sources are remembered in management state", async () => 
     });
   } finally { fx.cleanup(); }
 });
+
+
+test("management activity records backup and schedule lifecycle actions", async () => {
+  const fx = fixture();
+  try {
+    await fx.service.handle("backup-create", { serverId: "lobby", engine: "multicraft" });
+    fx.setBackupState({ status: "completed", file: fx.backupFile });
+    await fx.service.tick();
+    const backup = fx.service.snapshot().backups[0];
+    await fx.service.handle("backup-verify", { backupId: backup.id });
+    await fx.service.handle("schedule-create", {
+      serverId: "lobby", action: "restart", schedule: "0 4 * * *",
+    });
+    const schedule = fx.service.snapshot().schedules[0];
+    await fx.service.handle("schedule-toggle", { id: schedule.id, enabled: false });
+    await fx.service.handle("schedule-delete", { id: schedule.id });
+    const titles = fx.service.snapshot().activity.map((entry) => entry.title);
+    assert.ok(titles.includes("Backup verified"));
+    assert.ok(titles.includes("Schedule created"));
+    assert.ok(titles.includes("Schedule disabled"));
+    assert.ok(titles.includes("Schedule deleted"));
+  } finally { fx.cleanup(); }
+});
+
+test("management activity records update checks", async () => {
+  const checker = async () => [{
+    serverId: "lobby", serverName: "Lobby", plugin: "Example", kind: "plugin",
+    currentVersion: "1.0.0", latestVersion: "1.0.0", status: "current",
+  }];
+  const fx = fixture({ updateChecker: checker });
+  try {
+    const result = await fx.service.handle("updates-check", { serverId: "lobby" });
+    assert.equal(result.success, true);
+    const entry = fx.service.snapshot().activity[0];
+    assert.equal(entry.title, "Update check completed");
+    assert.equal(entry.serverName, "Lobby");
+    assert.match(entry.detail, /1 result/u);
+  } finally { fx.cleanup(); }
+});
