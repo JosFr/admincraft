@@ -51,26 +51,41 @@ class SchedulesView extends StatelessWidget {
     BuildContext context,
     NetworkController network,
   ) async {
-    final serverController = TextEditingController(text: serverId ?? '');
+    final model = context.read<Model>();
+    final completeServers = model.servers.where((server) => server.isComplete).toList();
+    var selectedServer = serverId ?? model.selectedServerId;
+    if (serverId == null &&
+        !completeServers.any((server) => server.id == selectedServer)) {
+      selectedServer = completeServers.isEmpty ? '' : completeServers.first.id;
+    }
     final scheduleController = TextEditingController();
     var action = ScheduledActionType.restart;
+    var preset = 'custom';
+
     final created = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
           title: const Text('Create scheduled action'),
           content: SizedBox(
-            width: 420,
+            width: 440,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (serverId == null)
-                  TextField(
-                    controller: serverController,
-                    decoration: const InputDecoration(
-                      labelText: 'Server ID',
-                      hintText: 'e.g. lobby',
-                    ),
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedServer.isEmpty ? null : selectedServer,
+                    decoration: const InputDecoration(labelText: 'Server'),
+                    items: completeServers.map(
+                          (server) => DropdownMenuItem(
+                            value: server.id,
+                            child: Text(server.alias),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) setState(() => selectedServer = value);
+                    },
                   ),
                 if (serverId == null) const SizedBox(height: 12),
                 DropdownButtonFormField<ScheduledActionType>(
@@ -80,7 +95,7 @@ class SchedulesView extends StatelessWidget {
                     for (final value in ScheduledActionType.values)
                       DropdownMenuItem(
                         value: value,
-                        child: Text(value.name),
+                        child: Text(_scheduleActionLabel(value)),
                       ),
                   ],
                   onChanged: (value) {
@@ -88,12 +103,39 @@ class SchedulesView extends StatelessWidget {
                   },
                 ),
                 const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: preset,
+                  decoration: const InputDecoration(labelText: 'Cron preset'),
+                  items: const [
+                    DropdownMenuItem(value: 'custom', child: Text('Custom')),
+                    DropdownMenuItem(value: 'daily4', child: Text('Daily at 04:00')),
+                    DropdownMenuItem(value: 'weekly4', child: Text('Sunday at 04:00')),
+                    DropdownMenuItem(value: 'sixhour', child: Text('Every 6 hours')),
+                  ],
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setState(() {
+                      preset = value;
+                      scheduleController.text = switch (value) {
+                        'daily4' => '0 4 * * *',
+                        'weekly4' => '0 4 * * 0',
+                        'sixhour' => '0 */6 * * *',
+                        _ => scheduleController.text,
+                      };
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
                 TextField(
                   controller: scheduleController,
                   decoration: const InputDecoration(
-                    labelText: 'Schedule',
-                    hintText: 'Cron or backend-supported schedule expression',
+                    labelText: 'Schedule expression',
+                    hintText: 'Cron or backend-supported expression',
+                    helperText: 'Cron uses the bridge/server timezone.',
                   ),
+                  onChanged: (_) {
+                    if (preset != 'custom') setState(() => preset = 'custom');
+                  },
                 ),
               ],
             ),
@@ -105,9 +147,8 @@ class SchedulesView extends StatelessWidget {
             ),
             FilledButton(
               onPressed: () {
-                final targetServer = serverController.text.trim();
                 final schedule = scheduleController.text.trim();
-                if (targetServer.isEmpty || schedule.isEmpty) return;
+                if (selectedServer.isEmpty || schedule.isEmpty) return;
                 Navigator.pop(dialogContext, true);
               },
               child: const Text('Create'),
@@ -116,16 +157,42 @@ class SchedulesView extends StatelessWidget {
         ),
       ),
     );
-
     if (created == true) {
       network.createSchedule(
-        serverId: serverController.text.trim(),
+        serverId: selectedServer,
         action: action.name,
         schedule: scheduleController.text.trim(),
       );
     }
-    serverController.dispose();
     scheduleController.dispose();
+  }
+
+  Future<void> _deleteSchedule(
+    BuildContext context,
+    NetworkController network,
+    ScheduledAction schedule,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete schedule?'),
+        content: Text(
+          '${schedule.serverName} · ${_scheduleActionLabel(schedule.action)}\n'
+          '${schedule.schedule}',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Keep'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) network.deleteSchedule(schedule.id);
   }
 
   @override
@@ -134,7 +201,16 @@ class SchedulesView extends StatelessWidget {
     if (network == null) return const _ManagementUnavailable();
     final schedules = network.management.schedules
         .where((schedule) => serverId == null || schedule.serverId == serverId)
-        .toList();
+        .toList()
+      ..sort((a, b) {
+        if (a.enabled != b.enabled) return a.enabled ? -1 : 1;
+        if (a.nextRun == null && b.nextRun != null) return 1;
+        if (a.nextRun != null && b.nextRun == null) return -1;
+        if (a.nextRun != null && b.nextRun != null) {
+          return a.nextRun!.compareTo(b.nextRun!);
+        }
+        return a.serverName.compareTo(b.serverName);
+      });
     return _ManagementList(
       title: serverId == null ? 'Scheduled actions' : 'Server schedules',
       count: schedules.length,
@@ -148,16 +224,20 @@ class SchedulesView extends StatelessWidget {
       ),
       emptyIcon: Icons.schedule_outlined,
       emptyTitle: 'No schedules',
-      emptyMessage: 'Persistent start, stop, restart, backup and maintenance jobs appear here.',
+      emptyMessage:
+          'Persistent start, stop, restart, backup and maintenance jobs appear here.',
       children: [
         for (final schedule in schedules)
           Card(
             child: ListTile(
               leading: Icon(_scheduleIcon(schedule.action)),
-              title: Text('${schedule.serverName} · ${schedule.action.name}'),
+              title: Text(
+                '${schedule.serverName} · ${_scheduleActionLabel(schedule.action)}',
+              ),
               subtitle: Text(
                 '${schedule.schedule}'
-                '${schedule.nextRun == null ? '' : '\nNext: ${_formatDateTime(schedule.nextRun!)}'}',
+                '${schedule.nextRun == null ? '' : '\nNext: ${_formatDateTime(schedule.nextRun!)}'}'
+                '${schedule.lastResult == null || schedule.lastResult!.trim().isEmpty ? '' : '\nLast: ${schedule.lastResult}'}',
               ),
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -165,13 +245,14 @@ class SchedulesView extends StatelessWidget {
                   Switch(
                     value: schedule.enabled,
                     onChanged: network.managementAvailable
-                        ? (enabled) => network.toggleSchedule(schedule.id, enabled)
+                        ? (enabled) =>
+                            network.toggleSchedule(schedule.id, enabled)
                         : null,
                   ),
                   IconButton(
                     tooltip: 'Delete schedule',
                     onPressed: network.managementAvailable
-                        ? () => network.deleteSchedule(schedule.id)
+                        ? () => _deleteSchedule(context, network, schedule)
                         : null,
                     icon: const Icon(Icons.delete_outline),
                   ),
@@ -183,6 +264,7 @@ class SchedulesView extends StatelessWidget {
     );
   }
 }
+
 
 class UpdatesView extends StatelessWidget {
 
@@ -934,6 +1016,13 @@ class _ToolTile extends StatelessWidget {
       );
 }
 
+String _scheduleActionLabel(ScheduledActionType action) => switch (action) {
+      ScheduledActionType.start => 'Start',
+      ScheduledActionType.stop => 'Stop',
+      ScheduledActionType.restart => 'Restart',
+      ScheduledActionType.backup => 'Backup',
+      ScheduledActionType.maintenance => 'Maintenance',
+    };
 IconData _scheduleIcon(ScheduledActionType action) => switch (action) {
       ScheduledActionType.start => Icons.play_arrow,
       ScheduledActionType.stop => Icons.stop,
