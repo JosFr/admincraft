@@ -14,6 +14,12 @@ class ToastUtils {
     _notifications = notifications;
   }
 
+  static void detach(NotificationController notifications) {
+    if (!identical(_notifications, notifications)) return;
+    dismissPopups();
+    _notifications = null;
+  }
+
   static void showToastError(String message) {
     final added = _notifications?.add(
       kind: AppNotificationKind.error,

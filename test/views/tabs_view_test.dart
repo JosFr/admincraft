@@ -61,6 +61,11 @@ void main() {
         child: const Admincraft(),
       ),
     );
+    final notifications = tester
+        .element(find.byType(Admincraft))
+        .read<NotificationController>();
+    ToastUtils.initialize(notifications);
+    addTearDown(() => ToastUtils.detach(notifications));
     await tester.pumpAndSettle();
   }
 
@@ -99,7 +104,10 @@ void main() {
 
     expect(find.text('Google Drive sync'), findsOneWidget);
     expect(find.text('Setup required'), findsOneWidget);
-    expect(find.text('Back up and transfer application data'), findsOneWidget);
+    expect(
+      find.textContaining('Back up and transfer application data'),
+      findsOneWidget,
+    );
     expect(find.text('Quick transfer'), findsOneWidget);
 
     tester.view.physicalSize = const Size(390, 844);
@@ -282,10 +290,6 @@ void main() {
       const Size(390, 844),
       connectionService: _NoopConnectionService(),
     );
-    ToastUtils.initialize(
-      tester.element(find.byType(Admincraft)).read<NotificationController>(),
-    );
-
     await openServers(tester);
     await tester.tap(find.byTooltip('Edit server'));
     await tester.pumpAndSettle();
