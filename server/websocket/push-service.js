@@ -121,6 +121,35 @@ function providerFromEnvironment() {
   };
 }
 
+function networkAttention(previous, server) {
+  if (!previous || !server) return null;
+  const previousState = String(previous.state || "UNKNOWN").toUpperCase();
+  const nextState = String(server.state || "UNKNOWN").toUpperCase();
+  if (previousState === nextState) return null;
+  const label = server.label || server.name || "Minecraft server";
+  if (nextState === "ERROR") {
+    return {
+      rule: "health",
+      notification: {
+        kind: "health",
+        title: `${label} health alert`,
+        message: `${previousState.toLowerCase()} → error`,
+      },
+    };
+  }
+  if (nextState === "OFFLINE" && previousState !== "STANDBY") {
+    return {
+      rule: "serverStatus",
+      notification: {
+        kind: "server",
+        title: `${label} offline`,
+        message: "The server became unavailable unexpectedly.",
+      },
+    };
+  }
+  return null;
+}
+
 function createPushService({ accessApi, networkApi, logger = console }) {
   const registryPath = process.env.PUSH_REGISTRY_PATH
     || "/data/admincraft-push-devices.json";
@@ -187,30 +216,8 @@ function createPushService({ accessApi, networkApi, logger = console }) {
       for (const [name, server] of current) {
         const previous = previousNetwork.get(name);
         if (!previous) continue;
-        const label = server.label || name || "Minecraft server";
-        if (Number(previous.players || 0) !== Number(server.players || 0)) {
-          await notify("playerActivity", {
-            kind: "players",
-            title: label,
-            message: `Players: ${previous.players || 0} → ${server.players || 0}`,
-          });
-        }
-        const previousState = String(previous.state || "UNKNOWN");
-        const nextState = String(server.state || "UNKNOWN");
-        if (previousState === nextState) continue;
-        if (nextState === "ERROR") {
-          await notify("health", {
-            kind: "health",
-            title: `${label} health alert`,
-            message: `${previousState.toLowerCase()} → error`,
-          });
-        } else {
-          await notify("serverStatus", {
-            kind: "server",
-            title: label,
-            message: `${previousState.toLowerCase()} → ${nextState.toLowerCase()}`,
-          });
-        }
+        const attention = networkAttention(previous, server);
+        if (attention) await notify(attention.rule, attention.notification);
       }
     }
     previousNetwork = current;
@@ -247,4 +254,4 @@ function createPushService({ accessApi, networkApi, logger = console }) {
   };
 }
 
-module.exports = { createPushService, normalizeRegistration };
+module.exports = { createPushService, networkAttention, normalizeRegistration };
