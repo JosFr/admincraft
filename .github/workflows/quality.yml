@@ -30,7 +30,15 @@ jobs:
           python -m pip install -r requirements-docs.txt
       - name: Analyze
         run: flutter analyze
-      - name: Test
-        run: flutter test
+      - name: Test controllers
+        run: flutter test test/controllers
+      - name: Test models
+        run: flutter test test/models
+      - name: Test services
+        run: flutter test test/services
+      - name: Test utilities
+        run: flutter test test/utils
+      - name: Test views
+        run: flutter test test/views
       - name: Build documentation
         run: python -m mkdocs build --strict
