@@ -56,6 +56,10 @@ class BackupView extends StatelessWidget {
                 )),
             const SizedBox(height: 12),
           ],
+          if (backups.isNotEmpty) ...[
+            _RecoveryReadinessCard(backups: backups),
+            const SizedBox(height: 12),
+          ],
           if (serverId == null && backups.isNotEmpty) ...[
             _BackupFootprintCard(backups: backups),
             const SizedBox(height: 12),
@@ -380,6 +384,118 @@ class _StorageCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _RecoveryReadinessCard extends StatelessWidget {
+  final List<BackupRecord> backups;
+
+  const _RecoveryReadinessCard({required this.backups});
+
+  @override
+  Widget build(BuildContext context) {
+    final completed = backups
+        .where((backup) => backup.status == BackupStatus.completed)
+        .toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final verified = completed.where((backup) => backup.verified).toList();
+    final multipleDestinations = completed
+        .where((backup) => backup.destinations.toSet().length >= 2)
+        .toList();
+    final cutoff = DateTime.now().subtract(const Duration(days: 7));
+    final recentFailures = backups.where((backup) =>
+      backup.status == BackupStatus.failed && backup.createdAt.isAfter(cutoff),
+    ).length;
+    final latest = completed.isEmpty ? null : completed.first;
+    final latestVerified = verified.isEmpty ? null : verified.first;
+    final latestRedundant = multipleDestinations.isEmpty
+        ? null
+        : multipleDestinations.first;
+
+    final issues = <String>[];
+    if (latest == null) issues.add('No completed backup is available.');
+    if (latestVerified == null) issues.add('No verified restore point is available.');
+    if (latestRedundant == null) {
+      issues.add('No completed backup is recorded on multiple destinations.');
+    }
+    if (recentFailures > 0) {
+      issues.add(recentFailures.toString() + ' backup failure(s) recorded in the last 7 days.');
+    }
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(issues.isEmpty
+                    ? Icons.verified_user_outlined
+                    : Icons.health_and_safety_outlined),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text('Recovery readiness',
+                      style: Theme.of(context).textTheme.titleMedium),
+                ),
+                Chip(label: Text(issues.isEmpty ? 'Ready' : 'Needs attention')),
+              ],
+            ),
+            const SizedBox(height: 10),
+            _RecoveryRow(
+              label: 'Latest completed',
+              value: latest == null ? 'None' : _formatDateTime(latest.createdAt),
+            ),
+            _RecoveryRow(
+              label: 'Latest verified',
+              value: latestVerified == null
+                  ? 'None'
+                  : _formatDateTime(latestVerified.createdAt),
+            ),
+            _RecoveryRow(
+              label: 'Multiple destinations',
+              value: latestRedundant == null
+                  ? 'None'
+                  : _formatDateTime(latestRedundant.createdAt),
+            ),
+            _RecoveryRow(
+              label: 'Failed in last 7 days',
+              value: recentFailures.toString(),
+            ),
+            if (issues.isNotEmpty) ...[
+              const Divider(height: 20),
+              for (final issue in issues)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text('• ' + issue),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RecoveryRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _RecoveryRow({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 170,
+              child: Text(label,
+                  style: Theme.of(context).textTheme.labelLarge),
+            ),
+            Expanded(child: Text(value)),
+          ],
+        ),
+      );
 }
 
 class _BackupFootprintCard extends StatelessWidget {
