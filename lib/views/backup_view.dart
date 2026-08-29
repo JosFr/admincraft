@@ -16,7 +16,7 @@ class BackupView extends StatelessWidget {
     final network = context.watch<NetworkController?>();
     if (network == null) {
       return const Center(
-        child: Text('Connect a Network/Lobby bridge with RC4 management support.'),
+        child: Text('Connect a Network/Lobby bridge with management support.'),
       );
     }
     final model = context.watch<Model>();
@@ -44,7 +44,7 @@ class BackupView extends StatelessWidget {
               icon: Icons.cloud_off_outlined,
               title: 'Management backend not available',
               message:
-                  'RC4 backup controls appear when the Network/Lobby bridge advertises management support.',
+                  'Backup controls appear when the Network/Lobby bridge advertises management support.',
             ),
           if (snapshot.storages.isNotEmpty) ...[
             Text('Storage', style: Theme.of(context).textTheme.titleLarge),

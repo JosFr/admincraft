@@ -42,6 +42,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   ManagementSnapshot _management = const ManagementSnapshot();
   List<PerformanceSample> _performance = const [];
   String? _managementMessage;
+  bool? _managementSuccess;
 
   NetworkController(this.notifications, {this.push, this.preferences}) {
     WidgetsBinding.instance.addObserver(this);
@@ -64,6 +65,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   ManagementSnapshot get management => _management;
   List<PerformanceSample> get performance => List.unmodifiable(_performance);
   String? get managementMessage => _managementMessage;
+  bool? get managementSuccess => _managementSuccess;
   void start(Model model) {
     if (identical(_model, model)) return;
     _model?.removeListener(_modelChanged);
@@ -187,6 +189,8 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         _connecting = false;
         _connected = true;
         _error = null;
+        _managementMessage = null;
+        _managementSuccess = null;
         notifyListeners();
         _syncPushRegistration();
         if (managementAvailable) refreshManagement();
@@ -207,7 +211,6 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         return;
       case 'admincraft.management-state':
         _management = ManagementSnapshot.fromJson(decoded);
-        _managementMessage = null;
         notifyListeners();
         return;
       case 'admincraft.performance-history':
@@ -222,7 +225,8 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         return;
       case 'admincraft.management-result':
         _managementMessage = decoded['message']?.toString();
-        if (decoded['success'] != true) {
+        _managementSuccess = decoded['success'] == true;
+        if (_managementSuccess != true) {
           notifications.add(
             kind: AppNotificationKind.error,
             title: 'AdminCraft management',
@@ -445,6 +449,8 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     _bridgeVersion = null;
     _bridgeScope = null;
     _bridgeConnectedAt = null;
+    _managementMessage = null;
+    _managementSuccess = null;
     _error = 'Network connection closed.';
     _subscription = null;
     _channel = null;
@@ -476,6 +482,8 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     _bridgeVersion = null;
     _bridgeScope = null;
     _bridgeConnectedAt = null;
+    _managementMessage = null;
+    _managementSuccess = null;
   }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {

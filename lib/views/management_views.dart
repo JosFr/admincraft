@@ -13,7 +13,8 @@ class NetworkActivityView extends StatelessWidget {
   Widget build(BuildContext context) {
     final network = context.watch<NetworkController?>();
     if (network == null) return const _ManagementUnavailable();
-    final entries = network.management.activity;
+    final entries = [...network.management.activity]
+      ..sort((a, b) => b.at.compareTo(a.at));
     return _ManagementList(
       title: 'Network activity',
       count: entries.length,
@@ -654,7 +655,7 @@ class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
               child: Text(
                 network.managementAvailable
                     ? 'No performance samples were returned for this range.'
-                    : 'Performance history requires RC4 management support.',
+                    : 'Performance history requires management support.',
               ),
             ),
           )
@@ -722,6 +723,14 @@ class DiagnosticsView extends StatelessWidget {
         network == null ? <String>[] : network.capabilities.toList()..sort();
     final managementObserved = network?.management.observedAt;
     final managementMessage = network?.managementMessage?.trim();
+    final managementResultLabel = switch (network?.managementSuccess) {
+      true => 'Success',
+      false => 'Failed',
+      _ => 'Result',
+    };
+    final managementResult = managementMessage == null || managementMessage.isEmpty
+        ? null
+        : '$managementResultLabel · $managementMessage';
 
     return ListView(
       padding: const EdgeInsets.all(20),
@@ -781,12 +790,12 @@ class DiagnosticsView extends StatelessWidget {
                 network?.networkAvailable == true ? 'Available' : 'Unavailable',
             'Access management':
                 network?.accessAvailable == true ? 'Available' : 'Unavailable',
-            'RC4 management':
+            'Management':
                 network?.managementAvailable == true ? 'Available' : 'Unavailable',
             if (managementObserved != null)
               'Management snapshot': _formatDateTime(managementObserved),
-            if (managementMessage != null && managementMessage.isNotEmpty)
-              'Last management result': managementMessage,
+            if (managementResult != null)
+              'Last management result': managementResult,
             if (network?.error != null) 'Last hub error': network!.error!,
           },
         ),
@@ -961,7 +970,7 @@ class _ManagementUnavailable extends StatelessWidget {
   Widget build(BuildContext context) => const ManagementPlaceholderView(
         title: 'Management unavailable',
         icon: Icons.cloud_off_outlined,
-        message: 'Connect a Network/Lobby bridge with RC4 management support.',
+        message: 'Connect a Network/Lobby bridge with management support.',
       );
 }
 
