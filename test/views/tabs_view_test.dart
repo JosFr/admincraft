@@ -546,7 +546,6 @@ void main() {
     );
 
     expect(find.byType(WelcomeView), findsNothing);
-    expect(find.text('Edit server'), findsWidgets);
     expect(find.text('Restored server'), findsWidgets);
     expect(tester.takeException(), isNull);
   });

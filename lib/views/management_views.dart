@@ -44,6 +44,87 @@ class SchedulesView extends StatelessWidget {
 
   const SchedulesView({super.key, this.serverId});
 
+  Future<void> _createSchedule(
+    BuildContext context,
+    NetworkController network,
+  ) async {
+    final serverController = TextEditingController(text: serverId ?? '');
+    final scheduleController = TextEditingController();
+    var action = ScheduledActionType.restart;
+    final created = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Create scheduled action'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (serverId == null)
+                  TextField(
+                    controller: serverController,
+                    decoration: const InputDecoration(
+                      labelText: 'Server ID',
+                      hintText: 'e.g. lobby',
+                    ),
+                  ),
+                if (serverId == null) const SizedBox(height: 12),
+                DropdownButtonFormField<ScheduledActionType>(
+                  initialValue: action,
+                  decoration: const InputDecoration(labelText: 'Action'),
+                  items: [
+                    for (final value in ScheduledActionType.values)
+                      DropdownMenuItem(
+                        value: value,
+                        child: Text(value.name),
+                      ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setState(() => action = value);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: scheduleController,
+                  decoration: const InputDecoration(
+                    labelText: 'Schedule',
+                    hintText: 'Cron or backend-supported schedule expression',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                final targetServer = serverController.text.trim();
+                final schedule = scheduleController.text.trim();
+                if (targetServer.isEmpty || schedule.isEmpty) return;
+                Navigator.pop(dialogContext, true);
+              },
+              child: const Text('Create'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (created == true) {
+      network.createSchedule(
+        serverId: serverController.text.trim(),
+        action: action.name,
+        schedule: scheduleController.text.trim(),
+      );
+    }
+    serverController.dispose();
+    scheduleController.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final network = context.watch<NetworkController?>();
@@ -55,22 +136,43 @@ class SchedulesView extends StatelessWidget {
       title: serverId == null ? 'Scheduled actions' : 'Server schedules',
       count: schedules.length,
       onRefresh: network.refreshManagement,
+      action: FilledButton.icon(
+        onPressed: network.managementAvailable
+            ? () => _createSchedule(context, network)
+            : null,
+        icon: const Icon(Icons.add),
+        label: const Text('New schedule'),
+      ),
       emptyIcon: Icons.schedule_outlined,
       emptyTitle: 'No schedules',
       emptyMessage: 'Persistent start, stop, restart, backup and maintenance jobs appear here.',
       children: [
         for (final schedule in schedules)
           Card(
-            child: SwitchListTile(
-              value: schedule.enabled,
-              onChanged: network.managementAvailable
-                  ? (enabled) => network.toggleSchedule(schedule.id, enabled)
-                  : null,
-              secondary: Icon(_scheduleIcon(schedule.action)),
+            child: ListTile(
+              leading: Icon(_scheduleIcon(schedule.action)),
               title: Text('${schedule.serverName} · ${schedule.action.name}'),
               subtitle: Text(
                 '${schedule.schedule}'
                 '${schedule.nextRun == null ? '' : '\nNext: ${_formatDateTime(schedule.nextRun!)}'}',
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Switch(
+                    value: schedule.enabled,
+                    onChanged: network.managementAvailable
+                        ? (enabled) => network.toggleSchedule(schedule.id, enabled)
+                        : null,
+                  ),
+                  IconButton(
+                    tooltip: 'Delete schedule',
+                    onPressed: network.managementAvailable
+                        ? () => network.deleteSchedule(schedule.id)
+                        : null,
+                    icon: const Icon(Icons.delete_outline),
+                  ),
+                ],
               ),
             ),
           ),
@@ -80,6 +182,7 @@ class SchedulesView extends StatelessWidget {
 }
 
 class UpdatesView extends StatelessWidget {
+
   final String? serverId;
 
   const UpdatesView({super.key, this.serverId});
