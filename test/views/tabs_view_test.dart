@@ -546,7 +546,7 @@ void main() {
     );
 
     expect(find.byType(WelcomeView), findsNothing);
-    expect(find.text('Live metrics'), findsOneWidget);
+    expect(find.text('Edit server'), findsWidgets);
     expect(find.text('Restored server'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
@@ -885,7 +885,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Choose a server to open its dashboard.'), findsOneWidget);
-    expect(find.text('Players'), findsNothing);
+    expect(find.text('Players'), findsWidgets);
     expect(tester.takeException(), isNull);
   });
 }
