@@ -1,0 +1,46 @@
+name: Windows RC4 Acceptance Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [rc4]
+    paths:
+      - 'lib/**'
+      - 'windows/**'
+      - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/windows-rc4-acceptance.yml'
+
+jobs:
+  windows-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.2
+
+      - name: Install dependencies
+        run: flutter pub get
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Build Windows release
+        run: flutter build windows --release
+
+      - name: Package portable build
+        shell: pwsh
+        run: |
+          $releaseDir = Join-Path $PWD 'build\windows\x64\runner\Release'
+          $out = Join-Path $PWD 'admincraft-rc4-windows-portable.zip'
+          Compress-Archive -Path (Join-Path $releaseDir '*') -DestinationPath $out
+
+      - name: Upload acceptance artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: admincraft-rc4-windows-acceptance
+          path: admincraft-rc4-windows-portable.zip
+          retention-days: 1
+          if-no-files-found: error
