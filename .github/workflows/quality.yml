@@ -29,7 +29,20 @@ jobs:
           flutter pub get
           python -m pip install -r requirements-docs.txt
       - name: Analyze
-        run: flutter analyze
+        run: |
+          set +e
+          output="$(flutter analyze --machine 2>&1)"
+          status=$?
+          while IFS='|' read -r severity type code file line column length message; do
+            level=notice
+            [ "$severity" = "ERROR" ] && level=error
+            [ "$severity" = "WARNING" ] && level=warning
+            if [ -n "$file" ] && [ -n "$line" ]; then
+              echo "::$level file=$file,line=$line,col=$column::$message ($code)"
+            fi
+          done <<< "$output"
+          printf '%s\n' "$output"
+          exit "$status"
       - name: Test controllers
         run: flutter test test/controllers
       - name: Test models
