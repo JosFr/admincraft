@@ -34,6 +34,9 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   bool _disposed = false;
   String? _error;
   Set<String> _capabilities = {};
+  String? _bridgeVersion;
+  String? _bridgeScope;
+  DateTime? _bridgeConnectedAt;
   NetworkSnapshot _snapshot = const NetworkSnapshot();
   List<NetworkAccessEntry> _access = const [];
   ManagementSnapshot _management = const ManagementSnapshot();
@@ -54,6 +57,10 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   bool get accessAvailable => _capabilities.contains('access');
   bool get networkAvailable => _capabilities.contains('network');
   bool get managementAvailable => _capabilities.contains('management');
+  Set<String> get capabilities => Set.unmodifiable(_capabilities);
+  String? get bridgeVersion => _bridgeVersion;
+  String? get bridgeScope => _bridgeScope;
+  DateTime? get bridgeConnectedAt => _bridgeConnectedAt;
   ManagementSnapshot get management => _management;
   List<PerformanceSample> get performance => List.unmodifiable(_performance);
   String? get managementMessage => _managementMessage;
@@ -173,6 +180,10 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         _capabilities = rawCapabilities is List
             ? rawCapabilities.map((value) => value.toString()).toSet()
             : {};
+        _bridgeVersion = decoded['version']?.toString();
+        _bridgeScope = decoded['scope']?.toString();
+        _bridgeConnectedAt =
+            DateTime.tryParse(decoded['connectedAt']?.toString() ?? '')?.toLocal();
         _connecting = false;
         _connected = true;
         _error = null;
@@ -431,6 +442,9 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     _connected = false;
     _connecting = false;
     _capabilities = {};
+    _bridgeVersion = null;
+    _bridgeScope = null;
+    _bridgeConnectedAt = null;
     _error = 'Network connection closed.';
     _subscription = null;
     _channel = null;
@@ -459,6 +473,9 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     _connecting = false;
     _connected = false;
     _capabilities = {};
+    _bridgeVersion = null;
+    _bridgeScope = null;
+    _bridgeConnectedAt = null;
   }
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {

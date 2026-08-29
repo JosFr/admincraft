@@ -716,12 +716,33 @@ class DiagnosticsView extends StatelessWidget {
     final server = model.selectedServer;
     final failure = connection.lastFailure;
     final path = server.bridgePath.trim();
-    final endpoint = '${server.ip}:${server.port}${path.isEmpty ? '' : path.startsWith('/') ? path : '/$path'}';
+    final endpoint =
+        '${server.ip}:${server.port}${path.isEmpty ? '' : path.startsWith('/') ? path : '/$path'}';
+    final bridgeCapabilities =
+        network == null ? <String>[] : network.capabilities.toList()..sort();
+    final managementObserved = network?.management.observedAt;
+    final managementMessage = network?.managementMessage?.trim();
 
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
-        Text('Diagnostics', style: Theme.of(context).textTheme.headlineMedium),
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Diagnostics',
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
+            ),
+            IconButton(
+              tooltip: 'Refresh network management',
+              onPressed: network?.managementAvailable == true
+                  ? network!.refreshManagement
+                  : null,
+              icon: const Icon(Icons.refresh),
+            ),
+          ],
+        ),
         const SizedBox(height: 12),
         _DiagnosticCard(
           title: 'Server profile',
@@ -738,8 +759,10 @@ class DiagnosticsView extends StatelessWidget {
           icon: Icons.cable_outlined,
           rows: {
             'Status': connection.status.name,
-            'Platform compatible': connection.compatibilityFailure(model) == null ? 'Yes' : 'No',
-            if (failure != null) 'Last failure': '${failure.kind.name}: ${failure.message}',
+            'Platform compatible':
+                connection.compatibilityFailure(model) == null ? 'Yes' : 'No',
+            if (failure != null)
+              'Last failure': '${failure.kind.name}: ${failure.message}',
           },
         ),
         _DiagnosticCard(
@@ -747,9 +770,23 @@ class DiagnosticsView extends StatelessWidget {
           icon: Icons.hub_outlined,
           rows: {
             'Connected': network?.connected == true ? 'Yes' : 'No',
-            'Network state': network?.networkAvailable == true ? 'Available' : 'Unavailable',
-            'Access management': network?.accessAvailable == true ? 'Available' : 'Unavailable',
-            'RC4 management': network?.managementAvailable == true ? 'Available' : 'Unavailable',
+            if (network?.bridgeVersion != null)
+              'Bridge version': network!.bridgeVersion!,
+            if (network?.bridgeScope != null) 'Scope': network!.bridgeScope!,
+            if (network?.bridgeConnectedAt != null)
+              'Bridge connected': _formatDateTime(network!.bridgeConnectedAt!),
+            'Capabilities':
+                bridgeCapabilities.isEmpty ? 'None' : bridgeCapabilities.join(', '),
+            'Network state':
+                network?.networkAvailable == true ? 'Available' : 'Unavailable',
+            'Access management':
+                network?.accessAvailable == true ? 'Available' : 'Unavailable',
+            'RC4 management':
+                network?.managementAvailable == true ? 'Available' : 'Unavailable',
+            if (managementObserved != null)
+              'Management snapshot': _formatDateTime(managementObserved),
+            if (managementMessage != null && managementMessage.isNotEmpty)
+              'Last management result': managementMessage,
             if (network?.error != null) 'Last hub error': network!.error!,
           },
         ),
@@ -757,6 +794,7 @@ class DiagnosticsView extends StatelessWidget {
     );
   }
 }
+
 
 class _DiagnosticCard extends StatelessWidget {
   final String title;
