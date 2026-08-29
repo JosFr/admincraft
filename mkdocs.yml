@@ -64,6 +64,7 @@ nav:
   - Development:
       - Developer documentation: development/index.md
       - Build from source: development/building.md
+      - RC4 release readiness: development/rc4-release-readiness.md
       - Google Drive OAuth for custom builds: development/google-drive-oauth.md
       - Logo and brand assets: logo/LOGO_DESIGN.md
   - Open Admincraft ↗: https://joanroig.github.io/admincraft/
