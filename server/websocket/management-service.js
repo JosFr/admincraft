@@ -253,8 +253,17 @@ function createManagementService(config = {}, dependencies = {}) {
       }
     }
   }
+  function activeBackupFor(serverId) {
+    return state.backups.find(
+      (backup) => backup.serverId === serverId && ["queued", "running"].includes(backup.status),
+    ) || null;
+  }
+
   async function createBackup(server, kind = "manual") {
     if (!multicraft) throw new Error("Multicraft management is not configured.");
+    if (activeBackupFor(server.id)) {
+      throw new Error("A backup is already in progress for this server.");
+    }
     const backup = {
       id: id("backup"),
       serverId: server.id,
@@ -344,6 +353,11 @@ function createManagementService(config = {}, dependencies = {}) {
 
     if (maintenance.backup === true) {
       if (!maintenance.backupId) {
+        if (activeBackupFor(server.id)) {
+          maintenance.stage = "waiting-backup";
+          maintenance.message = "Waiting for the current backup to finish before the safety backup.";
+          return;
+        }
         maintenance.stage = "backup";
         maintenance.message = "Starting safety backup.";
         const backup = await createBackup(server, "maintenance");
@@ -413,7 +427,16 @@ function createManagementService(config = {}, dependencies = {}) {
       await refreshBackups();
       await runSchedules();
       for (const maintenance of state.maintenance) {
-        await runMaintenance(maintenance);
+        try {
+          await runMaintenance(maintenance);
+        } catch (error) {
+          if (maintenance.active !== true) continue;
+          maintenance.active = false;
+          maintenance.stage = "failed";
+          maintenance.message = error.message || "Maintenance failed.";
+          const server = serverById(maintenance.serverId);
+          activity(server, "Maintenance failed", maintenance.message, true);
+        }
       }
       const sampleInterval = Math.max(60000, Number.parseInt(
         config.performanceSampleMilliseconds || process.env.MANAGEMENT_PERFORMANCE_SAMPLE_MS,
