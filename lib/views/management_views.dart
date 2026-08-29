@@ -1,4 +1,6 @@
+import 'package:admincraft/controllers/connection_controller.dart';
 import 'package:admincraft/controllers/network_controller.dart';
+import 'package:admincraft/models/model.dart';
 import 'package:admincraft/models/management_state.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -406,6 +408,109 @@ class _MetricCard extends StatelessWidget {
                 Text(value, style: Theme.of(context).textTheme.headlineSmall),
               ],
             ),
+          ),
+        ),
+      );
+}
+
+class DiagnosticsView extends StatelessWidget {
+  const DiagnosticsView({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final model = context.watch<Model>();
+    final connection = context.watch<ConnectionController>();
+    final network = context.watch<NetworkController?>();
+    final server = model.selectedServer;
+    final failure = connection.lastFailure;
+    final path = server.bridgePath.trim();
+    final endpoint = '${server.ip}:${server.port}${path.isEmpty ? '' : path.startsWith('/') ? path : '/$path'}';
+
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        Text('Diagnostics', style: Theme.of(context).textTheme.headlineMedium),
+        const SizedBox(height: 12),
+        _DiagnosticCard(
+          title: 'Server profile',
+          icon: Icons.dns_outlined,
+          rows: {
+            'Name': server.alias,
+            'Endpoint': endpoint,
+            'Security': server.security.name,
+            'Edition': server.edition.name,
+          },
+        ),
+        _DiagnosticCard(
+          title: 'Direct connection',
+          icon: Icons.cable_outlined,
+          rows: {
+            'Status': connection.status.name,
+            'Platform compatible': connection.compatibilityFailure(model) == null ? 'Yes' : 'No',
+            if (failure != null) 'Last failure': '${failure.kind.name}: ${failure.message}',
+          },
+        ),
+        _DiagnosticCard(
+          title: 'Network hub',
+          icon: Icons.hub_outlined,
+          rows: {
+            'Connected': network?.connected == true ? 'Yes' : 'No',
+            'Network state': network?.networkAvailable == true ? 'Available' : 'Unavailable',
+            'Access management': network?.accessAvailable == true ? 'Available' : 'Unavailable',
+            'RC4 management': network?.managementAvailable == true ? 'Available' : 'Unavailable',
+            if (network?.error != null) 'Last hub error': network!.error!,
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _DiagnosticCard extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final Map<String, String> rows;
+
+  const _DiagnosticCard({
+    required this.title,
+    required this.icon,
+    required this.rows,
+  });
+
+  @override
+  Widget build(BuildContext context) => Card(
+        margin: const EdgeInsets.only(bottom: 12),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon),
+                  const SizedBox(width: 8),
+                  Text(title, style: Theme.of(context).textTheme.titleMedium),
+                ],
+              ),
+              const SizedBox(height: 12),
+              for (final row in rows.entries)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      SizedBox(
+                        width: 150,
+                        child: Text(
+                          row.key,
+                          style: Theme.of(context).textTheme.labelLarge,
+                        ),
+                      ),
+                      Expanded(child: SelectableText(row.value)),
+                    ],
+                  ),
+                ),
+            ],
           ),
         ),
       );

@@ -580,11 +580,7 @@ class _TabsState extends State<Tabs> {
         ),
         onDiagnostics: () => _openPage(
           'Diagnostics',
-          const ManagementPlaceholderView(
-            title: 'Diagnostics',
-            icon: Icons.health_and_safety_outlined,
-            message: 'Bridge, connection and server diagnostics will be combined here.',
-          ),
+          const DiagnosticsView(),
         ),
         onConfiguration: () => _go(_WorkspaceDestination.serverEditor),
       ),
