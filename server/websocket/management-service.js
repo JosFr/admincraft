@@ -57,6 +57,25 @@ function parseServers(config = {}) {
     multicraftServerId,
   }];
 }
+function validField(expression, min, max) {
+  return expression.split(",").every((part) => {
+    if (part === "*") return true;
+    const step = /^\*\/(\d+)$/u.exec(part);
+    if (step) {
+      const value = Number(step[1]);
+      return Number.isInteger(value) && value > 0 && value <= max - min + 1;
+    }
+    const range = /^(\d+)-(\d+)$/u.exec(part);
+    if (range) {
+      const start = Number(range[1]);
+      const end = Number(range[2]);
+      return start >= min && end <= max && start <= end;
+    }
+    const number = Number(part);
+    return Number.isInteger(number) && number >= min && number <= max;
+  });
+}
+
 function fieldMatches(value, expression, min, max) {
   return expression.split(",").some((part) => {
     if (part === "*") return true;
@@ -72,6 +91,8 @@ function fieldMatches(value, expression, min, max) {
 function nextCron(schedule, from = new Date()) {
   const fields = String(schedule).trim().split(/\s+/u);
   if (fields.length !== 5) return null;
+  const ranges = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 6]];
+  if (!fields.every((field, index) => validField(field, ...ranges[index]))) return null;
   const cursor = new Date(from.getTime());
   cursor.setSeconds(0, 0);
   cursor.setMinutes(cursor.getMinutes() + 1);

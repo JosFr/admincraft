@@ -53,6 +53,10 @@ test("nextCron supports the RC4 schedule presets", () => {
   assert.equal(nextCron("0 4 * * *", from).toISOString(), "2026-08-30T02:00:00.000Z");
   assert.equal(nextCron("0 */6 * * *", from).toISOString(), "2026-08-29T04:00:00.000Z");
   assert.equal(nextCron("invalid", from), null);
+  assert.equal(nextCron("61 * * * *", from), null);
+  assert.equal(nextCron("*/0 * * * *", from), null);
+  assert.equal(nextCron("0 4 * * MON", from), null);
+  assert.equal(nextCron("0 4 12-3 * *", from), null);
 });
 
 test("Multicraft backup lifecycle becomes verifiable when local", async () => {

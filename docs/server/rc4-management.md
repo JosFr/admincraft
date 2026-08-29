@@ -54,6 +54,8 @@ Mount `/data` persistently. Mount `MANAGEMENT_STORAGE_PATH` read-only when it is
 
 Cron expressions are evaluated in the bridge process timezone. The client presets therefore follow `TZ` rather than the phone or browser timezone.
 
+RC4 accepts a safe five-field cron subset: numeric values, *, */n, numeric ranges, and comma-separated lists. Invalid or out-of-range expressions are rejected before scheduling.
+
 The bridge exposes `GET /healthz` with non-secret bridge status. Docker health checks use this endpoint.
 
 ## Plugin update projects
