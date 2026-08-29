@@ -18,18 +18,29 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 class ServerEditorController {
+  Object? _owner;
   Future<bool> Function()? _save;
   VoidCallback? _discard;
 
   Future<bool> save() => _save?.call() ?? Future.value(false);
   void discard() => _discard?.call();
 
-  void _attach(Future<bool> Function() save, VoidCallback discard) {
+  @visibleForTesting
+  bool get isAttached => _save != null;
+
+  void _attach(
+    Object owner,
+    Future<bool> Function() save,
+    VoidCallback discard,
+  ) {
+    _owner = owner;
     _save = save;
     _discard = discard;
   }
 
-  void _detach() {
+  void _detach(Object owner) {
+    if (!identical(_owner, owner)) return;
+    _owner = null;
     _save = null;
     _discard = null;
   }
@@ -58,6 +69,7 @@ class ServerEditorView extends StatefulWidget {
 }
 
 class _ServerEditorViewState extends State<ServerEditorView> {
+  final Object _controllerOwner = Object();
   GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   final _aliasController = TextEditingController();
   final _hostController = TextEditingController();
@@ -72,6 +84,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
   String _certificateContent = '';
   String _iconAsset = serverIconAssets.first;
   String _customIconBase64 = '';
+  bool _networkHub = false;
   bool _secretVisible = false;
   bool _saving = false;
   bool _showValidationErrors = false;
@@ -104,7 +117,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
     ]) {
       controller.addListener(_reportDirty);
     }
-    widget.controller._attach(_save, _discardChanges);
+    widget.controller._attach(_controllerOwner, _save, _discardChanges);
   }
 
   void _loadSelectedServer() {
@@ -118,6 +131,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
     _certificateContent = server.certificate;
     _iconAsset = server.iconAsset;
     _customIconBase64 = server.customIconBase64;
+    _networkHub = server.networkHub;
     _certificateController.text = server.certificate.isEmpty
         ? 'No certificate loaded'
         : 'Certificate loaded';
@@ -140,13 +154,13 @@ class _ServerEditorViewState extends State<ServerEditorView> {
   void didUpdateWidget(covariant ServerEditorView oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.controller == widget.controller) return;
-    oldWidget.controller._detach();
-    widget.controller._attach(_save, _discardChanges);
+    oldWidget.controller._detach(_controllerOwner);
+    widget.controller._attach(_controllerOwner, _save, _discardChanges);
   }
 
   @override
   void dispose() {
-    widget.controller._detach();
+    widget.controller._detach(_controllerOwner);
     for (final controller in [
       _aliasController,
       _hostController,
@@ -173,7 +187,8 @@ class _ServerEditorViewState extends State<ServerEditorView> {
         _security != original.security ||
         _edition != original.edition ||
         _iconAsset != original.iconAsset ||
-        _customIconBase64 != original.customIconBase64;
+        _customIconBase64 != original.customIconBase64 ||
+        _networkHub != original.networkHub;
     widget.onDirtyChanged?.call(dirty);
   }
 
@@ -394,6 +409,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
         minecraftEdition: _edition,
         iconAsset: _iconAsset,
         customIconBase64: _customIconBase64,
+        networkHub: _networkHub,
       );
       widget.onDirtyChanged?.call(false);
       // The profile is safely persisted at this point. Reconnecting and
@@ -773,6 +789,16 @@ class _ServerEditorViewState extends State<ServerEditorView> {
                               return 'Enter only the URL path, without query or fragment.';
                             }
                             return null;
+                          },
+                        ),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Network hub / Lobby bridge'),
+                          subtitle: const Text('Use this profile for the central Velocity Network and Access feed.'),
+                          value: _networkHub,
+                          onChanged: (value) {
+                            setState(() => _networkHub = value);
+                            _reportDirty();
                           },
                         ),
                       ],

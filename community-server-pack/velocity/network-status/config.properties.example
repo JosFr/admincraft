@@ -1,0 +1,7 @@
+# Store as plugins/networkstatus/config.properties
+# Leave token blank to disable the AdminCraft Network API.
+admincraft-api-token=replace-with-a-long-random-token
+admincraft-api-port=8092
+
+# Optional JVM property for the player-limit shown by Network Overview:
+# -Dadmincraft.maxPlayers=100

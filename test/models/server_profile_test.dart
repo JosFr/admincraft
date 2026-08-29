@@ -68,4 +68,18 @@ void main() {
     expect(restored.iconAsset, isEmpty);
     expect(restored.customIconBase64, 'aWNvbg==');
   });
+  test('network hub flag survives profile serialization', () {
+    const profile = ServerProfile(
+      id: 'hub',
+      alias: 'Lobby',
+      ip: 'admincraft.example.com',
+      port: 443,
+      secretKey: 'secret',
+      certificate: '',
+      security: ConnectionSecurity.trustedCertificate,
+      networkHub: true,
+    );
+    expect(ServerProfile.fromJson(profile.toJson()).networkHub, isTrue);
+  });
+
 }

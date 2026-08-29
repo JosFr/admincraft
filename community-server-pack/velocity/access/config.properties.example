@@ -1,0 +1,4 @@
+# Add these values to the Access plugin config.properties.
+# Leave token blank to disable the local AdminCraft API.
+admincraft-api-token=replace-with-a-long-random-token
+admincraft-api-port=8091

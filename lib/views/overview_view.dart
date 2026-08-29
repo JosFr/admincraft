@@ -1,6 +1,7 @@
 import 'package:admincraft/controllers/connection_controller.dart';
 import 'package:admincraft/models/connection_status.dart';
 import 'package:admincraft/models/model.dart';
+import 'package:admincraft/views/widgets/network_access_section.dart';
 import 'package:admincraft/views/widgets/server_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -79,6 +80,17 @@ class OverviewView extends StatelessWidget {
                 'Loaded',
                 world.pluginCount?.toString() ?? 'Unknown',
               ),
+              if (world.pluginNames.isEmpty)
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Plugin names have not been reported yet.'),
+                )
+              else
+                _PluginList(
+                  names: world.pluginNames,
+                  disabled: world.disabledPlugins,
+                ),
+              const SizedBox(height: 6),
               _InfoRow(
                 'Disabled',
                 world.disabledPlugins.isEmpty
@@ -117,6 +129,10 @@ class OverviewView extends StatelessWidget {
               _InfoRow('Operators', world.operators.length.toString()),
             ],
           ),
+          if (_isLobby(model)) ...[
+            const SizedBox(height: 12),
+            NetworkAccessSection(model: model, connection: connection),
+          ],
           const SizedBox(height: 12),
           _DiagnosticsSection(model: model, connection: connection),
         ],
@@ -125,6 +141,12 @@ class OverviewView extends StatelessWidget {
     );
   }
 }
+bool _isLobby(Model model) {
+  final path = model.bridgePath.trim().toLowerCase();
+  final alias = model.alias.trim().toLowerCase();
+  return path == '/lobby' || alias == 'lobby';
+}
+
 String _memoryLabel(double? usedMb, double? limitMb) {
   if (usedMb == null) return 'Not observed';
   String format(double value) => value >= 1024
@@ -323,15 +345,25 @@ class _LiveMetrics extends StatelessWidget {
               builder: (context, constraints) {
                 const gap = 10.0;
                 final columns = constraints.maxWidth >= 760 ? 4 : 2;
-                final width =
-                    (constraints.maxWidth - gap * (columns - 1)) / columns;
-                return Wrap(
-                  spacing: gap,
-                  runSpacing: gap,
-                  children: metrics
-                      .map((metric) => _MetricTile(width: width, data: metric))
-                      .toList(),
-                );
+                final rows = <Widget>[];
+                for (var start = 0; start < metrics.length; start += columns) {
+                  final rowMetrics = metrics.skip(start).take(columns).toList();
+                  if (rows.isNotEmpty) rows.add(const SizedBox(height: gap));
+                  rows.add(
+                    IntrinsicHeight(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (var index = 0; index < rowMetrics.length; index++) ...[
+                            if (index > 0) const SizedBox(width: gap),
+                            Expanded(child: _MetricTile(data: rowMetrics[index])),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
+                }
+                return Column(children: rows);
               },
             ),
           ],
@@ -356,50 +388,83 @@ class _MetricData {
 }
 
 class _MetricTile extends StatelessWidget {
-  final double width;
   final _MetricData data;
 
-  const _MetricTile({required this.width, required this.data});
+  const _MetricTile({required this.data});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return SizedBox(
+    return DecoratedBox(
       key: ValueKey('metric-${data.label}'),
-      width: width,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: theme.colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: theme.colorScheme.outlineVariant),
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              Icon(data.icon, size: 26),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(data.label, style: theme.textTheme.bodySmall),
-                    const SizedBox(height: 2),
-                    Text(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Icon(data.icon, size: 26),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(data.label, style: theme.textTheme.bodySmall),
+                  const SizedBox(height: 2),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
                       data.value,
                       maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.titleMedium?.copyWith(
                         color: data.healthy ? Colors.green : null,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
+      ),
+    );
+  }
+}
+class _PluginList extends StatelessWidget {
+  final List<String> names;
+  final List<String> disabled;
+
+  const _PluginList({required this.names, required this.disabled});
+
+  @override
+  Widget build(BuildContext context) {
+    final disabledSet = disabled.map((name) => name.toLowerCase()).toSet();
+    final sorted = [...names]
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Wrap(
+        spacing: 7,
+        runSpacing: 7,
+        children: sorted.map((name) {
+          final lowerName = name.toLowerCase();
+          final isDisabled = disabledSet.any(
+            (plugin) => lowerName == plugin || lowerName.startsWith('$plugin '),
+          );
+          return Chip(
+            avatar: Icon(
+              isDisabled ? Icons.pause_circle_outline : Icons.check_circle_outline,
+              size: 16,
+            ),
+            label: Text(name),
+          );
+        }).toList(),
       ),
     );
   }

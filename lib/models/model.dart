@@ -4,6 +4,8 @@ import 'package:admincraft/models/connection_security.dart';
 import 'package:admincraft/models/app_theme.dart';
 import 'package:admincraft/models/command_audit_entry.dart';
 import 'package:admincraft/models/minecraft_edition.dart';
+import 'package:admincraft/models/network_access_entry.dart';
+import 'package:admincraft/models/network_audit_entry.dart';
 import 'package:admincraft/models/server_profile.dart';
 import 'package:admincraft/models/world_state.dart';
 import 'package:admincraft/services/console_parser.dart';
@@ -31,6 +33,8 @@ class Model with ChangeNotifier {
   DateTime? _lastHeartbeatAt;
   DateTime? _lastLogAt;
   DateTime? _lastServerStateAt;
+  List<NetworkAccessEntry> _networkAccess = const [];
+  DateTime? _networkAccessObservedAt;
 
   List<ServerProfile> _servers = [];
   int _serverRevision = 0;
@@ -39,6 +43,23 @@ class Model with ChangeNotifier {
   String get output => _output;
   bool get consoleHistoryLoading => _consoleHistoryLoading;
   List<CommandAuditEntry> get commandAudit => List.unmodifiable(_commandAudit);
+
+  List<NetworkAuditEntry> get networkAudit {
+    final entries = <NetworkAuditEntry>[];
+    for (final server in _servers) {
+      for (final entry in _persistenceService.commandAudit(server.id)) {
+        entries.add(
+          NetworkAuditEntry(
+            serverId: server.id,
+            serverName: server.alias,
+            entry: entry,
+          ),
+        );
+      }
+    }
+    entries.sort((a, b) => b.entry.occurredAt.compareTo(a.entry.occurredAt));
+    return List.unmodifiable(entries.take(200));
+  }
   Set<String> get bridgeCapabilities => Set.unmodifiable(_bridgeCapabilities);
   int? get bridgeProtocol => _bridgeProtocol;
   String? get bridgeVersion => _bridgeVersion;
@@ -49,6 +70,9 @@ class Model with ChangeNotifier {
   DateTime? get lastHeartbeatAt => _lastHeartbeatAt;
   DateTime? get lastLogAt => _lastLogAt;
   DateTime? get lastServerStateAt => _lastServerStateAt;
+  List<NetworkAccessEntry> get networkAccess => List.unmodifiable(_networkAccess);
+  DateTime? get networkAccessObservedAt => _networkAccessObservedAt;
+  bool get networkAccessAvailable => _networkAccessObservedAt != null;
 
   bool supportsBridgeCapability(String capability) {
     if (connectionSecurity.isDirectRcon) return capability == 'commands';
@@ -87,6 +111,8 @@ class Model with ChangeNotifier {
     _lastHeartbeatAt = null;
     _lastLogAt = null;
     _lastServerStateAt = null;
+    _networkAccess = const [];
+    _networkAccessObservedAt = null;
     notifyListeners();
   }
 
@@ -153,6 +179,7 @@ class Model with ChangeNotifier {
     Iterable<String>? worlds,
     Iterable<String>? whitelistedPlayers,
     Iterable<String>? operators,
+    Iterable<String>? pluginNames,
     Iterable<String>? disabledPlugins,
     String? difficulty,
     String? weather,
@@ -182,6 +209,7 @@ class Model with ChangeNotifier {
       worlds: worlds?.toList(),
       whitelistedPlayers: whitelistedPlayers?.toList(),
       operators: operators?.toList(),
+      pluginNames: pluginNames?.toList(),
       disabledPlugins: disabledPlugins?.toList(),
       lastDifficulty: difficulty,
       lastWeather: weather,
@@ -192,6 +220,16 @@ class Model with ChangeNotifier {
         ..addAll(onlinePlayers);
     }
     unawaited(AndroidWidgetService.update(selectedServer, _world));
+    notifyListeners();
+  }
+
+  void updateNetworkAccess(
+    Iterable<NetworkAccessEntry> entries, {
+    DateTime? observedAt,
+  }) {
+    _networkAccess = entries.toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    _networkAccessObservedAt = observedAt ?? DateTime.now();
     notifyListeners();
   }
 
@@ -457,6 +495,7 @@ class Model with ChangeNotifier {
     required MinecraftEdition minecraftEdition,
     String? iconAsset,
     String? customIconBase64,
+    bool? networkHub,
   }) async {
     _servers = _servers
         .map(
@@ -472,6 +511,7 @@ class Model with ChangeNotifier {
                   edition: minecraftEdition,
                   iconAsset: iconAsset,
                   customIconBase64: customIconBase64,
+                  networkHub: networkHub,
                 )
               : server,
         )
@@ -578,6 +618,8 @@ class Model with ChangeNotifier {
       ..clear()
       ..addAll(_persistenceService.consoleEventIds(_selectedServerId));
     _onlinePlayers.clear();
+    _networkAccess = const [];
+    _networkAccessObservedAt = null;
     _world = const WorldState();
     beginBridgeConnection();
     unawaited(AndroidWidgetService.update(selectedServer, _world));

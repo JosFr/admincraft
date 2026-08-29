@@ -1,0 +1,21 @@
+name: AdmincraftWeather
+version: 1.2.0-community-rc3
+main: io.admincraft.minecraft.paper.AdmincraftWeather
+api-version: '1.20'
+description: Reports Admincraft runtime status for Paper servers.
+author: AdminCraft Community
+
+commands:
+  admincraftweather:
+    description: Reports the current overworld weather.
+    usage: /admincraftweather
+    permission: admincraftweather.query
+  admincraftstatus:
+    description: Reports structured runtime state for Admincraft.
+    usage: /admincraftstatus
+    permission: admincraftweather.query
+
+permissions:
+  admincraftweather.query:
+    description: Allows Admincraft runtime queries.
+    default: op
