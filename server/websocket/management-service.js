@@ -11,6 +11,9 @@ const {
 const {
   parseBackupRetention, effectiveRetention, retentionPlan,
 } = require("./backup-policy");
+const {
+  parseMaintenancePolicies, policyFor, renderMessage, publicMaintenancePolicy,
+} = require("./maintenance-policy");
 
 function id(prefix = "item") {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -171,6 +174,10 @@ function createManagementService(config = {}, dependencies = {}) {
     config.retentionJson || process.env.BACKUP_RETENTION_JSON || "",
     servers.map((server) => server.id),
   );
+  const maintenancePolicies = parseMaintenancePolicies(
+    config.maintenanceConfigJson || process.env.MAINTENANCE_CONFIG_JSON || "",
+    servers.map((server) => server.id),
+  );
   const nativeBackupRoot = config.nativeBackupPath
     || process.env.MANAGEMENT_NATIVE_BACKUP_PATH
     || path.join(path.dirname(statePath), "backups");
@@ -255,6 +262,11 @@ function createManagementService(config = {}, dependencies = {}) {
       schedules: state.schedules,
       jobHistory: state.jobHistory,
       maintenance: state.maintenance,
+      maintenancePolicies: {
+        global: publicMaintenancePolicy(maintenancePolicies.global),
+        servers: Object.fromEntries(Object.entries(maintenancePolicies.servers)
+          .map(([serverId, policy]) => [serverId, publicMaintenancePolicy(policy)])),
+      },
       updates: state.updates || [],
       activity: state.activity,
       retention: {
@@ -479,27 +491,50 @@ function createManagementService(config = {}, dependencies = {}) {
     }
   }
 
+  function sayMaintenance(server, message) {
+    if (!multicraft || !message) return;
+    void multicraft.sendConsole(
+      server.multicraftServerId,
+      `say ${message}`,
+    ).catch(() => {});
+  }
+
   function startMaintenance(server, options = {}) {
-    const countdownSeconds = Math.max(0, Number.parseInt(options.countdownSeconds, 10) || 600);
+    const requestedCountdown = Number.parseInt(options.countdownSeconds, 10);
+    const countdownSeconds = Number.isInteger(requestedCountdown)
+      ? Math.max(0, Math.min(86400, requestedCountdown)) : 600;
+    const action = ["restart", "stop"].includes(String(options.action || ""))
+      ? String(options.action) : "restart";
+    const policy = policyFor(maintenancePolicies, server.id);
     const existing = state.maintenance.find((item) => item.serverId === server.id);
     const maintenance = existing || { serverId: server.id, serverName: server.name };
     Object.assign(maintenance, {
       active: true,
+      action,
       endsAt: new Date(now().getTime() + countdownSeconds * 1000).toISOString(),
       stage: "countdown",
-      message: `Restart scheduled after ${countdownSeconds} seconds.`,
+      message: `Maintenance ${action} scheduled after ${countdownSeconds} seconds.`,
       backup: options.backup !== false,
       restartWhenEmpty: options.restartWhenEmpty === true,
       backupStarted: false,
       backupId: null,
+      announcedMilestones: policy.milestonesSeconds.includes(countdownSeconds)
+        ? [countdownSeconds] : [],
+      lastWaitingPlayers: null,
+      actionStarted: false,
+      healthcheckAttempts: 0,
+      healthcheckSeenOffline: false,
+      nextHealthcheckAt: null,
     });
     if (!existing) state.maintenance.push(maintenance);
     activity(server, "Maintenance started", maintenance.message);
-    if (multicraft) {
-      void multicraft.sendConsole(
-        server.multicraftServerId,
-        `say Server maintenance starts in ${Math.max(1, Math.ceil(countdownSeconds / 60))} minute(s).`,
-      ).catch(() => {});
+    if (countdownSeconds <= 0) {
+      sayMaintenance(server, policy.startingMessage);
+    } else {
+      sayMaintenance(
+        server,
+        renderMessage(policy.countdownMessage, { seconds: countdownSeconds }),
+      );
     }
     persist();
     return maintenance;
@@ -508,19 +543,78 @@ function createManagementService(config = {}, dependencies = {}) {
   function cancelMaintenance(server) {
     const maintenance = state.maintenance.find((item) => item.serverId === server.id);
     if (!maintenance || maintenance.active !== true) return false;
+    const policy = policyFor(maintenancePolicies, server.id);
     maintenance.active = false;
     maintenance.stage = "cancelled";
     maintenance.message = "Maintenance cancelled.";
     maintenance.endsAt = null;
+    sayMaintenance(server, policy.cancelledMessage);
     activity(server, "Maintenance cancelled", maintenance.message);
     persist();
     return true;
   }
+
+  function announceCountdown(server, maintenance, policy) {
+    const endsAt = Date.parse(maintenance.endsAt || "");
+    if (!Number.isFinite(endsAt)) return;
+    const remaining = Math.max(0, Math.ceil((endsAt - now().getTime()) / 1000));
+    maintenance.announcedMilestones ||= [];
+    for (const milestone of policy.milestonesSeconds) {
+      if (remaining <= milestone && !maintenance.announcedMilestones.includes(milestone)) {
+        maintenance.announcedMilestones.push(milestone);
+        sayMaintenance(server, renderMessage(policy.countdownMessage, { seconds: milestone }));
+      }
+    }
+  }
   async function runMaintenance(maintenance) {
     const server = serverById(maintenance.serverId);
     if (!server || !multicraft || maintenance.active !== true) return;
+    const policy = policyFor(maintenancePolicies, server.id);
     const endsAt = Date.parse(maintenance.endsAt || "");
-    if (Number.isFinite(endsAt) && now().getTime() < endsAt) return;
+
+    if (maintenance.stage === "countdown" && Number.isFinite(endsAt)
+        && now().getTime() < endsAt) {
+      announceCountdown(server, maintenance, policy);
+      return;
+    }
+
+    if (maintenance.stage === "healthcheck") {
+      const nextAt = Date.parse(maintenance.nextHealthcheckAt || "");
+      if (Number.isFinite(nextAt) && now().getTime() < nextAt) return;
+      const status = await multicraft.status(server.multicraftServerId);
+      maintenance.healthcheckAttempts = (maintenance.healthcheckAttempts || 0) + 1;
+      if (maintenance.action === "restart" && status !== "running") {
+        maintenance.healthcheckSeenOffline = true;
+      }
+      const healthy = maintenance.action === "stop"
+        ? status === "stopped"
+        : status === "running"
+          && (maintenance.healthcheckSeenOffline === true || maintenance.healthcheckAttempts >= 2);
+      if (healthy) {
+        maintenance.active = false;
+        maintenance.stage = "completed";
+        maintenance.message = maintenance.action === "stop"
+          ? "Server stopped for maintenance." : "Maintenance completed; server is healthy.";
+        maintenance.endsAt = null;
+        maintenance.nextHealthcheckAt = null;
+        if (maintenance.action === "restart") sayMaintenance(server, policy.availableMessage);
+        activity(server, "Maintenance completed", maintenance.message);
+        return;
+      }
+      if (maintenance.healthcheckAttempts >= policy.healthcheckAttempts) {
+        maintenance.active = false;
+        maintenance.stage = "failed";
+        maintenance.message = `Health check failed after ${maintenance.healthcheckAttempts} attempts.`;
+        maintenance.nextHealthcheckAt = null;
+        activity(server, "Maintenance failed", maintenance.message, true);
+        return;
+      }
+      maintenance.message = `Waiting for server health (${status}).`;
+      maintenance.nextHealthcheckAt = new Date(
+        now().getTime() + policy.healthcheckIntervalSeconds * 1000,
+      ).toISOString();
+      return;
+    }
 
     if (maintenance.restartWhenEmpty === true) {
       const status = await multicraft.statusDetails(server.multicraftServerId);
@@ -528,10 +622,13 @@ function createManagementService(config = {}, dependencies = {}) {
       if (players > 0) {
         maintenance.stage = "waiting-empty";
         maintenance.message = `Waiting for ${players} player(s) to leave.`;
+        if (maintenance.lastWaitingPlayers !== players) {
+          sayMaintenance(server, renderMessage(policy.waitingEmptyMessage, { players }));
+          maintenance.lastWaitingPlayers = players;
+        }
         return;
       }
     }
-
     if (maintenance.backup === true) {
       if (!maintenance.backupId) {
         if (activeBackupFor(server.id)) {
@@ -549,7 +646,6 @@ function createManagementService(config = {}, dependencies = {}) {
         persist();
         return;
       }
-
       const backup = state.backups.find((item) => item.id === maintenance.backupId);
       if (!backup) {
         maintenance.active = false;
@@ -571,15 +667,26 @@ function createManagementService(config = {}, dependencies = {}) {
         return;
       }
     }
-
-    maintenance.stage = "restarting";
-    maintenance.message = "Restarting server.";
-    await executeJob(server, "restart", "maintenance");
-    maintenance.active = false;
-    maintenance.stage = "completed";
-    maintenance.message = "Maintenance completed.";
-    maintenance.endsAt = null;
-    activity(server, "Maintenance completed", "Server restart requested.");
+    if (maintenance.actionStarted !== true) {
+      if (maintenance.startingAnnounced !== true) {
+        sayMaintenance(server, policy.startingMessage);
+        maintenance.startingAnnounced = true;
+      }
+      maintenance.stage = maintenance.action === "stop" ? "stopping" : "restarting";
+      maintenance.message = maintenance.action === "stop" ? "Stopping server." : "Restarting server.";
+      await executeJob(server, maintenance.action || "restart", "maintenance");
+      maintenance.actionStarted = true;
+      maintenance.stage = "healthcheck";
+      maintenance.healthcheckAttempts = 0;
+      maintenance.healthcheckSeenOffline = false;
+      maintenance.nextHealthcheckAt = new Date(
+        now().getTime() + policy.healthcheckIntervalSeconds * 1000,
+      ).toISOString();
+      maintenance.message = maintenance.action === "stop"
+        ? "Waiting for server to stop." : "Waiting for server health.";
+      persist();
+      return;
+    }
   }
 
   async function runSchedules() {

@@ -438,7 +438,12 @@ class MaintenanceView extends StatelessWidget {
     BuildContext context,
     NetworkController network,
   ) async {
-    var countdownSeconds = 600;
+    final policy = network.management.maintenancePolicies.forServer(serverId);
+    final options = policy.countdownOptionsSeconds.isEmpty
+        ? const [60, 300, 600, 1800]
+        : policy.countdownOptionsSeconds;
+    var countdownSeconds = options.contains(600) ? 600 : options.first;
+    var action = 'restart';
     var createBackup = true;
     var restartWhenEmpty = false;
     final confirmed = await showDialog<bool>(
@@ -451,19 +456,38 @@ class MaintenanceView extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                DropdownButtonFormField<String>(
+                  initialValue: action,
+                  decoration: const InputDecoration(
+                    labelText: 'Maintenance action',
+                  ),
+                  items: const [
+                    DropdownMenuItem(
+                      value: 'restart',
+                      child: Text('Restart and health-check'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'stop',
+                      child: Text('Stop for maintenance'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    if (value != null) setState(() => action = value);
+                  },
+                ),
+                const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
                   initialValue: countdownSeconds,
                   decoration: const InputDecoration(labelText: 'Countdown'),
-                  items: const [
-                    DropdownMenuItem(value: 60, child: Text('1 minute')),
-                    DropdownMenuItem(value: 300, child: Text('5 minutes')),
-                    DropdownMenuItem(value: 600, child: Text('10 minutes')),
-                    DropdownMenuItem(value: 1800, child: Text('30 minutes')),
+                  items: [
+                    for (final value in options)
+                      DropdownMenuItem(
+                        value: value,
+                        child: Text(_maintenanceDurationLabel(value)),
+                      ),
                   ],
                   onChanged: (value) {
-                    if (value != null) {
-                      setState(() => countdownSeconds = value);
-                    }
+                    if (value != null) setState(() => countdownSeconds = value);
                   },
                 ),
                 const SizedBox(height: 8),
@@ -471,20 +495,29 @@ class MaintenanceView extends StatelessWidget {
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Create safety backup'),
                   subtitle: const Text(
-                    'Request a backup before the maintenance action continues.',
+                    'Wait for a successful backup before the maintenance action.',
                   ),
                   value: createBackup,
                   onChanged: (value) => setState(() => createBackup = value),
                 ),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('Restart when empty'),
-                  subtitle: const Text(
-                    'Wait for players to leave before the restart stage.',
+                  title: const Text('Wait until empty'),
+                  subtitle: Text(
+                    action == 'restart'
+                        ? 'Wait for players to leave before restarting.'
+                        : 'Wait for players to leave before stopping.',
                   ),
                   value: restartWhenEmpty,
                   onChanged: (value) =>
                       setState(() => restartWhenEmpty = value),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'After the action the bridge performs up to '
+                  '${policy.healthcheckAttempts} health checks every '
+                  '${policy.healthcheckIntervalSeconds}s.',
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
             ),
@@ -506,6 +539,7 @@ class MaintenanceView extends StatelessWidget {
     if (confirmed != true) return;
     network.startMaintenance(
       serverId,
+      action: action,
       countdownSeconds: countdownSeconds,
       backup: createBackup,
       restartWhenEmpty: restartWhenEmpty,
@@ -1193,6 +1227,16 @@ class _ToolTile extends StatelessWidget {
       onTap: onTap,
     ),
   );
+}
+
+String _maintenanceDurationLabel(int seconds) {
+  if (seconds % 3600 == 0) {
+    return '${seconds ~/ 3600} hour${seconds == 3600 ? '' : 's'}';
+  }
+  if (seconds % 60 == 0) {
+    return '${seconds ~/ 60} minute${seconds == 60 ? '' : 's'}';
+  }
+  return '${seconds}s';
 }
 
 String _scheduleActionLabel(ScheduledActionType action) => switch (action) {

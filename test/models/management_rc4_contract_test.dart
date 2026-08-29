@@ -185,4 +185,33 @@ void main() {
     expect(job.success, isTrue);
     expect(job.message, 'restart completed.');
   });
+  test('parses advertised maintenance policies', () {
+    final snapshot = ManagementSnapshot.fromJson({
+      'maintenancePolicies': {
+        'global': {
+          'countdownOptionsSeconds': [60, 300, 600],
+          'milestonesSeconds': [300, 60, 10],
+          'healthcheckAttempts': 9,
+          'healthcheckIntervalSeconds': 4,
+        },
+        'servers': {
+          'smp': {'healthcheckAttempts': 15},
+        },
+      },
+    });
+    expect(snapshot.maintenancePolicies.global.healthcheckAttempts, 9);
+    expect(snapshot.maintenancePolicies.global.countdownOptionsSeconds, [
+      60,
+      300,
+      600,
+    ]);
+    expect(
+      snapshot.maintenancePolicies.forServer('smp').healthcheckAttempts,
+      15,
+    );
+    expect(
+      snapshot.maintenancePolicies.forServer('lobby').healthcheckAttempts,
+      9,
+    );
+  });
 }

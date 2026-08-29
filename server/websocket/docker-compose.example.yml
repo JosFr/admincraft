@@ -35,6 +35,9 @@ services:
       # Daily/weekly/monthly retention; deletion is opt-in with enforce=true.
       BACKUP_RETENTION_JSON: >-
         {"global":{"daily":7,"weekly":4,"monthly":6,"enforce":false},"servers":{}}
+      # Maintenance countdowns/messages/health checks; server overrides are optional.
+      MAINTENANCE_CONFIG_JSON: >-
+        {"global":{"countdownOptionsSeconds":[60,300,600,1800],"healthcheckAttempts":12,"healthcheckIntervalSeconds":5},"servers":{}}
       # MANAGEMENT_NATIVE_BACKUP_PATH: /data/native-staging
       # MANAGEMENT_STORAGE_PROBE_MS: "300000"
       MANAGEMENT_SERVERS_JSON: >-

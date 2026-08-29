@@ -145,3 +145,26 @@ test("preflight rejects retention overrides for unknown servers", () => {
   assert.equal(result.ok, false);
   assert.ok(result.errors.some((message) => message.includes("Unknown retention server")));
 });
+
+test("preflight validates maintenance policy overrides", () => {
+  const env = validEnv();
+  env.MAINTENANCE_CONFIG_JSON = JSON.stringify({
+    global: {
+      countdownOptionsSeconds: [60, 300, 600],
+      healthcheckAttempts: 10,
+    },
+    servers: { lobby: { healthcheckIntervalSeconds: 3 } },
+  });
+  const result = validateEnvironment(env);
+  assert.equal(result.ok, true);
+});
+
+test("preflight rejects maintenance overrides for unknown servers", () => {
+  const env = validEnv();
+  env.MAINTENANCE_CONFIG_JSON = JSON.stringify({
+    servers: { unknown: { healthcheckAttempts: 2 } },
+  });
+  const result = validateEnvironment(env);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((message) => message.includes("Unknown maintenance server")));
+});

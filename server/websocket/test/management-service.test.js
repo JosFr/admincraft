@@ -14,6 +14,7 @@ function fixture() {
   let backupState = { status: "running" };
   let restartError = null;
   let backupStartError = null;
+  let serverStatus = "running";
   const backupFile = path.join(dir, "backup.zip");
   fs.writeFileSync(backupFile, "backup-data", "utf8");
   const multicraft = {
@@ -23,6 +24,7 @@ function fixture() {
     async startBackup(id) { calls.push(["backup", id]); if (backupStartError) throw backupStartError; },
     async backupStatus() { return { ...backupState }; },
     async statusDetails() { return { onlinePlayers: 0 }; },
+    async status() { return serverStatus; },
     async resources() { return { cpuPercent: 12, memoryMb: 512 }; },
     async sendConsole(id, command) { calls.push(["console", id, command]); },
   };
@@ -46,6 +48,7 @@ function fixture() {
     setBackupState(value) { backupState = value; },
     setRestartError(value) { restartError = value; },
     setBackupStartError(value) { backupStartError = value; },
+    setServerStatus(value) { serverStatus = value; },
     setNow(value) { current = new Date(value); },
     advance(milliseconds) { current = new Date(current.getTime() + milliseconds); },
     cleanup() { fs.rmSync(dir, { recursive: true, force: true }); },
@@ -111,6 +114,15 @@ test("maintenance waits for the safety backup before restarting", async () => {
     fx.setBackupState({ status: "completed", file: fx.backupFile });
     await fx.service.tick();
     assert.equal(fx.calls.some(([name, id]) => name === "restart" && id === 7), true);
+    maintenance = fx.service.snapshot().maintenance[0];
+    assert.equal(maintenance.active, true);
+    assert.equal(maintenance.stage, "healthcheck");
+    fx.setServerStatus("stopped");
+    fx.advance(5001);
+    await fx.service.tick();
+    fx.setServerStatus("running");
+    fx.advance(5001);
+    await fx.service.tick();
     maintenance = fx.service.snapshot().maintenance[0];
     assert.equal(maintenance.active, false);
     assert.equal(maintenance.stage, "completed");

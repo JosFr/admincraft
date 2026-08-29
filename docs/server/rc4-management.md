@@ -164,3 +164,26 @@ RC4 schedules are persisted in the management state and execute on the bridge, n
 Recurring schedules use the documented safe five-field cron subset in the bridge timezone. One-time schedules use an absolute future `runAt` timestamp and disable themselves after execution.
 
 Every scheduled execution creates a bounded persistent `jobHistory` record with server, action, source, start/end timestamps and success/failure details. The client shows this history below the active schedule list, so failed jobs remain visible after the next refresh.
+
+## Maintenance policies
+
+`MAINTENANCE_CONFIG_JSON` controls RC4 maintenance countdowns and health checks. Global defaults can be overridden per management server ID. The bridge validates the configuration during preflight and rejects unknown server overrides.
+
+```json
+{
+  "global": {
+    "countdownOptionsSeconds": [60, 300, 600, 1800],
+    "milestonesSeconds": [600, 300, 60, 30, 10],
+    "countdownMessage": "Server maintenance starts in {time}.",
+    "startingMessage": "Server maintenance is starting now.",
+    "waitingEmptyMessage": "Maintenance is waiting for {players} player(s) to leave.",
+    "availableMessage": "Server is available again.",
+    "cancelledMessage": "Server maintenance was cancelled.",
+    "healthcheckAttempts": 12,
+    "healthcheckIntervalSeconds": 5
+  },
+  "servers": {}
+}
+```
+
+A maintenance flow can restart or stop a server, optionally wait for players to leave, optionally require a safety backup, and then verify the expected Multicraft lifecycle state before reporting completion. Restart flows only announce availability again after the health-check phase succeeds.

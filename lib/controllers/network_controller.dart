@@ -403,11 +403,13 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
 
   bool startMaintenance(
     String serverId, {
+    String action = 'restart',
     int countdownSeconds = 600,
     bool backup = true,
     bool restartWhenEmpty = false,
   }) => _manage('maintenance-start', {
     'serverId': serverId,
+    'action': action,
     'countdownSeconds': countdownSeconds,
     'backup': backup,
     'restartWhenEmpty': restartWhenEmpty,

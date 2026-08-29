@@ -359,9 +359,75 @@ class ScheduledJobHistory {
       );
 }
 
+class MaintenancePolicySnapshot {
+  final List<int> countdownOptionsSeconds;
+  final List<int> milestonesSeconds;
+  final int healthcheckAttempts;
+  final int healthcheckIntervalSeconds;
+  const MaintenancePolicySnapshot({
+    this.countdownOptionsSeconds = const [60, 300, 600, 1800],
+    this.milestonesSeconds = const [600, 300, 60, 30, 10],
+    this.healthcheckAttempts = 12,
+    this.healthcheckIntervalSeconds = 5,
+  });
+
+  factory MaintenancePolicySnapshot.fromJson(
+    Object? raw, [
+    MaintenancePolicySnapshot fallback = const MaintenancePolicySnapshot(),
+  ]) {
+    final json = raw is Map<String, dynamic> ? raw : const <String, dynamic>{};
+    List<int> ints(String key, List<int> fallback) => json[key] is List
+        ? (json[key] as List)
+              .whereType<num>()
+              .map((value) => value.toInt())
+              .toList()
+        : fallback;
+    return MaintenancePolicySnapshot(
+      countdownOptionsSeconds: ints(
+        'countdownOptionsSeconds',
+        fallback.countdownOptionsSeconds,
+      ),
+      milestonesSeconds: ints('milestonesSeconds', fallback.milestonesSeconds),
+      healthcheckAttempts:
+          (json['healthcheckAttempts'] as num?)?.toInt() ??
+          fallback.healthcheckAttempts,
+      healthcheckIntervalSeconds:
+          (json['healthcheckIntervalSeconds'] as num?)?.toInt() ??
+          fallback.healthcheckIntervalSeconds,
+    );
+  }
+}
+
+class MaintenancePoliciesSnapshot {
+  final MaintenancePolicySnapshot global;
+  final Map<String, MaintenancePolicySnapshot> servers;
+  const MaintenancePoliciesSnapshot({
+    this.global = const MaintenancePolicySnapshot(),
+    this.servers = const {},
+  });
+  factory MaintenancePoliciesSnapshot.fromJson(Object? raw) {
+    final json = raw is Map<String, dynamic> ? raw : const <String, dynamic>{};
+    final global = MaintenancePolicySnapshot.fromJson(json['global']);
+    final result = <String, MaintenancePolicySnapshot>{};
+    final rawServers = json['servers'];
+    if (rawServers is Map) {
+      for (final entry in rawServers.entries) {
+        result[entry.key.toString()] = MaintenancePolicySnapshot.fromJson(
+          entry.value,
+          global,
+        );
+      }
+    }
+    return MaintenancePoliciesSnapshot(global: global, servers: result);
+  }
+  MaintenancePolicySnapshot forServer(String serverId) =>
+      servers[serverId] ?? global;
+}
+
 class MaintenanceState {
   final String serverId;
   final String serverName;
+  final String action;
   final bool active;
   final DateTime? endsAt;
   final String stage;
@@ -370,6 +436,7 @@ class MaintenanceState {
   const MaintenanceState({
     required this.serverId,
     required this.serverName,
+    this.action = 'restart',
     required this.active,
     required this.endsAt,
     required this.stage,
@@ -380,6 +447,7 @@ class MaintenanceState {
       MaintenanceState(
         serverId: json['serverId']?.toString() ?? '',
         serverName: json['serverName']?.toString() ?? 'Server',
+        action: json['action']?.toString() ?? 'restart',
         active: json['active'] == true,
         endsAt: DateTime.tryParse(json['endsAt']?.toString() ?? '')?.toLocal(),
         stage: json['stage']?.toString() ?? 'idle',
@@ -597,6 +665,7 @@ class ManagementSnapshot {
   final List<ScheduledAction> schedules;
   final List<ScheduledJobHistory> jobHistory;
   final List<MaintenanceState> maintenance;
+  final MaintenancePoliciesSnapshot maintenancePolicies;
   final List<PluginUpdate> updates;
   final List<ManagementActivity> activity;
   final BackupRetentionState retention;
@@ -609,6 +678,7 @@ class ManagementSnapshot {
     this.schedules = const [],
     this.jobHistory = const [],
     this.maintenance = const [],
+    this.maintenancePolicies = const MaintenancePoliciesSnapshot(),
     this.updates = const [],
     this.activity = const [],
     this.retention = const BackupRetentionState(),
@@ -633,6 +703,9 @@ class ManagementSnapshot {
       schedules: parseList('schedules', ScheduledAction.fromJson),
       jobHistory: parseList('jobHistory', ScheduledJobHistory.fromJson),
       maintenance: parseList('maintenance', MaintenanceState.fromJson),
+      maintenancePolicies: MaintenancePoliciesSnapshot.fromJson(
+        json['maintenancePolicies'],
+      ),
       updates: parseList('updates', PluginUpdate.fromJson),
       activity: parseList('activity', ManagementActivity.fromJson),
       retention: BackupRetentionState.fromJson(json['retention']),
