@@ -1,6 +1,8 @@
 import 'package:admincraft/models/app_theme.dart';
+import 'package:admincraft/controllers/network_controller.dart';
 import 'package:admincraft/controllers/notification_controller.dart';
 import 'package:admincraft/controllers/push_notification_controller.dart';
+import 'package:admincraft/models/management_state.dart';
 import 'package:admincraft/models/model.dart';
 import 'package:admincraft/services/theme_service.dart';
 import 'package:admincraft/utils/toast_utils.dart';
@@ -90,6 +92,7 @@ class _PreferencesViewState extends State<PreferencesView> {
 
   @override
   Widget build(BuildContext context) {
+    final network = context.watch<NetworkController?>();
     final notifications = context.watch<NotificationController?>();
     final push = context.watch<PushNotificationController?>();
     return SingleChildScrollView(
@@ -508,6 +511,32 @@ class _PreferencesViewState extends State<PreferencesView> {
                             ),
                           ),
                       ],
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+              ],
+              if (network != null) ...[
+                _PreferenceCard(
+                  title: 'Plugin update providers',
+                  subtitle:
+                      'Choose which catalogues Admincraft may query for update matches.',
+                  child: Column(
+                    children: [
+                      for (final provider in UpdateProvider.values)
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(provider.label),
+                          subtitle: Text(
+                            provider == UpdateProvider.spigot ||
+                                    provider == UpdateProvider.builtByBit
+                                ? 'Checks never bypass premium accounts or licenses.'
+                                : 'Use this provider when checking for plugin updates.',
+                          ),
+                          value: network.updateProviderEnabled(provider),
+                          onChanged: (value) =>
+                              network.setUpdateProviderEnabled(provider, value),
+                        ),
                     ],
                   ),
                 ),
