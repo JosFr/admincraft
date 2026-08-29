@@ -52,9 +52,11 @@ jobs:
           flutter test test/views/tabs_view_test.dart --reporter expanded 2>&1 | tee /tmp/workspace-shell.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            tail -n 100 /tmp/workspace-shell.log | while IFS= read -r line; do
-              [ -n "$line" ] && echo "::error::$line"
-            done
+            details="$(tail -n 160 /tmp/workspace-shell.log)"
+            details="${details//'%'/'%25'}"
+            details="${details//$'\r'/'%0D'}"
+            details="${details//$'\n'/'%0A'}"
+            echo "::error::$details"
           fi
           exit "$status"
       - name: Test view components
