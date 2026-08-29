@@ -419,7 +419,7 @@ class _PreferencesViewState extends State<PreferencesView> {
                 _PreferenceCard(
                   title: 'Notifications',
                   subtitle:
-                      'Every event stays in the notification history even when popups are hidden.',
+                      'Only events that need attention appear behind the bell; routine activity stays out of notifications.',
                   child: Column(
                     children: [
                       SwitchListTile(
@@ -444,8 +444,8 @@ class _PreferencesViewState extends State<PreferencesView> {
                       ),
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
-                        title: const Text('Server status changes'),
-                        subtitle: const Text('Notify when a backend changes state.'),
+                        title: const Text('Unexpected server offline'),
+                        subtitle: const Text('Notify when a backend becomes unavailable outside standby.'),
                         value: notifications.ruleEnabled(NotificationRule.serverStatus),
                         onChanged: (value) => notifications.setRuleEnabled(
                           NotificationRule.serverStatus,
@@ -459,16 +459,6 @@ class _PreferencesViewState extends State<PreferencesView> {
                         value: notifications.ruleEnabled(NotificationRule.health),
                         onChanged: (value) => notifications.setRuleEnabled(
                           NotificationRule.health,
-                          value,
-                        ),
-                      ),
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: const Text('Player activity'),
-                        subtitle: const Text('Notify when the player count changes on a backend.'),
-                        value: notifications.ruleEnabled(NotificationRule.playerActivity),
-                        onChanged: (value) => notifications.setRuleEnabled(
-                          NotificationRule.playerActivity,
                           value,
                         ),
                       ),

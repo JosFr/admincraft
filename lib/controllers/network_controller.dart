@@ -250,14 +250,6 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
       for (final server in next.servers) {
         final previous = previousByName[server.name];
         if (previous == null) continue;
-        if (notifications.ruleEnabled(NotificationRule.playerActivity) &&
-            previous.players != server.players) {
-          notifications.add(
-            kind: AppNotificationKind.info,
-            title: server.label,
-            message: 'Players: ${previous.players} → ${server.players}',
-          );
-        }
         if (previous.state == server.state) continue;
         if (server.state == NetworkServerState.error &&
             notifications.ruleEnabled(NotificationRule.health)) {
@@ -266,13 +258,13 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
             title: '${server.label} health alert',
             message: '${previous.state.name} → error',
           );
-        } else if (notifications.ruleEnabled(NotificationRule.serverStatus)) {
+        } else if (server.state == NetworkServerState.offline &&
+            previous.state != NetworkServerState.standby &&
+            notifications.ruleEnabled(NotificationRule.serverStatus)) {
           notifications.add(
-            kind: server.state == NetworkServerState.offline
-                ? AppNotificationKind.warning
-                : AppNotificationKind.info,
-            title: server.label,
-            message: '${previous.state.name} → ${server.state.name}',
+            kind: AppNotificationKind.warning,
+            title: '${server.label} offline',
+            message: 'The server became unavailable unexpectedly.',
           );
         }
       }
