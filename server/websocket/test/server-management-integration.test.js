@@ -72,6 +72,12 @@ test("bridge advertises management and serves a snapshot", async () => {
       MULTICRAFT_SERVER_ID: "1",
       MANAGEMENT_SERVER_ID: "lobby",
       MANAGEMENT_SERVER_NAME: "Lobby",
+      PLAN_DB_HOST: "127.0.0.1",
+      PLAN_DB_USER: "admincraft_ro",
+      PLAN_DB_PASSWORD: "smoke",
+      PLAN_SERVER_MAP_JSON: JSON.stringify([
+        { serverId: "lobby", planServerName: "Lobby" },
+      ]),
       MANAGEMENT_STATE_PATH: path.join(dir, "management.json"),
       MANAGEMENT_TICK_MS: "60000",
       UPDATE_PROJECTS_JSON: "{invalid-json",
@@ -109,6 +115,8 @@ test("bridge advertises management and serves a snapshot", async () => {
     assert.ok(Array.isArray(state.maintenance));
     assert.ok(Array.isArray(state.updates));
     assert.ok(Array.isArray(state.activity));
+    assert.equal(state.performanceSource.type, "plan");
+    assert.equal(state.performanceSource.canonical, true);
   } finally {
     ws?.close();
     child.kill();

@@ -10,7 +10,7 @@ The management capability is advertised only for an authenticated admin session 
 - Local verification with SHA-256 when the backup file is accessible to the bridge.
 - Persistent scheduled start, stop, restart, backup, and maintenance actions.
 - Maintenance countdowns, optional safety backups, and wait-until-empty restarts.
-- 30-day performance history from Multicraft CPU, memory, and player counters.
+- 1h/6h/24h/7d/30d Minecraft performance history from the existing Plan database; AdminCraft does not collect or persist a second performance history.
 - Storage capacity reporting for the configured management storage path.
 - Plugin update checks for configured Hangar, Modrinth, Spigot, and GitHub projects.
 - Network-wide management activity history.
@@ -39,6 +39,27 @@ For multiple servers, add one JSON mapping. `id` must match the server ID used b
 ```
 
 Pass that JSON as `MANAGEMENT_SERVERS_JSON`. With one server, `MANAGEMENT_SERVER_ID`, `MANAGEMENT_SERVER_NAME`, and `MULTICRAFT_SERVER_ID` are enough.
+
+## Canonical performance source: Plan
+
+RC4 deliberately does not run its own Minecraft performance collector or history database. Plan is the canonical source for TPS, players, CPU, RAM, entities, chunks, free disk space, MSPT average, MSPT p95, and MSPT jitter. Grafana may query the same Plan data for detailed dashboards; Prometheus remains the source for host and infrastructure metrics.
+
+The AdminCraft bridge connects to the existing Plan MariaDB with a dedicated SELECT-only account. At runtime the adapter inspects `plan_tps` for the required Plan 5.8 columns and rejects database grants beyond `SELECT`/`USAGE`. Queries are read-only and downsample Plan history server-side for the existing 1h, 6h, 24h, 7d, and 30d client ranges.
+
+```text
+PLAN_DB_HOST=plan-db.example.net
+PLAN_DB_PORT=3306
+PLAN_DB_DATABASE=plan
+PLAN_DB_USER=admincraft_ro
+PLAN_DB_PASSWORD=...
+PLAN_DB_SSL=false
+PLAN_SERVER_MAP_JSON=[{"serverId":"smp","planServerName":"SMP"}]
+```
+
+Each mapping must use an AdminCraft management `serverId` plus either `planServerName` or `planServerUuid`. Only servers that Plan actually records need a mapping; requesting performance for an unmapped server fails closed instead of falling back to a second collector.
+
+The recommended MariaDB account is dedicated to AdminCraft and has only `SELECT` on the `plan` database. Do not reuse Plan's own read/write database account.
+
 ## Persistent state and monitoring
 
 Recommended settings:
@@ -48,7 +69,6 @@ TZ=Europe/Amsterdam
 MANAGEMENT_STATE_PATH=/data/management-state.json
 MANAGEMENT_STORAGE_PATH=/backups
 MANAGEMENT_TICK_MS=15000
-MANAGEMENT_PERFORMANCE_SAMPLE_MS=300000
 ```
 
 Mount `/data` persistently. Mount `MANAGEMENT_STORAGE_PATH` read-only when it is only used for capacity and verification; no RC4 operation writes arbitrary files there.

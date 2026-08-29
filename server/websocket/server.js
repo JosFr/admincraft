@@ -16,6 +16,7 @@ const { createMulticraftClient } = require("./multicraft-client");
 const { createManagementService } = require("./management-service");
 const { createUpdateChecker } = require("./update-checker");
 const { createPushService } = require("./push-service");
+const { createPlanPerformanceAdapter } = require("./plan-performance");
 const {
   isInternalStateReply,
   splitLogLine,
@@ -97,7 +98,7 @@ const backend = createBackend({
 function handleRequest(req, res) {
   if (req.method === "GET" && req.url === "/healthz") {
     res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-    res.end(JSON.stringify({ ok: true, version: BRIDGE_VERSION, edition: backend.edition, management: managementService?.enabled === true }));
+    res.end(JSON.stringify({ ok: true, version: BRIDGE_VERSION, edition: backend.edition, management: managementService?.enabled === true, performanceSource: planPerformance ? "plan" : null }));
     return;
   }
   if (req.method === "GET" && req.url === "/getcert" && fs.existsSync(CERT_PATH)) {
@@ -139,9 +140,11 @@ function sendEvent(ws, type, fields = {}) {
 
 const managementClients = new Set();
 let managementService = null;
+let planPerformance = null;
 
 try {
   if (process.env.MULTICRAFT_ENABLED === "true" && process.env.MANAGEMENT_ENABLED === "true") {
+    planPerformance = createPlanPerformanceAdapter();
     const managementMulticraft = createMulticraftClient({
       url: process.env.MULTICRAFT_URL,
       user: process.env.MULTICRAFT_USER,
@@ -171,6 +174,7 @@ try {
       },
       {
         multicraft: managementMulticraft,
+        planPerformance,
         updateChecker,
         onSnapshot(frame) {
           for (const client of managementClients) send(client, JSON.stringify(frame));

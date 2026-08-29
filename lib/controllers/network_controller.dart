@@ -43,6 +43,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   bool _accessSnapshotInitialized = false;
   ManagementSnapshot _management = const ManagementSnapshot();
   List<PerformanceSample> _performance = const [];
+  PerformanceSource _performanceSource = const PerformanceSource();
   String? _managementMessage;
   bool? _managementSuccess;
 
@@ -66,6 +67,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   DateTime? get bridgeConnectedAt => _bridgeConnectedAt;
   ManagementSnapshot get management => _management;
   List<PerformanceSample> get performance => List.unmodifiable(_performance);
+  PerformanceSource get performanceSource => _performanceSource;
   String? get managementMessage => _managementMessage;
   bool? get managementSuccess => _managementSuccess;
   void start(Model model) {
@@ -226,6 +228,10 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         notifyListeners();
         return;
       case 'admincraft.performance-history':
+        final rawSource = decoded['source'];
+        _performanceSource = rawSource is Map<String, dynamic>
+            ? PerformanceSource.fromJson(rawSource)
+            : const PerformanceSource();
         final rawSamples = decoded['samples'];
         _performance = rawSamples is List
             ? rawSamples
@@ -489,6 +495,8 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     _bridgeConnectedAt = null;
     _managementMessage = null;
     _managementSuccess = null;
+    _performance = const [];
+    _performanceSource = const PerformanceSource();
     _error = 'Network connection closed.';
     _subscription = null;
     _channel = null;
@@ -522,6 +530,8 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     _bridgeConnectedAt = null;
     _managementMessage = null;
     _managementSuccess = null;
+    _performance = const [];
+    _performanceSource = const PerformanceSource();
     _accessSnapshotInitialized = false;
   }
 

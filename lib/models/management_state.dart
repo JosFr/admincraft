@@ -463,6 +463,13 @@ class PerformanceSample {
   final int? players;
   final double? cpuPercent;
   final double? memoryMb;
+  final double? msptAverage;
+  final double? msptP95;
+  final double? msptJitterAverage;
+  final double? msptJitterMax;
+  final int? entities;
+  final int? chunks;
+  final double? freeDiskBytes;
 
   const PerformanceSample({
     required this.serverId,
@@ -472,6 +479,13 @@ class PerformanceSample {
     this.players,
     this.cpuPercent,
     this.memoryMb,
+    this.msptAverage,
+    this.msptP95,
+    this.msptJitterAverage,
+    this.msptJitterMax,
+    this.entities,
+    this.chunks,
+    this.freeDiskBytes,
   });
   factory PerformanceSample.fromJson(Map<String, dynamic> json) =>
       PerformanceSample(
@@ -484,6 +498,43 @@ class PerformanceSample {
         players: (json['players'] as num?)?.toInt(),
         cpuPercent: (json['cpuPercent'] as num?)?.toDouble(),
         memoryMb: (json['memoryMb'] as num?)?.toDouble(),
+        msptAverage: (json['msptAverage'] as num?)?.toDouble(),
+        msptP95: (json['msptP95'] as num?)?.toDouble(),
+        msptJitterAverage: (json['msptJitterAverage'] as num?)?.toDouble(),
+        msptJitterMax: (json['msptJitterMax'] as num?)?.toDouble(),
+        entities: (json['entities'] as num?)?.toInt(),
+        chunks: (json['chunks'] as num?)?.toInt(),
+        freeDiskBytes: (json['freeDiskBytes'] as num?)?.toDouble(),
+      );
+}
+
+class PerformanceSource {
+  final String type;
+  final bool canonical;
+  final bool readOnly;
+  final String? serverUuid;
+  final String? serverName;
+  final String? planVersion;
+
+  const PerformanceSource({
+    this.type = '',
+    this.canonical = false,
+    this.readOnly = false,
+    this.serverUuid,
+    this.serverName,
+    this.planVersion,
+  });
+
+  bool get isPlan => type == 'plan';
+
+  factory PerformanceSource.fromJson(Map<String, dynamic> json) =>
+      PerformanceSource(
+        type: json['type']?.toString() ?? '',
+        canonical: json['canonical'] == true,
+        readOnly: json['readOnly'] == true,
+        serverUuid: json['serverUuid']?.toString(),
+        serverName: json['serverName']?.toString(),
+        planVersion: json['planVersion']?.toString(),
       );
 }
 
@@ -493,13 +544,22 @@ class UpdateSourceCandidate {
   final String label;
   final String? url;
   const UpdateSourceCandidate({
-    required this.provider, required this.projectId, required this.label, this.url,
+    required this.provider,
+    required this.projectId,
+    required this.label,
+    this.url,
   });
   factory UpdateSourceCandidate.fromJson(Map<String, dynamic> json) {
-    final provider = _enumByName(UpdateProvider.values, json['provider'], UpdateProvider.github);
+    final provider = _enumByName(
+      UpdateProvider.values,
+      json['provider'],
+      UpdateProvider.github,
+    );
     return UpdateSourceCandidate(
-      provider: provider, projectId: json['projectId']?.toString() ?? '',
-      label: json['label']?.toString() ?? provider.label, url: json['url']?.toString(),
+      provider: provider,
+      projectId: json['projectId']?.toString() ?? '',
+      label: json['label']?.toString() ?? provider.label,
+      url: json['url']?.toString(),
     );
   }
 }

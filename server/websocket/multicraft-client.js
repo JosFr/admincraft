@@ -2,36 +2,6 @@ const crypto = require("crypto");
 const http = require("http");
 const https = require("https");
 
-function parseAdmincraftPerformance(logData) {
-  const entries = Array.isArray(logData)
-    ? logData
-    : Array.isArray(logData?.Log)
-      ? logData.Log
-      : [];
-  for (let index = entries.length - 1; index >= 0; index -= 1) {
-    const line = typeof entries[index] === "string"
-      ? entries[index]
-      : String(entries[index]?.line || "");
-    const markerIndex = line.lastIndexOf("AdmincraftStatus:");
-    if (markerIndex < 0) continue;
-    const raw = line.slice(markerIndex + "AdmincraftStatus:".length).trim();
-    try {
-      const parsed = JSON.parse(raw);
-      const numberOrNull = (value) => {
-        const number = Number(value);
-        return Number.isFinite(number) ? number : null;
-      };
-      return {
-        tps: numberOrNull(parsed.tps1m ?? parsed.tps),
-        mspt: numberOrNull(parsed.mspt),
-      };
-    } catch (_) {
-      // Keep scanning older log rows if a newer status line is incomplete.
-    }
-  }
-  return { tps: null, mspt: null };
-}
-
 function createMulticraftClient(config = {}) {
   const url = config.url;
   const user = config.user;
@@ -184,16 +154,6 @@ function createMulticraftClient(config = {}) {
       });
     },
 
-    async tickPerformance(overrideId) {
-      await call("sendConsoleCommand", {
-        server_id: targetId(overrideId),
-        command: "admincraftstatus",
-      });
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      const logData = await call("getServerLog", { id: targetId(overrideId) });
-      return parseAdmincraftPerformance(logData);
-    },
-
     async startBackup(overrideId) {
       return call("startServerBackup", { id: targetId(overrideId) });
     },
@@ -204,4 +164,4 @@ function createMulticraftClient(config = {}) {
   };
 }
 
-module.exports = { createMulticraftClient, parseAdmincraftPerformance };
+module.exports = { createMulticraftClient };

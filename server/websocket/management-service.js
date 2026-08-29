@@ -149,6 +149,7 @@ function createManagementService(config = {}, dependencies = {}) {
     || path.join(process.cwd(), "data", "management-state.json");
   const servers = parseServers(config);
   const multicraft = dependencies.multicraft;
+  const planPerformance = dependencies.planPerformance || null;
   const storages = parseBackupStorages({ storagesJson: config.storagesJson });
   const legacyStoragePath = config.storagePath || process.env.MANAGEMENT_STORAGE_PATH || "";
   if (storages.length === 0 && legacyStoragePath) {
@@ -186,7 +187,6 @@ function createManagementService(config = {}, dependencies = {}) {
     schedules: [],
     jobHistory: [],
     maintenance: [],
-    performance: [],
     updates: [],
     updateSourceOverrides: {},
     activity: [],
@@ -194,7 +194,6 @@ function createManagementService(config = {}, dependencies = {}) {
   });
   let timer = null;
   let ticking = false;
-  let lastPerformanceSampleAt = 0;
   let lastStorageProbeAt = 0;
   if (!state.storageMetrics || typeof state.storageMetrics !== "object" || Array.isArray(state.storageMetrics)) {
     state.storageMetrics = {};
@@ -205,7 +204,8 @@ function createManagementService(config = {}, dependencies = {}) {
   }
 
   const serverById = (serverId) => servers.find((server) => server.id === serverId);
-  for (const key of ["backups", "schedules", "jobHistory", "maintenance", "performance", "updates", "activity"]) {
+  if (Object.prototype.hasOwnProperty.call(state, "performance")) delete state.performance;
+  for (const key of ["backups", "schedules", "jobHistory", "maintenance", "updates", "activity"]) {
     if (!Array.isArray(state[key])) state[key] = [];
   }
 
@@ -274,6 +274,7 @@ function createManagementService(config = {}, dependencies = {}) {
       },
       updates: state.updates || [],
       activity: state.activity,
+      performanceSource: planPerformance?.descriptor?.() || { type: "plan", configured: false, canonical: true },
       retention: {
         global: { ...retention.global },
         servers: { ...retention.servers },
@@ -282,29 +283,6 @@ function createManagementService(config = {}, dependencies = {}) {
     };
   }
 
-  async function recordPerformance(server) {
-    if (!multicraft) return;
-    const [resources, status, ticks] = await Promise.all([
-      multicraft.resources(server.multicraftServerId).catch(() => ({})),
-      multicraft.statusDetails(server.multicraftServerId).catch(() => ({})),
-      typeof multicraft.tickPerformance === "function"
-        ? multicraft.tickPerformance(server.multicraftServerId).catch(() => ({}))
-        : Promise.resolve({}),
-    ]);
-    state.performance.push({
-      serverId: server.id,
-      at: isoNow(now),
-      players: Number.parseInt(status.onlinePlayers, 10) || 0,
-      cpuPercent: resources.cpuPercent ?? null,
-      memoryMb: resources.memoryMb ?? null,
-      tps: Number.isFinite(Number(ticks.tps)) ? Number(ticks.tps) : null,
-      mspt: Number.isFinite(Number(ticks.mspt)) ? Number(ticks.mspt) : null,
-    });
-    const cutoff = now().getTime() - 30 * 24 * 60 * 60 * 1000;
-    state.performance = state.performance.filter(
-      (sample) => Date.parse(sample.at) >= cutoff,
-    );
-  }
   async function refreshBackups() {
     if (!multicraft) return;
     for (const backup of state.backups) {
@@ -758,10 +736,6 @@ function createManagementService(config = {}, dependencies = {}) {
           activity(server, "Maintenance failed", maintenance.message, true);
         }
       }
-      const sampleInterval = Math.max(60000, Number.parseInt(
-        config.performanceSampleMilliseconds || process.env.MANAGEMENT_PERFORMANCE_SAMPLE_MS,
-        10,
-      ) || 300000);
       const storageProbeInterval = Math.max(
         60000, Number.parseInt(config.storageProbeMilliseconds || process.env.MANAGEMENT_STORAGE_PROBE_MS, 10) || 300000,
       );
@@ -769,44 +743,12 @@ function createManagementService(config = {}, dependencies = {}) {
         await refreshStorageMetrics();
         lastStorageProbeAt = now().getTime();
       }
-      if (now().getTime() - lastPerformanceSampleAt >= sampleInterval) {
-        for (const server of servers) await recordPerformance(server);
-        lastPerformanceSampleAt = now().getTime();
-      }
       await runRetention();
       persist();
     } finally {
       ticking = false;
     }
   }
-  function rangeMilliseconds(range) {
-    return switchRange(range, {
-      "1h": 60 * 60 * 1000,
-      "6h": 6 * 60 * 60 * 1000,
-      "24h": 24 * 60 * 60 * 1000,
-      "7d": 7 * 24 * 60 * 60 * 1000,
-      "30d": 30 * 24 * 60 * 60 * 1000,
-    }, 60 * 60 * 1000);
-  }
-
-  function switchRange(value, values, fallback) {
-    return Object.prototype.hasOwnProperty.call(values, value)
-      ? values[value]
-      : fallback;
-  }
-
-  function performanceFrame(serverId, range) {
-    const cutoff = now().getTime() - rangeMilliseconds(range);
-    return {
-      type: "admincraft.performance-history",
-      serverId,
-      range,
-      samples: state.performance.filter(
-        (sample) => sample.serverId === serverId && Date.parse(sample.at) >= cutoff,
-      ),
-    };
-  }
-
   function requireServer(payload = {}) {
     const serverId = String(payload.serverId || "").trim();
     const server = serverById(serverId);
@@ -1038,10 +980,9 @@ function createManagementService(config = {}, dependencies = {}) {
       if (action === "performance-history") {
         const server = requireServer(payload);
         const range = String(payload.range || "1h");
-        return response(
-          "Performance history refreshed.",
-          [performanceFrame(server.id, range)],
-        );
+        if (!planPerformance) throw new Error("Plan performance source is not configured on this bridge.");
+        const frame = await planPerformance.history(server.id, range);
+        return response("Performance history refreshed from Plan.", [frame]);
       }
 
       if (action === "updates-source-set") {

@@ -715,6 +715,24 @@ class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
     return present.reduce((a, b) => a > b ? a : b);
   }
 
+  double? _maximumDouble(Iterable<double?> values) {
+    final present = values.whereType<double>().toList();
+    if (present.isEmpty) return null;
+    return present.reduce((a, b) => a > b ? a : b);
+  }
+
+  String _formatBytes(double? bytes) {
+    if (bytes == null) return '—';
+    final units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    var value = bytes;
+    var unit = 0;
+    while (value >= 1024 && unit < units.length - 1) {
+      value /= 1024;
+      unit += 1;
+    }
+    return '${value.toStringAsFixed(value >= 10 || unit == 0 ? 0 : 1)} ${units[unit]}';
+  }
+
   String _healthSummary(List<PerformanceSample> samples) {
     final averageTps = _average(samples.map((sample) => sample.tps));
     final averageMspt = _average(samples.map((sample) => sample.mspt));
@@ -744,6 +762,10 @@ class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
     final averageMspt = _average(samples.map((sample) => sample.mspt));
     final averageCpu = _average(samples.map((sample) => sample.cpuPercent));
     final averageMemory = _average(samples.map((sample) => sample.memoryMb));
+    final averageJitter = _average(
+      samples.map((sample) => sample.msptJitterAverage),
+    );
+    final peakMsptP95 = _maximumDouble(samples.map((sample) => sample.msptP95));
     final peakPlayers = _maximum(samples.map((sample) => sample.players));
 
     return ListView(
@@ -781,6 +803,23 @@ class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
               ),
           ],
         ),
+        const SizedBox(height: 12),
+        if (network.performanceSource.isPlan)
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.analytics_outlined),
+              title: const Text('Canonical source: Plan'),
+              subtitle: Text(
+                [
+                  if (network.performanceSource.serverName?.isNotEmpty == true)
+                    network.performanceSource.serverName!,
+                  if (network.performanceSource.planVersion?.isNotEmpty == true)
+                    network.performanceSource.planVersion!,
+                  if (network.performanceSource.readOnly) 'read-only',
+                ].join(' | '),
+              ),
+            ),
+          ),
         const SizedBox(height: 16),
         if (latest != null) ...[
           Text('Latest sample', style: Theme.of(context).textTheme.titleMedium),
@@ -794,8 +833,23 @@ class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
                 value: latest.tps?.toStringAsFixed(1) ?? '—',
               ),
               _MetricCard(
-                label: 'MSPT',
-                value: latest.mspt?.toStringAsFixed(1) ?? '—',
+                label: 'MSPT avg',
+                value:
+                    latest.msptAverage?.toStringAsFixed(1) ??
+                    latest.mspt?.toStringAsFixed(1) ??
+                    '—',
+              ),
+              _MetricCard(
+                label: 'MSPT p95',
+                value: latest.msptP95?.toStringAsFixed(1) ?? '—',
+              ),
+              _MetricCard(
+                label: 'Jitter avg',
+                value: latest.msptJitterAverage?.toStringAsFixed(1) ?? '—',
+              ),
+              _MetricCard(
+                label: 'Jitter max',
+                value: latest.msptJitterMax?.toStringAsFixed(1) ?? '—',
               ),
               _MetricCard(
                 label: 'Players',
@@ -813,6 +867,18 @@ class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
                     ? '—'
                     : '${latest.memoryMb!.toStringAsFixed(0)} MB',
               ),
+              _MetricCard(
+                label: 'Entities',
+                value: latest.entities?.toString() ?? '—',
+              ),
+              _MetricCard(
+                label: 'Chunks',
+                value: latest.chunks?.toString() ?? '—',
+              ),
+              _MetricCard(
+                label: 'Disk free',
+                value: _formatBytes(latest.freeDiskBytes),
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -829,6 +895,14 @@ class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
               _MetricCard(
                 label: 'Avg MSPT',
                 value: averageMspt?.toStringAsFixed(1) ?? '—',
+              ),
+              _MetricCard(
+                label: 'Peak MSPT p95',
+                value: peakMsptP95?.toStringAsFixed(1) ?? '—',
+              ),
+              _MetricCard(
+                label: 'Avg jitter',
+                value: averageJitter?.toStringAsFixed(1) ?? '—',
               ),
               _MetricCard(
                 label: 'Peak players',

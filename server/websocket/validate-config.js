@@ -16,5 +16,6 @@ console.log(
   `RC4 bridge configuration valid: ${result.serverCount} management server(s), `
   + `${result.backupEngineCount} configured backup engine(s), `
   + `${result.backupStorageCount} configured backup storage(s), `
-  + `${result.updateProjectCount} update project(s).`,
+  + `${result.updateProjectCount} update project(s), `
+  + `${result.planServerCount} Plan performance mapping(s).`,
 );

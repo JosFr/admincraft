@@ -24,7 +24,7 @@ npm ci
 npm run preflight
 ```
 
-The preflight validates required Multicraft credentials, management server mappings, optional update-project JSON, and reports whether management can be enabled. It does not contact Multicraft or modify state.
+The preflight validates required Multicraft credentials, management server mappings, required Plan database settings/server mappings, optional update-project JSON, and reports whether management can be enabled. It does not contact Multicraft or Plan and does not modify state. The first live Plan query additionally verifies the `plan_tps` schema and refuses database grants beyond `SELECT`/`USAGE`.
 
 ## Deployment prerequisites
 
@@ -42,7 +42,7 @@ After an eventual rollout, verify before considering it complete:
 - An admin client receives the `management` capability.
 - A management snapshot loads without errors.
 - Lobby and SMP mappings point to the intended Multicraft server IDs.
-- A performance sample can be requested.
+- Performance history can be requested for 1h/6h/24h/7d/30d and reports `source.type=plan`, `canonical=true`, and `readOnly=true`.
 - Update checks do not interfere with management when no update projects are configured.
 - No routine player-count or normal lifecycle transition creates push noise.
 

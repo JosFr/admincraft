@@ -4,6 +4,7 @@ const { parseBackupStorages } = require("./backup-storage");
 const { parseBackupEngines } = require("./backup-engines");
 const { parseBackupRetention } = require("./backup-policy");
 const { parseMaintenancePolicies } = require("./maintenance-policy");
+const { parseServerMap, planDatabaseConfig } = require("./plan-performance");
 
 function requireValue(env, key, errors) {
   if (!String(env[key] || "").trim()) errors.push(`${key} is required.`);
@@ -38,6 +39,26 @@ function validateEnvironment(env = process.env) {
     }
     if (servers.length === 0) {
       errors.push("At least one management server mapping is required.");
+    }
+  }
+
+  let planMappings = [];
+  if (managementEnabled && servers.length > 0) {
+    requireValue(env, "PLAN_DB_HOST", errors);
+    requireValue(env, "PLAN_DB_USER", errors);
+    requireValue(env, "PLAN_DB_PASSWORD", errors);
+    try {
+      const database = planDatabaseConfig({}, env);
+      if (!Number.isInteger(database.port) || database.port < 1 || database.port > 65535) {
+        errors.push("PLAN_DB_PORT must be a valid TCP port.");
+      }
+      if (env.PLAN_DB_SSL && !["true", "false"].includes(env.PLAN_DB_SSL)) {
+        errors.push("PLAN_DB_SSL must be true or false.");
+      }
+      planMappings = parseServerMap(env.PLAN_SERVER_MAP_JSON || "", servers.map((server) => server.id));
+      if (planMappings.length === 0) errors.push("PLAN_SERVER_MAP_JSON must contain at least one mapping.");
+    } catch (error) {
+      errors.push(error.message);
     }
   }
 
@@ -88,6 +109,7 @@ function validateEnvironment(env = process.env) {
     backupStorageCount: storages.length,
     backupEngineCount: engines.length,
     updateProjectCount: projects.length,
+    planServerCount: planMappings.length,
   };
 }
 

@@ -13,6 +13,11 @@ function validEnv() {
     MULTICRAFT_SERVER_ID: "1",
     MANAGEMENT_SERVER_ID: "lobby",
     MANAGEMENT_SERVER_NAME: "Lobby",
+    PLAN_DB_HOST: "plan-db.example.test",
+    PLAN_DB_DATABASE: "plan",
+    PLAN_DB_USER: "admincraft_ro",
+    PLAN_DB_PASSWORD: "read-only-secret",
+    PLAN_SERVER_MAP_JSON: JSON.stringify([{ serverId: "lobby", planServerName: "Lobby" }]),
   };
 }
 
@@ -40,6 +45,22 @@ test("preflight rejects malformed management server mappings", () => {
   const result = validateEnvironment(env);
   assert.equal(result.ok, false);
   assert.ok(result.errors.some((message) => message.includes("Duplicate")));
+});
+
+test("preflight requires Plan as the canonical performance source", () => {
+  const env = validEnv();
+  delete env.PLAN_DB_HOST;
+  const result = validateEnvironment(env);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((message) => message.includes("PLAN_DB_HOST")));
+});
+
+test("preflight rejects Plan mappings for unknown AdminCraft servers", () => {
+  const env = validEnv();
+  env.PLAN_SERVER_MAP_JSON = JSON.stringify([{ serverId: "missing", planServerName: "SMP" }]);
+  const result = validateEnvironment(env);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((message) => message.includes("unknown management server")));
 });
 
 test("preflight keeps update configuration optional", () => {
@@ -77,6 +98,7 @@ test("preflight validates backup storage and engine mappings", () => {
     multicraftServerId: 1,
     defaultBackupEngineId: "native-smp",
   }]);
+  env.PLAN_SERVER_MAP_JSON = JSON.stringify([{ serverId: "smp", planServerName: "SMP" }]);
   env.BACKUP_STORAGES_JSON = JSON.stringify([{
     id: "nextcloud",
     type: "nextcloud",
@@ -105,6 +127,7 @@ test("preflight rejects unknown default backup engines", () => {
     multicraftServerId: 1,
     defaultBackupEngineId: "missing-engine",
   }]);
+  env.PLAN_SERVER_MAP_JSON = JSON.stringify([{ serverId: "smp", planServerName: "SMP" }]);
   const result = validateEnvironment(env);
   assert.equal(result.ok, false);
   assert.ok(

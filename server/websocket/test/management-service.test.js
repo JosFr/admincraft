@@ -26,7 +26,6 @@ function fixture(dependencyOverrides = {}) {
     async statusDetails() { return { onlinePlayers: 0 }; },
     async status() { return serverStatus; },
     async resources() { return { cpuPercent: 12, memoryMb: 512 }; },
-    async tickPerformance() { return { tps: 19.8, mspt: 24.5 }; },
     async sendConsole(id, command) { calls.push(["console", id, command]); },
   };
   const service = createManagementService(
@@ -39,6 +38,17 @@ function fixture(dependencyOverrides = {}) {
     },
     {
       multicraft,
+      planPerformance: {
+        descriptor() { return { type: "plan", configured: true, canonical: true, serverIds: ["lobby"] }; },
+        async history(serverId, range) {
+          return {
+            type: "admincraft.performance-history", source: { type: "plan", canonical: true, readOnly: true },
+            serverId, range, samples: [{ serverId, at: current.toISOString(), tps: 19.8, mspt: 24.5,
+              msptAverage: 24.5, msptP95: 31.2, msptJitterAverage: 1.5, msptJitterMax: 4.2,
+              players: 2, cpuPercent: 12, memoryMb: 512, entities: 80, chunks: 120, freeDiskBytes: 1000000000 }],
+          };
+        },
+      },
       now: () => new Date(current),
       ...dependencyOverrides,
     },
@@ -157,31 +167,21 @@ test("scheduled actions persist a next run and execute when due", async () => {
   }
 });
 
-test("performance sampling is bounded and range-filtered", async () => {
+test("performance history is delegated to canonical Plan data", async () => {
   const fx = fixture();
   try {
     await fx.service.tick();
-    await fx.service.tick();
-    let frame = await fx.service.handle("performance-history", {
-      serverId: "lobby",
-      range: "1h",
-    });
+    const frame = await fx.service.handle("performance-history", { serverId: "lobby", range: "7d" });
     assert.equal(frame.success, true);
+    assert.equal(frame.events[0].source.type, "plan");
+    assert.equal(frame.events[0].source.readOnly, true);
+    assert.equal(frame.events[0].range, "7d");
     assert.equal(frame.events[0].samples.length, 1);
-    assert.equal(frame.events[0].samples[0].cpuPercent, 12);
     assert.equal(frame.events[0].samples[0].tps, 19.8);
-    assert.equal(frame.events[0].samples[0].mspt, 24.5);
-
-    fx.advance(300001);
-    await fx.service.tick();
-    frame = await fx.service.handle("performance-history", {
-      serverId: "lobby",
-      range: "1h",
-    });
-    assert.equal(frame.events[0].samples.length, 2);
-  } finally {
-    fx.cleanup();
-  }
+    assert.equal(frame.events[0].samples[0].msptP95, 31.2);
+    assert.equal(Object.hasOwn(JSON.parse(fs.readFileSync(fx.statePath, "utf8")), "performance"), false);
+    assert.equal(fx.service.snapshot().performanceSource.type, "plan");
+  } finally { fx.cleanup(); }
 });
 
 test("duplicate backup requests are rejected while one is active", async () => {

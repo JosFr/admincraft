@@ -42,6 +42,15 @@ services:
       # MANAGEMENT_STORAGE_PROBE_MS: "300000"
       MANAGEMENT_SERVERS_JSON: >-
         [{"id":"lobby","name":"Lobby","multicraftServerId":1}]
+      # Canonical Minecraft performance history comes from Plan via SELECT-only MariaDB access.
+      PLAN_DB_HOST: plan-db.example.net
+      PLAN_DB_PORT: "3306"
+      PLAN_DB_DATABASE: plan
+      PLAN_DB_USER: admincraft_ro
+      PLAN_DB_PASSWORD: CHANGE_ME
+      PLAN_DB_SSL: "false"
+      PLAN_SERVER_MAP_JSON: >-
+        [{"serverId":"lobby","planServerName":"Lobby"}]
       # Optional plugin update mappings; keep premium sources explicit.
       UPDATE_PROJECTS_JSON: >-
         []
