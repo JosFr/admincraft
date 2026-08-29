@@ -15,6 +15,7 @@ class ServerProfile {
   final MinecraftEdition edition;
   final String iconAsset;
   final String customIconBase64;
+  final bool networkHub;
 
   const ServerProfile({
     required this.id,
@@ -28,6 +29,7 @@ class ServerProfile {
     this.edition = MinecraftEdition.bedrock,
     this.iconAsset = 'docs/logo/variants/dirt.png',
     this.customIconBase64 = '',
+    this.networkHub = false,
   });
 
   factory ServerProfile.empty(String id) => ServerProfile(
@@ -54,6 +56,7 @@ class ServerProfile {
     MinecraftEdition? edition,
     String? iconAsset,
     String? customIconBase64,
+    bool? networkHub,
   }) {
     return ServerProfile(
       id: id,
@@ -67,6 +70,7 @@ class ServerProfile {
       edition: edition ?? this.edition,
       iconAsset: iconAsset ?? this.iconAsset,
       customIconBase64: customIconBase64 ?? this.customIconBase64,
+      networkHub: networkHub ?? this.networkHub,
     );
   }
 
@@ -87,6 +91,7 @@ class ServerProfile {
     'edition': edition.name,
     'iconAsset': iconAsset,
     if (customIconBase64.isNotEmpty) 'customIconBase64': customIconBase64,
+    if (networkHub) 'networkHub': true,
   };
 
   factory ServerProfile.fromJson(Map<String, dynamic> json) {
@@ -112,6 +117,7 @@ class ServerProfile {
       ),
       iconAsset: json['iconAsset'] as String? ?? 'docs/logo/variants/dirt.png',
       customIconBase64: json['customIconBase64'] as String? ?? '',
+      networkHub: json['networkHub'] as bool? ?? false,
     );
   }
 }

@@ -395,7 +395,7 @@ void main() {
     const server = ServerProfile(
       id: 'dashboard',
       alias: 'Lobby',
-      ip: 'admincraft.fraanje.net',
+      ip: 'admincraft.example.net',
       port: 443,
       bridgePath: '/lobby',
       secretKey: 'secret',

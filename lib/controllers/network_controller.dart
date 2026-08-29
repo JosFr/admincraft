@@ -57,6 +57,9 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
 
   ServerProfile? _lobbyProfile(Model model) {
     for (final server in model.servers) {
+      if (server.networkHub && server.isComplete) return server;
+    }
+    for (final server in model.servers) {
       final alias = server.alias.trim().toLowerCase();
       final path = server.bridgePath.trim().toLowerCase();
       if ((alias == 'lobby' || path == '/lobby') && server.isComplete) {

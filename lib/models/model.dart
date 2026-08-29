@@ -495,6 +495,7 @@ class Model with ChangeNotifier {
     required MinecraftEdition minecraftEdition,
     String? iconAsset,
     String? customIconBase64,
+    bool? networkHub,
   }) async {
     _servers = _servers
         .map(
@@ -510,6 +511,7 @@ class Model with ChangeNotifier {
                   edition: minecraftEdition,
                   iconAsset: iconAsset,
                   customIconBase64: customIconBase64,
+                  networkHub: networkHub,
                 )
               : server,
         )

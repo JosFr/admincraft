@@ -15,7 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 const _server = ServerProfile(
   id: 'lobby',
   alias: 'Lobby',
-  ip: 'admincraft.fraanje.net',
+  ip: 'admincraft.example.net',
   port: 443,
   bridgePath: '/lobby',
   secretKey: 'secret',

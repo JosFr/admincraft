@@ -84,6 +84,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
   String _certificateContent = '';
   String _iconAsset = serverIconAssets.first;
   String _customIconBase64 = '';
+  bool _networkHub = false;
   bool _secretVisible = false;
   bool _saving = false;
   bool _showValidationErrors = false;
@@ -130,6 +131,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
     _certificateContent = server.certificate;
     _iconAsset = server.iconAsset;
     _customIconBase64 = server.customIconBase64;
+    _networkHub = server.networkHub;
     _certificateController.text = server.certificate.isEmpty
         ? 'No certificate loaded'
         : 'Certificate loaded';
@@ -185,7 +187,8 @@ class _ServerEditorViewState extends State<ServerEditorView> {
         _security != original.security ||
         _edition != original.edition ||
         _iconAsset != original.iconAsset ||
-        _customIconBase64 != original.customIconBase64;
+        _customIconBase64 != original.customIconBase64 ||
+        _networkHub != original.networkHub;
     widget.onDirtyChanged?.call(dirty);
   }
 
@@ -406,6 +409,7 @@ class _ServerEditorViewState extends State<ServerEditorView> {
         minecraftEdition: _edition,
         iconAsset: _iconAsset,
         customIconBase64: _customIconBase64,
+        networkHub: _networkHub,
       );
       widget.onDirtyChanged?.call(false);
       // The profile is safely persisted at this point. Reconnecting and
@@ -785,6 +789,16 @@ class _ServerEditorViewState extends State<ServerEditorView> {
                               return 'Enter only the URL path, without query or fragment.';
                             }
                             return null;
+                          },
+                        ),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('Network hub / Lobby bridge'),
+                          subtitle: const Text('Use this profile for the central Velocity Network and Access feed.'),
+                          value: _networkHub,
+                          onChanged: (value) {
+                            setState(() => _networkHub = value);
+                            _reportDirty();
                           },
                         ),
                       ],

@@ -382,20 +382,16 @@ class _TabsState extends State<Tabs> {
   ) async {
     final model = context.read<Model>();
     final connection = context.read<ConnectionController>();
-    const routes = <String, String>{
-      'lobby': 'lobby',
-      'skeerekippen': 'skeerekippen',
-      'skeerekippen-old': 'skeerekippen-old',
-      'smp': 'smp',
-      'fraanje-202404-202505': 'fraanje-202404',
-      'fraanje-202201-202205': 'fraanje-202201',
-      'fraanje-202207-202208': 'fraanje-202207',
-      'jolien-joas-202404': 'jolien-joas',
-    };
-    final slug = routes[serverName.toLowerCase()] ?? serverName.toLowerCase();
+    final normalizedName = serverName.trim().toLowerCase();
     ServerProfile? profile;
     for (final server in model.servers) {
-      if (server.bridgePath.trim().toLowerCase() == '/$slug') {
+      final alias = server.alias.trim().toLowerCase();
+      final path = server.bridgePath.trim().toLowerCase();
+      final pathParts = path.split('/').where((part) => part.isNotEmpty).toList();
+      final pathName = pathParts.isEmpty ? '' : pathParts.last;
+      if (alias == normalizedName ||
+          pathName == normalizedName ||
+          (server.networkHub && normalizedName == 'lobby')) {
         profile = server;
         break;
       }
