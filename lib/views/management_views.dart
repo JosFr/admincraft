@@ -362,7 +362,7 @@ class MaintenanceView extends StatelessWidget {
       ),
       emptyIcon: Icons.build_circle_outlined,
       emptyTitle: 'No maintenance running',
-      emptyMessage: 'Start the default countdown, backup and restart flow when the bridge supports it.',
+      emptyMessage: 'Start a configurable countdown, optional safety backup and restart flow when the bridge supports it.',
       children: active
           ? [
               Card(
@@ -391,10 +391,49 @@ class PerformanceHistoryView extends StatefulWidget {
 
 class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
   String range = '1h';
+  bool _requestedInitial = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_requestedInitial) return;
+    final network = context.read<NetworkController?>();
+    if (network == null || !network.managementAvailable) return;
+    _requestedInitial = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) network.requestPerformance(widget.serverId, range);
+    });
+  }
 
   void _request(NetworkController network, String next) {
     setState(() => range = next);
     network.requestPerformance(widget.serverId, next);
+  }
+
+  double? _average(Iterable<double?> values) {
+    final present = values.whereType<double>().toList();
+    if (present.isEmpty) return null;
+    return present.reduce((a, b) => a + b) / present.length;
+  }
+  int? _maximum(Iterable<int?> values) {
+    final present = values.whereType<int>().toList();
+    if (present.isEmpty) return null;
+    return present.reduce((a, b) => a > b ? a : b);
+  }
+
+  String _healthSummary(List<PerformanceSample> samples) {
+    final averageTps = _average(samples.map((sample) => sample.tps));
+    final averageMspt = _average(samples.map((sample) => sample.mspt));
+    if (averageTps != null && averageTps < 18) {
+      return 'Sustained TPS is below 18 in this range.';
+    }
+    if (averageMspt != null && averageMspt > 50) {
+      return 'Average MSPT is above the 50 ms tick budget.';
+    }
+    if (averageTps != null || averageMspt != null) {
+      return 'No sustained tick-performance warning in this range.';
+    }
+    return 'Not enough tick data to assess this range.';
   }
 
   @override
@@ -406,6 +445,12 @@ class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
         .toList()
       ..sort((a, b) => a.at.compareTo(b.at));
     final latest = samples.isEmpty ? null : samples.last;
+    final averageTps = _average(samples.map((sample) => sample.tps));
+    final averageMspt = _average(samples.map((sample) => sample.mspt));
+    final averageCpu = _average(samples.map((sample) => sample.cpuPercent));
+    final averageMemory = _average(samples.map((sample) => sample.memoryMb));
+    final peakPlayers = _maximum(samples.map((sample) => sample.players));
+
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
@@ -435,12 +480,16 @@ class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
               ChoiceChip(
                 label: Text(option),
                 selected: range == option,
-                onSelected: (_) => _request(network, option),
+                onSelected: network.managementAvailable
+                    ? (_) => _request(network, option)
+                    : null,
               ),
           ],
         ),
         const SizedBox(height: 16),
-        if (latest != null)
+        if (latest != null) ...[
+          Text('Latest sample', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 6),
           Wrap(
             spacing: 10,
             runSpacing: 10,
@@ -462,12 +511,58 @@ class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
               ),
             ],
           ),
+          const SizedBox(height: 16),
+          Text('Range summary', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _MetricCard(
+                label: 'Avg TPS',
+                value: averageTps?.toStringAsFixed(1) ?? '—',
+              ),
+              _MetricCard(
+                label: 'Avg MSPT',
+                value: averageMspt?.toStringAsFixed(1) ?? '—',
+              ),
+              _MetricCard(
+                label: 'Peak players',
+                value: peakPlayers?.toString() ?? '—',
+              ),
+              _MetricCard(
+                label: 'Avg CPU',
+                value: averageCpu == null
+                    ? '—'
+                    : '${averageCpu.toStringAsFixed(0)}%',
+              ),
+              _MetricCard(
+                label: 'Avg RAM',
+                value: averageMemory == null
+                    ? '—'
+                    : '${averageMemory.toStringAsFixed(0)} MB',
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.monitor_heart_outlined),
+              title: const Text('Tick health'),
+              subtitle: Text(_healthSummary(samples)),
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
         if (samples.isEmpty)
-          const Card(
+          Card(
             child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Text('No performance samples for this range yet.'),
+              padding: const EdgeInsets.all(24),
+              child: Text(
+                network.managementAvailable
+                    ? 'No performance samples were returned for this range.'
+                    : 'Performance history requires RC4 management support.',
+              ),
             ),
           )
         else
@@ -491,6 +586,7 @@ class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
     );
   }
 }
+
 
 class _MetricCard extends StatelessWidget {
   final String label;
