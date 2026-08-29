@@ -168,3 +168,11 @@ test("preflight rejects maintenance overrides for unknown servers", () => {
   assert.equal(result.ok, false);
   assert.ok(result.errors.some((message) => message.includes("Unknown maintenance server")));
 });
+
+test("preflight rejects invalid BuiltByBit token types", () => {
+  const env = validEnv();
+  env.BUILTBYBIT_API_TOKEN_TYPE = "Token";
+  const result = validateEnvironment(env);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((message) => message.includes("BUILTBYBIT_API_TOKEN_TYPE")));
+});

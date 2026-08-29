@@ -68,6 +68,10 @@ function validateEnvironment(env = process.env) {
   } catch (error) {
     errors.push(error.message);
   }
+  const builtByBitTokenType = String(env.BUILTBYBIT_API_TOKEN_TYPE || "").trim();
+  if (builtByBitTokenType && !["Private", "Shared"].includes(builtByBitTokenType)) {
+    errors.push("BUILTBYBIT_API_TOKEN_TYPE must be Private or Shared.");
+  }
 
   if (!env.SECRET_KEY && !env.AUTH_USERS_JSON) {
     warnings.push("No bridge authentication credential is configured.");

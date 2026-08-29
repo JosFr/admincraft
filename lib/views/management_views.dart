@@ -376,6 +376,51 @@ class UpdatesView extends StatelessWidget {
 
   const UpdatesView({super.key, this.serverId});
 
+  Future<void> _confirmSource(
+    BuildContext context,
+    NetworkController network,
+    PluginUpdate update,
+  ) async {
+    if (update.candidates.isEmpty) return;
+    var selected = update.candidates.first;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text('Confirm source for ${update.plugin}'),
+          content: SizedBox(
+            width: 430,
+            child: DropdownButtonFormField<UpdateSourceCandidate>(
+              initialValue: selected,
+              decoration: const InputDecoration(labelText: 'Update source'),
+              items: [
+                for (final candidate in update.candidates)
+                  DropdownMenuItem(
+                    value: candidate,
+                    child: Text(candidate.label),
+                  ),
+              ],
+              onChanged: (value) {
+                if (value != null) setState(() => selected = value);
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Confirm and remember'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed == true) network.confirmUpdateSource(update, selected);
+  }
+
   @override
   Widget build(BuildContext context) {
     final network = context.watch<NetworkController?>();
@@ -389,7 +434,7 @@ class UpdatesView extends StatelessWidget {
                 _updatePriority(a.status).compareTo(_updatePriority(b.status)),
           );
     return _ManagementList(
-      title: serverId == null ? 'Network updates' : 'Plugin updates',
+      title: serverId == null ? 'Network updates' : 'Server updates',
       count: updates.length,
       onRefresh: network.refreshManagement,
       action: FilledButton.icon(
@@ -410,19 +455,29 @@ class UpdatesView extends StatelessWidget {
               leading: Icon(_updateIcon(update.status)),
               title: Text(update.plugin),
               subtitle: Text(
-                '${update.serverName} · ${update.currentVersion}'
+                '${update.serverName} · ${_updateKindLabel(update.kind)} · '
+                '${update.currentVersion.isEmpty ? 'version unknown' : update.currentVersion}'
                 '${update.latestVersion == null ? '' : ' → ${update.latestVersion}'}'
-                '\n${_updateSourceLabel(update)} · ${_updateStatusLabel(update.status)}',
+                '\n${_updateSourceLabel(update)} · ${_updateStatusLabel(update.status)}'
+                '${!update.sourceConfirmed && update.candidates.isNotEmpty ? '\nSource confirmation required' : ''}',
               ),
-              trailing: update.url == null || update.url!.trim().isEmpty
-                  ? null
-                  : IconButton(
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!update.sourceConfirmed && update.candidates.isNotEmpty)
+                    IconButton(
+                      tooltip: 'Confirm update source',
+                      onPressed: () => _confirmSource(context, network, update),
+                      icon: const Icon(Icons.link_outlined),
+                    ),
+                  if (update.url != null && update.url!.trim().isNotEmpty)
+                    IconButton(
                       tooltip: 'Open update source',
-                      onPressed: () async {
-                        await UrlUtils.openUrl(update.url!);
-                      },
+                      onPressed: () async => UrlUtils.openUrl(update.url!),
                       icon: const Icon(Icons.open_in_new),
                     ),
+                ],
+              ),
             ),
           ),
       ],
@@ -1252,6 +1307,13 @@ IconData _scheduleIcon(ScheduledActionType action) => switch (action) {
   ScheduledActionType.restart => Icons.restart_alt,
   ScheduledActionType.backup => Icons.inventory_2_outlined,
   ScheduledActionType.maintenance => Icons.build_circle_outlined,
+};
+
+String _updateKindLabel(String kind) => switch (kind) {
+  'paper' => 'Paper platform',
+  'velocity' => 'Velocity platform',
+  'platform' => 'Platform',
+  _ => 'Plugin',
 };
 
 int _updatePriority(PluginUpdateStatus status) => switch (status) {

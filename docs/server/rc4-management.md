@@ -83,7 +83,23 @@ Update checking is explicit rather than guessing plugin identities. Configure `U
 ]
 ```
 
-Supported automatic checks are Hangar, Modrinth, Spigot via Spiget, and GitHub Releases. BuiltByBit is deliberately not scraped or used to bypass premium access; configure a project URL for navigation and Admincraft reports the source as unavailable until an authenticated integration exists.
+Supported checks are Hangar, Modrinth, Spigot via Spiget, GitHub Releases, PaperMC platform releases, and authenticated BuiltByBit version metadata. BuiltByBit is never scraped and never bypasses premium licensing or downloads. Its resource-ID version check uses the documented v1 API with a server-side Private or Shared token; keep BUILTBYBIT_API_TOKEN out of client configuration and source control.
+
+For ambiguous plugin identities, omit provider/projectId and configure candidates. Admincraft returns the project as Unmanaged until an administrator confirms one candidate; that choice is remembered in persistent management state. Paper and Velocity platform rows can use kind paper or velocity and automatically map to the PaperMC source.
+
+```json
+{
+  "serverId":"smp",
+  "plugin":"Example",
+  "currentVersion":"1.4.0",
+  "candidates":[
+    {"provider":"modrinth","projectId":"abc","label":"Example on Modrinth"},
+    {"provider":"github","projectId":"owner/repository","label":"Example on GitHub"}
+  ]
+}
+```
+
+PaperMC requests use an identifying Admincraft User-Agent as required by the Downloads Service. BuiltByBit token type defaults to Private; set BUILTBYBIT_API_TOKEN_TYPE=Shared only when using a compatible Shared token.
 
 ## RC4 backup engines and storage
 

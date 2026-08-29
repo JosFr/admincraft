@@ -429,6 +429,18 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     },
   });
 
+  bool confirmUpdateSource(
+    PluginUpdate update,
+    UpdateSourceCandidate candidate,
+  ) => _manage('updates-source-set', {
+    'serverId': update.serverId, 'plugin': update.plugin,
+    'provider': candidate.provider.name, 'projectId': candidate.projectId,
+    'providers': {
+      for (final provider in UpdateProvider.values)
+        provider.name: updateProviderEnabled(provider),
+    },
+  });
+
   void _pushChanged() => _syncPushRegistration();
   void _notificationPreferencesChanged() => _syncPushRegistration();
 

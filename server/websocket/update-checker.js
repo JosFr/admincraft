@@ -6,22 +6,68 @@ function canonicalProvider(value) {
     spigot: "spigot",
     builtbybit: "builtByBit",
     github: "github",
+    papermc: "paperMC",
+    paper: "paperMC",
   }[normalized] || null;
+}
+
+function canonicalKind(value) {
+  const normalized = String(value || "plugin").trim().toLowerCase();
+  if (["paper", "velocity", "platform"].includes(normalized)) return normalized;
+  return "plugin";
+}
+
+function projectKey(serverId, plugin) {
+  return `${String(serverId)}\u0000${String(plugin)}`;
+}
+
+function normalizeCandidate(value, index) {
+  const provider = canonicalProvider(value?.provider);
+  const projectId = String(value?.projectId || "").trim();
+  if (!provider || !projectId) {
+    throw new Error(`Invalid update source candidate at index ${index}.`);
+  }
+  return {
+    provider,
+    projectId,
+    label: String(value?.label || `${provider}: ${projectId}`).trim(),
+    url: value?.url ? String(value.url) : null,
+  };
 }
 
 function parseProjects(raw = process.env.UPDATE_PROJECTS_JSON || "") {
   if (!String(raw).trim()) return [];
   const parsed = JSON.parse(raw);
   if (!Array.isArray(parsed)) throw new Error("UPDATE_PROJECTS_JSON must be an array.");
-  return parsed.map((entry) => ({
-    serverId: String(entry.serverId || "").trim(),
-    serverName: String(entry.serverName || entry.serverId || "Server").trim(),
-    plugin: String(entry.plugin || "").trim(),
-    currentVersion: String(entry.currentVersion || "").trim(),
-    provider: canonicalProvider(entry.provider),
-    projectId: String(entry.projectId || "").trim(),
-    url: entry.url ? String(entry.url) : null,
-  })).filter((entry) => entry.serverId && entry.plugin && entry.provider && entry.projectId);
+  return parsed.map((entry, index) => {
+    const serverId = String(entry?.serverId || "").trim();
+    const plugin = String(entry?.plugin || "").trim();
+    if (!serverId || !plugin) return null;
+    const kind = canonicalKind(entry.kind);
+    let provider = canonicalProvider(entry.provider);
+    let projectId = String(entry.projectId || "").trim();
+    if (!provider && !projectId && (kind === "paper" || kind === "velocity")) {
+      provider = "paperMC";
+      projectId = kind;
+    }
+    if ((provider && !projectId) || (!provider && projectId)) {
+      throw new Error(`Incomplete update source at index ${index}.`);
+    }
+    const rawCandidates = Array.isArray(entry.candidates) ? entry.candidates : [];
+    const candidates = rawCandidates.map(normalizeCandidate);
+    return {
+      serverId,
+      serverName: String(entry.serverName || entry.serverId || "Server").trim(),
+      plugin,
+      kind,
+      currentVersion: String(entry.currentVersion || "").trim(),
+      provider,
+      projectId,
+      sourceConfirmed: Boolean(provider && projectId),
+      candidates,
+      url: entry.url ? String(entry.url) : null,
+    };
+  }).filter(Boolean);
 }
 
 function versionParts(value) {
@@ -33,10 +79,13 @@ function versionParts(value) {
     prerelease: match[2] || null,
   };
 }
+
 function compareVersions(left, right) {
   const a = versionParts(left);
   const b = versionParts(right);
-  if (!a || !b) return String(left).localeCompare(String(right), undefined, { numeric: true });
+  if (!a || !b) {
+    return String(left).localeCompare(String(right), undefined, { numeric: true });
+  }
   const length = Math.max(a.numbers.length, b.numbers.length);
   for (let index = 0; index < length; index += 1) {
     const av = a.numbers[index] || 0;
@@ -51,12 +100,25 @@ function compareVersions(left, right) {
 
 async function fetchJson(fetchImpl, url, headers = {}) {
   const response = await fetchImpl(url, {
-    headers: { Accept: "application/json", "User-Agent": "Admincraft-RC4", ...headers },
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "Admincraft/2.0.0 (https://github.com/JosFr/admincraft)",
+      ...headers,
+    },
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json();
 }
-async function latestFor(project, fetchImpl) {
+
+function newestVersion(values) {
+  return values
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .sort(compareVersions)
+    .at(-1) || null;
+}
+
+async function latestFor(project, fetchImpl, config = {}) {
   if (project.provider === "github") {
     const data = await fetchJson(
       fetchImpl,
@@ -70,12 +132,10 @@ async function latestFor(project, fetchImpl) {
       `https://api.modrinth.com/v2/project/${encodeURIComponent(project.projectId)}/version?include_changelog=false`,
     );
     if (!Array.isArray(data) || data.length === 0) throw new Error("No versions returned.");
-    const sorted = [...data].sort((a, b) =>
-      Date.parse(b.date_published || 0) - Date.parse(a.date_published || 0));
-    return {
-      version: sorted[0].version_number || sorted[0].name,
-      url: project.url,
-    };
+    const sorted = [...data].sort(
+      (a, b) => Date.parse(b.date_published || 0) - Date.parse(a.date_published || 0),
+    );
+    return { version: sorted[0].version_number || sorted[0].name, url: project.url };
   }
   if (project.provider === "spigot") {
     const data = await fetchJson(
@@ -96,14 +156,47 @@ async function latestFor(project, fetchImpl) {
     const release = versions.find((item) =>
       String(item?.channel?.name || "").toLowerCase() === "release") || versions[0];
     if (!release) throw new Error("No versions returned.");
+    return { version: release.name, url: project.url };
+  }
+  if (project.provider === "builtByBit") {
+    const token = String(
+      config.builtByBitApiToken || process.env.BUILTBYBIT_API_TOKEN || "",
+    ).trim();
+    if (!token) throw new Error("BuiltByBit API token is not configured.");
+    const tokenType = String(
+      config.builtByBitApiTokenType || process.env.BUILTBYBIT_API_TOKEN_TYPE || "Private",
+    ).trim();
+    if (!["Private", "Shared"].includes(tokenType)) {
+      throw new Error("BuiltByBit API token type must be Private or Shared.");
+    }
+    const data = await fetchJson(
+      fetchImpl,
+      `https://api.builtbybit.com/v1/resources/${encodeURIComponent(project.projectId)}/versions/latest`,
+      { Authorization: `${tokenType} ${token}` },
+    );
+    const version = data?.data || data;
     return {
-      version: release.name,
-      url: project.url,
+      version: version?.name || version?.version || version?.title,
+      url: project.url || `https://builtbybit.com/resources/${project.projectId}/`,
+    };
+  }
+  if (project.provider === "paperMC") {
+    const data = await fetchJson(
+      fetchImpl,
+      `https://fill.papermc.io/v3/projects/${encodeURIComponent(project.projectId)}`,
+    );
+    const groups = data?.versions && typeof data.versions === "object"
+      ? Object.values(data.versions) : [];
+    const versions = groups.flatMap((group) => Array.isArray(group) ? group : []);
+    const latest = newestVersion(versions);
+    if (!latest) throw new Error("No platform versions returned.");
+    return {
+      version: latest,
+      url: project.url || `https://papermc.io/software/${project.projectId}`,
     };
   }
   throw new Error("Provider requires manual or authenticated checking.");
 }
-
 function providerEnabled(providers, provider) {
   for (const [key, value] of Object.entries(providers || {})) {
     if (canonicalProvider(key) === provider) return value !== false;
@@ -111,50 +204,119 @@ function providerEnabled(providers, provider) {
   return true;
 }
 
+function publicCandidates(project) {
+  return project.candidates.map((candidate) => ({ ...candidate }));
+}
+
+function sourceFor(project, overrides = {}) {
+  const override = overrides[projectKey(project.serverId, project.plugin)];
+  if (override) {
+    const provider = canonicalProvider(override.provider);
+    const projectId = String(override.projectId || "").trim();
+    if (provider && projectId) {
+      const candidate = project.candidates.find(
+        (item) => item.provider === provider && item.projectId === projectId,
+      );
+      return {
+        ...project,
+        provider,
+        projectId,
+        url: candidate?.url || project.url,
+        sourceConfirmed: true,
+      };
+    }
+  }
+  if (project.provider && project.projectId) return project;
+  return null;
+}
+
+function baseResult(project, source = null) {
+  return {
+    serverId: project.serverId,
+    serverName: project.serverName,
+    plugin: project.plugin,
+    kind: project.kind,
+    currentVersion: project.currentVersion,
+    latestVersion: null,
+    provider: source?.provider || null,
+    projectId: source?.projectId || null,
+    sourceConfirmed: source?.sourceConfirmed === true,
+    candidates: publicCandidates(project),
+    status: "unmanaged",
+    url: source?.url || project.url,
+  };
+}
+
 function createUpdateChecker(config = {}, dependencies = {}) {
   const fetchImpl = dependencies.fetch || fetch;
   const projects = parseProjects(config.projectsJson || process.env.UPDATE_PROJECTS_JSON || "");
-  return async ({ providers = {}, serverId = null } = {}) => {
+  const checkerConfig = {
+    builtByBitApiToken:
+      config.builtByBitApiToken || process.env.BUILTBYBIT_API_TOKEN || "",
+    builtByBitApiTokenType:
+      config.builtByBitApiTokenType || process.env.BUILTBYBIT_API_TOKEN_TYPE || "Private",
+  };
+
+  async function check({ providers = {}, serverId = null, sourceOverrides = {} } = {}) {
     const selected = projects.filter((project) => !serverId || project.serverId === serverId);
     const results = [];
     for (const project of selected) {
-      if (!providerEnabled(providers, project.provider)) continue;
+      const source = sourceFor(project, sourceOverrides);
+      if (!source) {
+        results.push(baseResult(project));
+        continue;
+      }
+      if (!providerEnabled(providers, source.provider)) continue;
       try {
-        const latest = await latestFor(project, fetchImpl);
-        const current = project.currentVersion;
+        const latest = await latestFor(source, fetchImpl, checkerConfig);
         const latestVersion = String(latest.version || "").trim();
-        const status = !current || !latestVersion
+        const status = !source.currentVersion || !latestVersion
           ? "unmanaged"
-          : compareVersions(current, latestVersion) < 0
+          : compareVersions(source.currentVersion, latestVersion) < 0
             ? "updateAvailable"
             : "current";
         results.push({
-          serverId: project.serverId,
-          serverName: project.serverName,
-          plugin: project.plugin,
-          currentVersion: current,
+          ...baseResult(project, source),
           latestVersion: latestVersion || null,
-          provider: project.provider,
-          projectId: project.projectId,
           status,
-          url: latest.url || project.url,
+          url: latest.url || source.url,
         });
       } catch (_) {
         results.push({
-          serverId: project.serverId,
-          serverName: project.serverName,
-          plugin: project.plugin,
-          currentVersion: project.currentVersion,
-          latestVersion: null,
-          provider: project.provider,
-          projectId: project.projectId,
+          ...baseResult(project, source),
           status: "sourceUnavailable",
-          url: project.url,
         });
       }
     }
     return results;
+  }
+
+  check.confirmSource = ({ serverId, plugin, provider, projectId }) => {
+    const project = projects.find(
+      (item) => item.serverId === String(serverId) && item.plugin === String(plugin),
+    );
+    if (!project) throw new Error("Update project not found.");
+    const canonical = canonicalProvider(provider);
+    const targetId = String(projectId || "").trim();
+    if (!canonical || !targetId) throw new Error("Invalid update source.");
+    const candidate = project.candidates.find(
+      (item) => item.provider === canonical && item.projectId === targetId,
+    );
+    if (!candidate && project.candidates.length > 0) {
+      throw new Error("Update source is not one of the configured candidates.");
+    }
+    return {
+      key: projectKey(project.serverId, project.plugin),
+      source: { provider: canonical, projectId: targetId },
+    };
   };
+  check.projects = projects.map((project) => ({
+    serverId: project.serverId,
+    plugin: project.plugin,
+    kind: project.kind,
+    candidates: publicCandidates(project),
+  }));
+  return check;
 }
 
 module.exports = {
@@ -163,4 +325,5 @@ module.exports = {
   createUpdateChecker,
   latestFor,
   parseProjects,
+  projectKey,
 };

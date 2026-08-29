@@ -214,4 +214,34 @@ void main() {
       9,
     );
   });
+  test('parses update source candidates and platform kind', () {
+    final snapshot = ManagementSnapshot.fromJson({
+      'updates': [
+        {
+          'serverId': 'proxy',
+          'serverName': 'Velocity',
+          'plugin': 'Velocity',
+          'kind': 'velocity',
+          'currentVersion': '3.4.0',
+          'provider': null,
+          'projectId': null,
+          'sourceConfirmed': false,
+          'status': 'unmanaged',
+          'candidates': [
+            {
+              'provider': 'paperMC',
+              'projectId': 'velocity',
+              'label': 'PaperMC · Velocity',
+              'url': 'https://papermc.io/software/velocity',
+            },
+          ],
+        },
+      ],
+    });
+    final update = snapshot.updates.single;
+    expect(update.kind, 'velocity');
+    expect(update.sourceConfirmed, isFalse);
+    expect(update.candidates.single.provider, UpdateProvider.paperMC);
+    expect(update.candidates.single.projectId, 'velocity');
+  });
 }

@@ -45,6 +45,9 @@ services:
       # Optional plugin update mappings; keep premium sources explicit.
       UPDATE_PROJECTS_JSON: >-
         []
+      # Optional authenticated BuiltByBit v1 version checking:
+      # BUILTBYBIT_API_TOKEN: CHANGE_ME
+      # BUILTBYBIT_API_TOKEN_TYPE: Private
 
 volumes:
   admincraft-management:

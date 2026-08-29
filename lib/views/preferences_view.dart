@@ -517,12 +517,15 @@ class _PreferencesViewState extends State<PreferencesView> {
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
                           title: Text(provider.label),
-                          subtitle: Text(
-                            provider == UpdateProvider.spigot ||
-                                    provider == UpdateProvider.builtByBit
-                                ? 'Checks never bypass premium accounts or licenses.'
-                                : 'Use this provider when checking for plugin updates.',
-                          ),
+                          subtitle: Text(switch (provider) {
+                            UpdateProvider.builtByBit =>
+                              'Uses the server-side BuiltByBit API token; licenses are never bypassed.',
+                            UpdateProvider.spigot =>
+                              'Checks Spigot metadata without bypassing premium downloads.',
+                            UpdateProvider.paperMC =>
+                              'Checks Paper and Velocity platform releases via PaperMC.',
+                            _ => 'Use this provider when checking for plugin updates.',
+                          }),
                           value: network.updateProviderEnabled(provider),
                           onChanged: (value) =>
                               network.setUpdateProviderEnabled(provider, value),

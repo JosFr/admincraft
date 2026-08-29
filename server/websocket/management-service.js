@@ -188,6 +188,7 @@ function createManagementService(config = {}, dependencies = {}) {
     maintenance: [],
     performance: [],
     updates: [],
+    updateSourceOverrides: {},
     activity: [],
     storageMetrics: {},
   });
@@ -197,6 +198,10 @@ function createManagementService(config = {}, dependencies = {}) {
   let lastStorageProbeAt = 0;
   if (!state.storageMetrics || typeof state.storageMetrics !== "object" || Array.isArray(state.storageMetrics)) {
     state.storageMetrics = {};
+  }
+  if (!state.updateSourceOverrides || typeof state.updateSourceOverrides !== "object"
+      || Array.isArray(state.updateSourceOverrides)) {
+    state.updateSourceOverrides = {};
   }
 
   const serverById = (serverId) => servers.find((server) => server.id === serverId);
@@ -1004,12 +1009,26 @@ function createManagementService(config = {}, dependencies = {}) {
         );
       }
 
+      if (action === "updates-source-set") {
+        if (typeof dependencies.updateChecker?.confirmSource !== "function") {
+          throw new Error("Update source matching is not configured on this bridge.");
+        }
+        const confirmed = dependencies.updateChecker.confirmSource(payload);
+        state.updateSourceOverrides[confirmed.key] = confirmed.source;
+        state.updates = await dependencies.updateChecker({
+          providers: payload.providers || {}, serverId: payload.serverId || null,
+          sourceOverrides: state.updateSourceOverrides,
+        });
+        activity(serverById(payload.serverId), "Update source confirmed", String(payload.plugin || "Plugin"));
+        persist();
+        return response("Update source remembered.", [snapshot()]);
+      }
+
       if (action === "updates-check") {
         if (typeof dependencies.updateChecker === "function") {
           state.updates = await dependencies.updateChecker({
-            servers: servers.map((server) => ({ ...server })),
-            providers: payload.providers || {},
-            serverId: payload.serverId || null,
+            servers: servers.map((server) => ({ ...server })), providers: payload.providers || {},
+            serverId: payload.serverId || null, sourceOverrides: state.updateSourceOverrides,
           });
           persist();
           return response("Update check completed.", [snapshot()]);

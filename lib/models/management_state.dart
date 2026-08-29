@@ -15,7 +15,7 @@ enum BackupStatus { queued, running, completed, failed, verifying, unknown }
 
 enum ScheduledActionType { start, stop, restart, backup, maintenance }
 
-enum UpdateProvider { hangar, modrinth, spigot, builtByBit, github }
+enum UpdateProvider { hangar, modrinth, spigot, builtByBit, github, paperMC }
 
 enum PluginUpdateStatus {
   current,
@@ -487,14 +487,34 @@ class PerformanceSample {
       );
 }
 
+class UpdateSourceCandidate {
+  final UpdateProvider provider;
+  final String projectId;
+  final String label;
+  final String? url;
+  const UpdateSourceCandidate({
+    required this.provider, required this.projectId, required this.label, this.url,
+  });
+  factory UpdateSourceCandidate.fromJson(Map<String, dynamic> json) {
+    final provider = _enumByName(UpdateProvider.values, json['provider'], UpdateProvider.github);
+    return UpdateSourceCandidate(
+      provider: provider, projectId: json['projectId']?.toString() ?? '',
+      label: json['label']?.toString() ?? provider.label, url: json['url']?.toString(),
+    );
+  }
+}
+
 class PluginUpdate {
   final String serverId;
   final String serverName;
   final String plugin;
+  final String kind;
   final String currentVersion;
   final String? latestVersion;
   final UpdateProvider? provider;
   final String? projectId;
+  final bool sourceConfirmed;
+  final List<UpdateSourceCandidate> candidates;
   final PluginUpdateStatus status;
   final String? url;
 
@@ -502,10 +522,13 @@ class PluginUpdate {
     required this.serverId,
     required this.serverName,
     required this.plugin,
+    this.kind = 'plugin',
     required this.currentVersion,
     required this.latestVersion,
     required this.provider,
     required this.projectId,
+    this.sourceConfirmed = false,
+    this.candidates = const [],
     required this.status,
     required this.url,
   });
@@ -524,10 +547,18 @@ class PluginUpdate {
       serverId: json['serverId']?.toString() ?? '',
       serverName: json['serverName']?.toString() ?? 'Server',
       plugin: json['plugin']?.toString() ?? 'Plugin',
+      kind: json['kind']?.toString() ?? 'plugin',
       currentVersion: json['currentVersion']?.toString() ?? '',
       latestVersion: json['latestVersion']?.toString(),
       provider: provider,
       projectId: json['projectId']?.toString(),
+      sourceConfirmed: json['sourceConfirmed'] == true,
+      candidates: json['candidates'] is List
+          ? (json['candidates'] as List)
+                .whereType<Map<String, dynamic>>()
+                .map(UpdateSourceCandidate.fromJson)
+                .toList()
+          : const [],
       status: _enumByName(
         PluginUpdateStatus.values,
         json['status'],
@@ -720,6 +751,7 @@ extension UpdateProviderLabel on UpdateProvider {
     UpdateProvider.spigot => 'Spigot',
     UpdateProvider.builtByBit => 'BuiltByBit',
     UpdateProvider.github => 'GitHub Releases',
+    UpdateProvider.paperMC => 'PaperMC',
   };
 }
 

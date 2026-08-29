@@ -7,7 +7,7 @@ const { createManagementService, nextCron, parseServers } = require("../manageme
 
 process.env.TZ = "Europe/Amsterdam";
 
-function fixture() {
+function fixture(dependencyOverrides = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "admincraft-management-"));
   let current = new Date("2026-08-29T03:59:00Z");
   const calls = [];
@@ -39,12 +39,14 @@ function fixture() {
     {
       multicraft,
       now: () => new Date(current),
+      ...dependencyOverrides,
     },
   );
   return {
     service,
     calls,
     backupFile,
+    statePath: path.join(dir, "state.json"),
     setBackupState(value) { backupState = value; },
     setRestartError(value) { restartError = value; },
     setBackupStartError(value) { backupStartError = value; },
@@ -401,5 +403,32 @@ test("scheduled failures are preserved in job history", async () => {
     assert.equal(fx.service.snapshot().activity.some(
       (entry) => entry.title === "Scheduled action failed" && entry.error === true,
     ), true);
+  } finally { fx.cleanup(); }
+});
+
+test("confirmed update sources are remembered in management state", async () => {
+  const key = `lobby\u0000Example`;
+  const checker = async ({ sourceOverrides = {} } = {}) => [{
+    serverId: "lobby", serverName: "Lobby", plugin: "Example", kind: "plugin",
+    currentVersion: "1.0.0", latestVersion: "1.1.0",
+    provider: sourceOverrides[key]?.provider || null,
+    projectId: sourceOverrides[key]?.projectId || null,
+    sourceConfirmed: Boolean(sourceOverrides[key]), candidates: [],
+    status: sourceOverrides[key] ? "updateAvailable" : "unmanaged", url: null,
+  }];
+  checker.confirmSource = ({ provider, projectId }) => ({
+    key, source: { provider, projectId },
+  });
+  const fx = fixture({ updateChecker: checker });
+  try {
+    const result = await fx.service.handle("updates-source-set", {
+      serverId: "lobby", plugin: "Example", provider: "github", projectId: "owner/repo",
+    });
+    assert.equal(result.success, true);
+    assert.equal(fx.service.snapshot().updates[0].sourceConfirmed, true);
+    const persisted = JSON.parse(fs.readFileSync(fx.statePath, "utf8"));
+    assert.deepEqual(persisted.updateSourceOverrides[key], {
+      provider: "github", projectId: "owner/repo",
+    });
   } finally { fx.cleanup(); }
 });
