@@ -772,6 +772,11 @@ class _TabsState extends State<Tabs> {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final networkScope = _networkScope;
+    final nestedSettings = {
+      _WorkspaceDestination.serverEditor,
+      _WorkspaceDestination.dataSync,
+      _WorkspaceDestination.preferences,
+    }.contains(_destination);
     final navigationColor = theme.brightness == Brightness.light
         ? scheme.surfaceContainerHigh
         : scheme.surfaceContainerLow;
@@ -779,7 +784,16 @@ class _TabsState extends State<Tabs> {
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        titleSpacing: 12,
+        leading: nestedSettings
+            ? IconButton(
+                tooltip: _destination == _WorkspaceDestination.serverEditor
+                    ? 'Back to Servers'
+                    : 'Back to Settings',
+                onPressed: _back,
+                icon: const Icon(Icons.arrow_back),
+              )
+            : null,
+        titleSpacing: nestedSettings ? 0 : 12,
         title: _ScopeSwitcher(
           model: model,
           networkScope: networkScope,

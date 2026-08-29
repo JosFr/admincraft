@@ -33,13 +33,8 @@ jobs:
           set +e
           output="$(flutter analyze --machine 2>&1)"
           status=$?
-          while IFS='|' read -r severity type code file line column length message; do
-            level=notice
-            [ "$severity" = "ERROR" ] && level=error
-            [ "$severity" = "WARNING" ] && level=warning
-            if [ -n "$file" ] && [ -n "$line" ]; then
-              echo "::$level file=$file,line=$line,col=$column::$message ($code)"
-            fi
+          while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error::$line"
           done <<< "$output"
           printf '%s\n' "$output"
           exit "$status"

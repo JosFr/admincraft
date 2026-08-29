@@ -64,6 +64,13 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> openServers(WidgetTester tester) async {
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Servers').last);
+    await tester.pumpAndSettle();
+  }
+
   testWidgets('desktop workspace renders without layout errors', (
     tester,
   ) async {
@@ -178,20 +185,20 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('mobile Servers tab owns server selection and add flow', (
+  testWidgets('mobile server scope exposes contextual navigation', (
     tester,
   ) async {
     await pumpApp(tester, const Size(390, 844));
 
-    expect(find.text('Servers'), findsOneWidget);
+    expect(find.text('Overview'), findsWidgets);
     expect(find.text('Console'), findsOneWidget);
     expect(find.text('Actions'), findsOneWidget);
     expect(find.text('Players'), findsOneWidget);
-    expect(find.text('Settings'), findsOneWidget);
-    expect(find.byTooltip('Switch server'), findsNothing);
+    expect(find.text('Tools'), findsOneWidget);
+    expect(find.byTooltip('Switch scope'), findsOneWidget);
+    expect(find.byTooltip('Settings'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(NavigationDestination, 'Servers'));
-    await tester.pumpAndSettle();
+    await openServers(tester);
     expect(find.text('Choose a server to open its dashboard.'), findsOneWidget);
     expect(find.text('Add server'), findsOneWidget);
 
@@ -212,10 +219,7 @@ void main() {
       connectionService: _NoopConnectionService(),
     );
 
-    await tester.tap(find.text('Settings'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(NavigationDestination, 'Servers'));
-    await tester.pumpAndSettle();
+    await openServers(tester);
     await tester.tap(find.byTooltip('Edit server'));
     await tester.pumpAndSettle();
 
@@ -282,10 +286,7 @@ void main() {
       tester.element(find.byType(Admincraft)).read<NotificationController>(),
     );
 
-    await tester.tap(find.text('Settings'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(NavigationDestination, 'Servers'));
-    await tester.pumpAndSettle();
+    await openServers(tester);
     await tester.tap(find.byTooltip('Edit server'));
     await tester.pumpAndSettle();
 
@@ -331,10 +332,7 @@ void main() {
       findsNothing,
     );
     expect(find.byKey(const ValueKey('console-surface')), findsOneWidget);
-    await tester.tap(find.text('Settings'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(NavigationDestination, 'Servers'));
-    await tester.pumpAndSettle();
+    await openServers(tester);
     await tester.tap(find.byTooltip('Edit server'));
     await tester.pumpAndSettle();
     expect(
@@ -376,13 +374,13 @@ void main() {
       connectionService: _NoopConnectionService(),
     );
 
-    await tester.tap(find.widgetWithText(NavigationDestination, 'Servers'));
+    await tester.tap(find.byTooltip('Switch scope'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Second server'));
     await tester.pumpAndSettle();
 
     expect(find.text('Server Overview'), findsOneWidget);
-    expect(find.byTooltip('Back to Servers'), findsOneWidget);
+    expect(find.byTooltip('Switch scope'), findsOneWidget);
     expect(find.text('Choose a server to open its dashboard.'), findsNothing);
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('selectedServer'), second.id);
@@ -412,8 +410,7 @@ void main() {
       connectionService: _NoopConnectionService(),
     );
 
-    expect(find.byTooltip('Switch server'), findsNothing);
-    expect(find.byTooltip('Back to Servers'), findsOneWidget);
+    expect(find.byTooltip('Switch scope'), findsOneWidget);
     expect(find.text('Server Overview'), findsOneWidget);
     expect(find.text('Live metrics'), findsOneWidget);
     expect(find.text('Server & world'), findsOneWidget);
@@ -423,10 +420,11 @@ void main() {
 
     final navigation = find.byKey(const ValueKey('mobile-bottom-navigation'));
     expect(navigation, findsOneWidget);
-    expect(find.text('Servers'), findsOneWidget);
+    expect(find.text('Overview'), findsWidgets);
     expect(find.text('Console'), findsOneWidget);
     expect(find.text('Actions'), findsOneWidget);
-    expect(find.text('Settings'), findsOneWidget);
+    expect(find.text('Tools'), findsOneWidget);
+    expect(find.byTooltip('Settings'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
@@ -446,6 +444,32 @@ void main() {
     await tester.tap(find.text('Actions'));
     await tester.pumpAndSettle();
     expect(find.text('Connect to enable the Control Panel'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('scope switcher exposes five network destinations', (
+    tester,
+  ) async {
+    await pumpApp(
+      tester,
+      const Size(390, 844),
+      connectionService: _NoopConnectionService(),
+    );
+
+    await tester.tap(find.byTooltip('Switch scope'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Network'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Dashboard'), findsOneWidget);
+    expect(find.text('Activity'), findsOneWidget);
+    expect(find.text('Backups'), findsOneWidget);
+    expect(find.text('Schedules'), findsOneWidget);
+    expect(find.text('Updates'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('mobile-connection-action')),
+      findsNothing,
+    );
     expect(tester.takeException(), isNull);
   });
 
@@ -571,7 +595,7 @@ void main() {
     expect(find.byType(WelcomeView), findsNothing);
     expect(find.text('Add, switch, and edit server profiles'), findsOneWidget);
 
-    await tester.tap(find.widgetWithText(NavigationDestination, 'Servers'));
+    await tester.tap(find.text('Servers').last);
     await tester.pumpAndSettle();
     expect(find.byType(WelcomeView), findsNothing);
     expect(tester.takeException(), isNull);
@@ -618,10 +642,7 @@ void main() {
       },
     );
 
-    await tester.tap(find.text('Settings'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(NavigationDestination, 'Servers'));
-    await tester.pumpAndSettle();
+    await openServers(tester);
 
     final address = tester.widget<Text>(
       find.text('admincraft.tail4e1785.ts.net:443'),
