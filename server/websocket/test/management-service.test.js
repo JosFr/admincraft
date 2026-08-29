@@ -5,6 +5,8 @@ const path = require("node:path");
 const test = require("node:test");
 const { createManagementService, nextCron } = require("../management-service");
 
+process.env.TZ = "Europe/Amsterdam";
+
 function fixture() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "admincraft-management-"));
   let current = new Date("2026-08-29T03:59:00Z");
