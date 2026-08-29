@@ -1148,6 +1148,7 @@ class _DiagnosticCard extends StatelessWidget {
 }
 
 class ServerToolsView extends StatelessWidget {
+  final String serverId;
   final VoidCallback onBackups;
   final VoidCallback onSchedules;
   final VoidCallback onMaintenance;
@@ -1158,6 +1159,7 @@ class ServerToolsView extends StatelessWidget {
 
   const ServerToolsView({
     super.key,
+    required this.serverId,
     required this.onBackups,
     required this.onSchedules,
     required this.onMaintenance,
@@ -1168,55 +1170,67 @@ class ServerToolsView extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => ListView(
-    padding: const EdgeInsets.all(20),
-    children: [
-      Text('Server tools', style: Theme.of(context).textTheme.headlineMedium),
-      const SizedBox(height: 12),
-      _ToolTile(
-        icon: Icons.inventory_2_outlined,
-        title: 'Backups',
-        subtitle: 'Browse, create, verify and restore server backups.',
-        onTap: onBackups,
-      ),
-      _ToolTile(
-        icon: Icons.schedule_outlined,
-        title: 'Schedules',
-        subtitle: 'Persistent actions that run without an open app.',
-        onTap: onSchedules,
-      ),
-      _ToolTile(
-        icon: Icons.build_circle_outlined,
-        title: 'Maintenance',
-        subtitle: 'Countdown, backup, restart and health-check flows.',
-        onTap: onMaintenance,
-      ),
-      _ToolTile(
-        icon: Icons.query_stats_outlined,
-        title: 'Performance history',
-        subtitle: 'TPS, MSPT, players, CPU and memory over time.',
-        onTap: onPerformance,
-      ),
-      _ToolTile(
-        icon: Icons.extension_outlined,
-        title: 'Plugins & updates',
-        subtitle: 'Provider matching and available versions.',
-        onTap: onPlugins,
-      ),
-      _ToolTile(
-        icon: Icons.health_and_safety_outlined,
-        title: 'Diagnostics',
-        subtitle: 'Connection, bridge and server health information.',
-        onTap: onDiagnostics,
-      ),
-      _ToolTile(
-        icon: Icons.tune_outlined,
-        title: 'Server configuration',
-        subtitle: 'Connection details and server-specific settings.',
-        onTap: onConfiguration,
-      ),
-    ],
-  );
+  Widget build(BuildContext context) {
+    final performanceServerIds =
+        context
+            .watch<NetworkController?>()
+            ?.management
+            .performanceSource
+            .serverIds ??
+        const <String>[];
+    final performanceAvailable = performanceServerIds.contains(serverId);
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        Text('Server tools', style: Theme.of(context).textTheme.headlineMedium),
+        const SizedBox(height: 12),
+        _ToolTile(
+          icon: Icons.inventory_2_outlined,
+          title: 'Backups',
+          subtitle: 'Browse, create, verify and restore server backups.',
+          onTap: onBackups,
+        ),
+        _ToolTile(
+          icon: Icons.schedule_outlined,
+          title: 'Schedules',
+          subtitle: 'Persistent actions that run without an open app.',
+          onTap: onSchedules,
+        ),
+        _ToolTile(
+          icon: Icons.build_circle_outlined,
+          title: 'Maintenance',
+          subtitle: 'Countdown, backup, restart and health-check flows.',
+          onTap: onMaintenance,
+        ),
+        if (performanceAvailable)
+          _ToolTile(
+            icon: Icons.query_stats_outlined,
+            title: 'Performance history',
+            subtitle:
+                'Plan history for TPS, MSPT, players, resources and world load.',
+            onTap: onPerformance,
+          ),
+        _ToolTile(
+          icon: Icons.extension_outlined,
+          title: 'Plugins & updates',
+          subtitle: 'Provider matching and available versions.',
+          onTap: onPlugins,
+        ),
+        _ToolTile(
+          icon: Icons.health_and_safety_outlined,
+          title: 'Diagnostics',
+          subtitle: 'Connection, bridge and server health information.',
+          onTap: onDiagnostics,
+        ),
+        _ToolTile(
+          icon: Icons.tune_outlined,
+          title: 'Server configuration',
+          subtitle: 'Connection details and server-specific settings.',
+          onTap: onConfiguration,
+        ),
+      ],
+    );
+  }
 }
 
 class ManagementPlaceholderView extends StatelessWidget {

@@ -556,6 +556,7 @@ class _TabsState extends State<Tabs> {
         isEnabled: connection.status == ConnectionStatus.connected,
       ),
       _WorkspaceDestination.serverTools => ServerToolsView(
+        serverId: model.selectedServer.effectiveManagementServerId,
         onBackups: () => _openPage(
           'Backups',
           BackupView(

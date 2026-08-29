@@ -511,7 +511,11 @@ class PerformanceSample {
 class PerformanceSource {
   final String type;
   final bool canonical;
+  final bool configured;
   final bool readOnly;
+  final bool readOnlyRequired;
+  final List<String> serverIds;
+  final List<String> ranges;
   final String? serverUuid;
   final String? serverName;
   final String? planVersion;
@@ -519,7 +523,11 @@ class PerformanceSource {
   const PerformanceSource({
     this.type = '',
     this.canonical = false,
+    this.configured = false,
     this.readOnly = false,
+    this.readOnlyRequired = false,
+    this.serverIds = const [],
+    this.ranges = const [],
     this.serverUuid,
     this.serverName,
     this.planVersion,
@@ -531,7 +539,19 @@ class PerformanceSource {
       PerformanceSource(
         type: json['type']?.toString() ?? '',
         canonical: json['canonical'] == true,
+        configured: json['configured'] == true,
         readOnly: json['readOnly'] == true,
+        readOnlyRequired: json['readOnlyRequired'] == true,
+        serverIds:
+            (json['serverIds'] as List?)
+                ?.map((value) => value.toString())
+                .toList() ??
+            const [],
+        ranges:
+            (json['ranges'] as List?)
+                ?.map((value) => value.toString())
+                .toList() ??
+            const [],
         serverUuid: json['serverUuid']?.toString(),
         serverName: json['serverName']?.toString(),
         planVersion: json['planVersion']?.toString(),
@@ -760,6 +780,7 @@ class ManagementSnapshot {
   final List<PluginUpdate> updates;
   final List<ManagementActivity> activity;
   final BackupRetentionState retention;
+  final PerformanceSource performanceSource;
 
   const ManagementSnapshot({
     this.observedAt,
@@ -773,6 +794,7 @@ class ManagementSnapshot {
     this.updates = const [],
     this.activity = const [],
     this.retention = const BackupRetentionState(),
+    this.performanceSource = const PerformanceSource(),
   });
   factory ManagementSnapshot.fromJson(Map<String, dynamic> json) {
     List<T> parseList<T>(String key, T Function(Map<String, dynamic>) parse) {
@@ -800,6 +822,11 @@ class ManagementSnapshot {
       updates: parseList('updates', PluginUpdate.fromJson),
       activity: parseList('activity', ManagementActivity.fromJson),
       retention: BackupRetentionState.fromJson(json['retention']),
+      performanceSource: json['performanceSource'] is Map<String, dynamic>
+          ? PerformanceSource.fromJson(
+              json['performanceSource'] as Map<String, dynamic>,
+            )
+          : const PerformanceSource(),
     );
   }
 }

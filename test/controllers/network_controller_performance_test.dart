@@ -2,7 +2,10 @@ import 'dart:convert';
 
 import 'package:admincraft/controllers/network_controller.dart';
 import 'package:admincraft/controllers/notification_controller.dart';
+import 'package:admincraft/views/management_views.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
@@ -71,5 +74,53 @@ void main() {
     expect(sample.entities, 150);
     expect(sample.chunks, 245);
     expect(sample.freeDiskBytes, 53687091200);
+  });
+
+  testWidgets('server tools expose Plan history only for mapped servers', (
+    tester,
+  ) async {
+    final network = await fixture();
+    addTearDown(network.dispose);
+    network.debugReceive(
+      jsonEncode({
+        'type': 'admincraft.management-state',
+        'performanceSource': {
+          'type': 'plan',
+          'canonical': true,
+          'configured': true,
+          'readOnlyRequired': true,
+          'serverIds': ['smp'],
+          'ranges': ['1h', '6h', '24h', '7d', '30d'],
+        },
+      }),
+    );
+    expect(network.management.performanceSource.serverIds, ['smp']);
+
+    Widget tools(String serverId) =>
+        ChangeNotifierProvider<NetworkController>.value(
+          value: network,
+          child: MaterialApp(
+            home: Scaffold(
+              body: ServerToolsView(
+                serverId: serverId,
+                onBackups: () {},
+                onSchedules: () {},
+                onMaintenance: () {},
+                onPerformance: () {},
+                onPlugins: () {},
+                onDiagnostics: () {},
+                onConfiguration: () {},
+              ),
+            ),
+          ),
+        );
+
+    await tester.pumpWidget(tools('historisch1'));
+    expect(find.text('Performance history'), findsNothing);
+
+    await tester.pumpWidget(tools('smp'));
+    await tester.pump();
+    expect(find.text('Performance history'), findsOneWidget);
+    expect(find.textContaining('Plan history for TPS'), findsOneWidget);
   });
 }
