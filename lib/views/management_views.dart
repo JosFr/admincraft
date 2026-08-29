@@ -2,6 +2,7 @@ import 'package:admincraft/controllers/connection_controller.dart';
 import 'package:admincraft/controllers/network_controller.dart';
 import 'package:admincraft/models/model.dart';
 import 'package:admincraft/models/management_state.dart';
+import 'package:admincraft/utils/url_utils.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -195,7 +196,8 @@ class UpdatesView extends StatelessWidget {
     if (network == null) return const _ManagementUnavailable();
     final updates = network.management.updates
         .where((update) => serverId == null || update.serverId == serverId)
-        .toList();
+        .toList()
+      ..sort((a, b) => _updatePriority(a.status).compareTo(_updatePriority(b.status)));
     return _ManagementList(
       title: serverId == null ? 'Network updates' : 'Plugin updates',
       count: updates.length,
@@ -218,9 +220,18 @@ class UpdatesView extends StatelessWidget {
               title: Text(update.plugin),
               subtitle: Text(
                 '${update.serverName} · ${update.currentVersion}'
-                '${update.latestVersion == null ? '' : ' → ${update.latestVersion}'}',
+                '${update.latestVersion == null ? '' : ' → ${update.latestVersion}'}'
+                '\n${_updateSourceLabel(update)} · ${_updateStatusLabel(update.status)}',
               ),
-              trailing: Chip(label: Text(update.status.name)),
+              trailing: update.url == null || update.url!.trim().isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'Open update source',
+                      onPressed: () async {
+                        await UrlUtils.openUrl(update.url!);
+                      },
+                      icon: const Icon(Icons.open_in_new),
+                    ),
             ),
           ),
       ],
@@ -931,6 +942,29 @@ IconData _scheduleIcon(ScheduledActionType action) => switch (action) {
       ScheduledActionType.maintenance => Icons.build_circle_outlined,
     };
 
+int _updatePriority(PluginUpdateStatus status) => switch (status) {
+      PluginUpdateStatus.updateAvailable => 0,
+      PluginUpdateStatus.sourceUnavailable => 1,
+      PluginUpdateStatus.unmanaged => 2,
+      PluginUpdateStatus.checking => 3,
+      PluginUpdateStatus.current => 4,
+    };
+
+String _updateStatusLabel(PluginUpdateStatus status) => switch (status) {
+      PluginUpdateStatus.current => 'Current',
+      PluginUpdateStatus.updateAvailable => 'Update available',
+      PluginUpdateStatus.unmanaged => 'Unmanaged',
+      PluginUpdateStatus.sourceUnavailable => 'Source unavailable',
+      PluginUpdateStatus.checking => 'Checking',
+    };
+
+String _updateSourceLabel(PluginUpdate update) {
+  final provider = update.provider?.label ?? 'Unknown source';
+  final projectId = update.projectId?.trim();
+  return projectId == null || projectId.isEmpty
+      ? provider
+      : '$provider · $projectId';
+}
 IconData _updateIcon(PluginUpdateStatus status) => switch (status) {
       PluginUpdateStatus.current => Icons.check_circle_outline,
       PluginUpdateStatus.updateAvailable => Icons.system_update_alt,
