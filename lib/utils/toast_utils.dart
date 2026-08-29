@@ -21,12 +21,7 @@ class ToastUtils {
   }
 
   static void showToastError(String message) {
-    final added = _notifications?.add(
-      kind: AppNotificationKind.error,
-      title: 'Connection or command error',
-      message: message,
-    );
-    if (added == false || _notifications?.popupsEnabled == false) return;
+    if (_notifications?.popupsEnabled == false) return;
     _showPopup(
       kind: AppNotificationKind.error,
       title: 'Error',
@@ -60,7 +55,7 @@ class ToastUtils {
     String? message,
     required Duration duration,
   }) {
-    // Popups are glanceable feedback. Only attention-worthy errors are durable inbox items.
+    // Popups are ephemeral feedback. Durable attention items are added explicitly by controllers.
     // The visual card ignores pointers so controls underneath remain usable.
     // A separate, tightly bounded close button is the only interactive part
     // of the overlay.

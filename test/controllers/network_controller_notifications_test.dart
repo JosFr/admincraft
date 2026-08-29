@@ -94,7 +94,25 @@ void main() {
         'message': 'Access update failed.',
       }),
     );
+    expect(notifications.entries, isEmpty);
+  });
+
+  test('management failures remain durable attention notifications', () async {
+    final (network, notifications) = await fixture();
+    addTearDown(() {
+      ToastUtils.detach(notifications);
+      network.dispose();
+    });
+    network.debugReceive(
+      jsonEncode({
+        'type': 'admincraft.management-result',
+        'success': false,
+        'message': 'Backup failed on storage.',
+        'refresh': false,
+      }),
+    );
     expect(notifications.entries, hasLength(1));
     expect(notifications.entries.single.kind.name, 'error');
+    expect(notifications.entries.single.message, contains('Backup failed'));
   });
 }

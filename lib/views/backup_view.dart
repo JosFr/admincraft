@@ -516,12 +516,12 @@ class _StorageCard extends StatelessWidget {
               used == null || storage.totalBytes == null
                   ? '${_formatBytes(storage.backupBytes)} in backups'
                   : '${_formatBytes(used)} used of '
-                        '${_formatBytes(storage.totalBytes!)} Â� '
+                        '${_formatBytes(storage.totalBytes!)} | '
                         '${_formatBytes(storage.freeBytes ?? 0)} free',
             ),
             if (storage.otherBytes != null)
               Text(
-                '${_formatBytes(storage.backupBytes)} backups Â� '
+                '${_formatBytes(storage.backupBytes)} backups | '
                 '${_formatBytes(storage.otherBytes!)} other data',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
@@ -529,7 +529,7 @@ class _StorageCard extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 'Backup soft limit: ${_formatBytes(storage.softLimitBytes!)}'
-                '${storage.backupBytes >= storage.softLimitBytes! ? ' Â� reached' : ''}',
+                '${storage.backupBytes >= storage.softLimitBytes! ? ' | reached' : ''}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -537,7 +537,7 @@ class _StorageCard extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 "Always keep at least ${_formatBytes(storage.minimumFreeBytes!)} free"
-                "${storage.safeguardBlocked ? " � backup creation blocked" : ""}",
+                "${storage.safeguardBlocked ? " | backup creation blocked" : ""}",
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -625,7 +625,7 @@ class _RetentionCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              '${policy.daily} daily � ${policy.weekly} weekly � ${policy.monthly} monthly',
+              '${policy.daily} daily | ${policy.weekly} weekly | ${policy.monthly} monthly',
             ),
             const SizedBox(height: 4),
             Text(

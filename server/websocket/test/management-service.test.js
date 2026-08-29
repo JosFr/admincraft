@@ -471,3 +471,41 @@ test("management activity records update checks", async () => {
     assert.match(entry.detail, /1 result/u);
   } finally { fx.cleanup(); }
 });
+
+test("scheduled backups report started instead of completed while still running", async () => {
+  const fx = fixture();
+  try {
+    await fx.service.handle("schedule-create", {
+      serverId: "lobby", action: "backup", runAt: "2026-08-29T04:05:00Z",
+    });
+    fx.setNow("2026-08-29T04:05:01Z");
+    await fx.service.tick();
+    const job = fx.service.snapshot().jobHistory[0];
+    assert.equal(job.success, true);
+    assert.equal(job.message, "Backup started.");
+    assert.equal(fx.service.snapshot().backups[0].status, "running");
+  } finally { fx.cleanup(); }
+});
+
+test("maintenance rejects an unobservable plugin safety backup", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "admincraft-maintenance-plugin-"));
+  try {
+    const service = createManagementService({
+      serversJson: JSON.stringify([{
+        id: "lobby", name: "Lobby", multicraftServerId: 7,
+        defaultBackupEngineId: "plugin-backup",
+      }]),
+      statePath: path.join(dir, "state.json"),
+      enginesJson: JSON.stringify([{
+        id: "plugin-backup", type: "plugin", serverId: "lobby",
+        label: "Plugin backup", command: "backup start",
+      }]),
+    }, { multicraft: { sendConsole: async () => {} } });
+    const result = await service.handle("maintenance-start", {
+      serverId: "lobby", countdownSeconds: 0, backup: true,
+    });
+    assert.equal(result.success, false);
+    assert.match(result.message, /completion can be verified/u);
+    assert.equal(service.snapshot().maintenance.length, 0);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

@@ -461,6 +461,12 @@ function createManagementService(config = {}, dependencies = {}) {
     return createConfiguredBackup(server, engine, kind, payload);
   }
 
+  function backupCompletionObservable(server) {
+    const engineId = String(server.defaultBackupEngineId || "multicraft").trim();
+    if (engineId === "multicraft") return true;
+    return engineById(engineId)?.type === "native";
+  }
+
   async function executeAction(server, action, source = "scheduled") {
     if (!multicraft) throw new Error("Multicraft management is not configured.");
     if (action === "backup") return createBackupForServer(server, { engineId: server.defaultBackupEngineId }, source);
@@ -482,9 +488,17 @@ function createManagementService(config = {}, dependencies = {}) {
     state.jobHistory.unshift(job);
     state.jobHistory = state.jobHistory.slice(0, 250);
     try {
-      await executeAction(server, action, source);
+      const result = await executeAction(server, action, source);
       job.success = true;
-      job.message = action === "maintenance" ? "Maintenance flow started." : `${action} completed.`;
+      job.message = action === "maintenance"
+        ? "Maintenance flow started."
+        : action === "backup"
+          ? result?.status === "completed"
+            ? "Backup completed."
+            : result?.status === "running"
+              ? "Backup started."
+              : result?.message || "Backup action dispatched."
+          : `${action} completed.`;
       return job;
     } catch (error) {
       job.success = false;
@@ -505,6 +519,9 @@ function createManagementService(config = {}, dependencies = {}) {
   }
 
   function startMaintenance(server, options = {}) {
+    if (options.backup !== false && !backupCompletionObservable(server)) {
+      throw new Error("Safety backup requires Multicraft or AdminCraft Native so completion can be verified.");
+    }
     const requestedCountdown = Number.parseInt(options.countdownSeconds, 10);
     const countdownSeconds = Number.isInteger(requestedCountdown)
       ? Math.max(0, Math.min(86400, requestedCountdown)) : 600;
