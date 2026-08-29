@@ -418,7 +418,7 @@ class _RecoveryReadinessCard extends StatelessWidget {
       issues.add('No completed backup is recorded on multiple destinations.');
     }
     if (recentFailures > 0) {
-      issues.add(' backup failure(s) recorded in the last 7 days.');
+      issues.add('$recentFailures backup failure(s) recorded in the last 7 days.');
     }
     return Card(
       child: Padding(
@@ -465,7 +465,7 @@ class _RecoveryReadinessCard extends StatelessWidget {
               for (final issue in issues)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4),
-                  child: Text('• '),
+                  child: Text('• $issue'),
                 ),
             ],
           ],
