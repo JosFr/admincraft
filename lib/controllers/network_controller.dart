@@ -351,6 +351,15 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   bool restoreBackup(String backupId) =>
       _manage('backup-restore', {'backupId': backupId});
 
+  bool downloadBackup(String backupId) =>
+      _manage('backup-download', {'backupId': backupId});
+
+  bool verifyBackup(String backupId) =>
+      _manage('backup-verify', {'backupId': backupId});
+
+  bool copyBackup(String backupId) =>
+      _manage('backup-copy', {'backupId': backupId});
+
   bool createSchedule({
     required String serverId,
     required String action,

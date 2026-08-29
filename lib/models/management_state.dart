@@ -80,6 +80,49 @@ class BackupStorageSnapshot {
       !critical && freePercent != null && freePercent! <= warningFreePercent;
 }
 
+
+class BackupCapabilities {
+  final bool create;
+  final bool list;
+  final bool progress;
+  final bool restore;
+  final bool download;
+  final bool delete;
+  final bool remoteDestination;
+  final bool verify;
+  final bool copy;
+
+  const BackupCapabilities({
+    this.create = false,
+    this.list = false,
+    this.progress = false,
+    this.restore = false,
+    this.download = false,
+    this.delete = false,
+    this.remoteDestination = false,
+    this.verify = false,
+    this.copy = false,
+  });
+
+  factory BackupCapabilities.fromJson(Object? raw) {
+    final json = raw is Map<String, dynamic> ? raw : const <String, dynamic>{};
+    bool enabled(String key) => json[key] == true;
+    return BackupCapabilities(
+      create: enabled('create'),
+      list: enabled('list'),
+      progress: enabled('progress'),
+      restore: enabled('restore'),
+      download: enabled('download'),
+      delete: enabled('delete'),
+      remoteDestination: enabled('remoteDestination'),
+      verify: enabled('verify'),
+      copy: enabled('copy'),
+    );
+  }
+
+  bool get hasRecordActions => restore || download || delete || verify || copy;
+}
+
 class BackupRecord {
   final String id;
   final String serverId;
@@ -91,6 +134,7 @@ class BackupRecord {
   final String kind;
   final bool verified;
   final List<String> destinations;
+  final BackupCapabilities capabilities;
   final String? message;
 
   const BackupRecord({
@@ -104,6 +148,7 @@ class BackupRecord {
     required this.kind,
     required this.verified,
     required this.destinations,
+    this.capabilities = const BackupCapabilities(),
     this.message,
   });
 
@@ -129,6 +174,7 @@ class BackupRecord {
         destinations: json['destinations'] is List
             ? (json['destinations'] as List).map((value) => value.toString()).toList()
             : const [],
+        capabilities: BackupCapabilities.fromJson(json['capabilities']),
         message: json['message']?.toString(),
       );
 }

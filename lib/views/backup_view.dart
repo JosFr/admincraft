@@ -69,10 +69,31 @@ class BackupView extends StatelessWidget {
             ...backups.map(
               (backup) => _BackupCard(
                 backup: backup,
-                onRestore: backup.status == BackupStatus.completed
+                onRestore: backup.status == BackupStatus.completed &&
+                        backup.capabilities.restore
                     ? () => _restore(context, network, backup)
                     : null,
-                onDelete: () => _delete(context, network, backup),
+                onDownload: backup.capabilities.download
+                    ? () => _send(
+                          network.downloadBackup(backup.id),
+                          'Download request could not be sent.',
+                        )
+                    : null,
+                onVerify: backup.capabilities.verify
+                    ? () => _send(
+                          network.verifyBackup(backup.id),
+                          'Verification could not be started.',
+                        )
+                    : null,
+                onCopy: backup.capabilities.copy
+                    ? () => _send(
+                          network.copyBackup(backup.id),
+                          'Copy request could not be sent.',
+                        )
+                    : null,
+                onDelete: backup.capabilities.delete
+                    ? () => _delete(context, network, backup)
+                    : null,
               ),
             ),
         ],
@@ -164,6 +185,10 @@ class BackupView extends StatelessWidget {
     if (confirmed && !network.restoreBackup(backup.id)) {
       ToastUtils.showToastError('Restore could not be sent to the management backend.');
     }
+  }
+
+  void _send(bool sent, String failureMessage) {
+    if (!sent) ToastUtils.showToastError(failureMessage);
   }
 
   Future<void> _delete(
@@ -297,11 +322,17 @@ class _StorageCard extends StatelessWidget {
 class _BackupCard extends StatelessWidget {
   final BackupRecord backup;
   final VoidCallback? onRestore;
-  final VoidCallback onDelete;
+  final VoidCallback? onDownload;
+  final VoidCallback? onVerify;
+  final VoidCallback? onCopy;
+  final VoidCallback? onDelete;
 
   const _BackupCard({
     required this.backup,
     required this.onRestore,
+    required this.onDownload,
+    required this.onVerify,
+    required this.onCopy,
     required this.onDelete,
   });
 
@@ -385,23 +416,38 @@ class _BackupCard extends StatelessWidget {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                if (onRestore != null)
-                  TextButton.icon(
-                    onPressed: onRestore,
-                    icon: const Icon(Icons.restore),
-                    label: const Text('Restore'),
+            if (backup.capabilities.hasRecordActions) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: Alignment.centerRight,
+                child: PopupMenuButton<String>(
+                  tooltip: 'Backup actions',
+                  onSelected: (value) {
+                    if (value == 'restore') onRestore?.call();
+                    if (value == 'download') onDownload?.call();
+                    if (value == 'verify') onVerify?.call();
+                    if (value == 'copy') onCopy?.call();
+                    if (value == 'delete') onDelete?.call();
+                  },
+                  itemBuilder: (context) => [
+                    if (onRestore != null)
+                      _actionItem('restore', Icons.restore, 'Restore'),
+                    if (onDownload != null)
+                      _actionItem('download', Icons.download_outlined, 'Download'),
+                    if (onVerify != null)
+                      _actionItem('verify', Icons.verified_outlined, 'Verify'),
+                    if (onCopy != null)
+                      _actionItem('copy', Icons.copy_outlined, 'Copy'),
+                    if (onDelete != null)
+                      _actionItem('delete', Icons.delete_outline, 'Delete'),
+                  ],
+                  child: const Chip(
+                    avatar: Icon(Icons.more_horiz, size: 18),
+                    label: Text('Actions'),
                   ),
-                TextButton.icon(
-                  onPressed: onDelete,
-                  icon: const Icon(Icons.delete_outline),
-                  label: const Text('Delete'),
                 ),
-              ],
-            ),
+              ),
+            ],
 
           ],
         ),
@@ -409,6 +455,20 @@ class _BackupCard extends StatelessWidget {
     );
   }
 }
+
+PopupMenuItem<String> _actionItem(
+  String value,
+  IconData icon,
+  String label,
+) =>
+    PopupMenuItem(
+      value: value,
+      child: ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: Icon(icon),
+        title: Text(label),
+      ),
+    );
 
 class _DetailChip extends StatelessWidget {
   final IconData icon;

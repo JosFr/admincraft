@@ -41,6 +41,13 @@ void main() {
             'kind': 'scheduled',
             'verified': true,
             'destinations': ['Nextcloud', 'Local'],
+            'capabilities': {
+              'restore': true,
+              'download': true,
+              'delete': true,
+              'verify': true,
+              'copy': false,
+            },
           },
         ],
       });
@@ -56,6 +63,12 @@ void main() {
       expect(backup.kind, 'scheduled');
       expect(backup.verified, isTrue);
       expect(backup.destinations, ['Nextcloud', 'Local']);
+      expect(backup.capabilities.restore, isTrue);
+      expect(backup.capabilities.download, isTrue);
+      expect(backup.capabilities.delete, isTrue);
+      expect(backup.capabilities.verify, isTrue);
+      expect(backup.capabilities.copy, isFalse);
+      expect(backup.capabilities.hasRecordActions, isTrue);
     });
 
     test('uses safe fallbacks for unknown enum values', () {
