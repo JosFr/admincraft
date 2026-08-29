@@ -47,7 +47,16 @@ jobs:
       - name: Test utilities
         run: flutter test test/utils
       - name: Test workspace shell
-        run: flutter test test/views/tabs_view_test.dart
+        run: |
+          set +e
+          flutter test test/views/tabs_view_test.dart --reporter expanded 2>&1 | tee /tmp/workspace-shell.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            tail -n 100 /tmp/workspace-shell.log | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error::$line"
+            done
+          fi
+          exit "$status"
       - name: Test view components
         run: |
           flutter test             test/views/control_tab_view_test.dart             test/views/data_sync_view_test.dart             test/views/overview_view_test.dart             test/views/players_view_test.dart             test/views/server_editor_view_test.dart             test/views/server_icon_test.dart             test/views/terminal_tab_view_test.dart
