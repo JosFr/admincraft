@@ -32,6 +32,9 @@ services:
         []
       BACKUP_ENGINES_JSON: >-
         []
+      # Daily/weekly/monthly retention; deletion is opt-in with enforce=true.
+      BACKUP_RETENTION_JSON: >-
+        {"global":{"daily":7,"weekly":4,"monthly":6,"enforce":false},"servers":{}}
       # MANAGEMENT_NATIVE_BACKUP_PATH: /data/native-staging
       # MANAGEMENT_STORAGE_PROBE_MS: "300000"
       MANAGEMENT_SERVERS_JSON: >-

@@ -108,7 +108,8 @@ A minimal Nextcloud destination can be supplied as JSON like this (store the rea
     "type": "nextcloud",
     "url": "https://cloud.example.net/remote.php/dav/files/admincraft",
     "username": "admincraft-backup",
-    "password": "..."
+    "password": "...",
+    "minimumFreeBytes": 161061273600
   }
 ]
 ```
@@ -136,3 +137,22 @@ Configure non-Multicraft engines with `BACKUP_ENGINES_JSON`. `native` creates an
   }
 ]
 ```
+
+## Retention and storage safeguards
+
+Configure retention with `BACKUP_RETENTION_JSON`. Global defaults can be overridden per management server ID.
+
+`enforce` defaults to `false`: the bridge calculates and exposes retention candidates, but does not delete them. Automatic cleanup only runs for backup records whose configured engine advertises delete support and only when the effective policy explicitly has `enforce: true`.
+
+```json
+{
+  "global": {"daily": 7, "weekly": 4, "monthly": 6, "enforce": false},
+  "servers": {
+    "smp": {"daily": 14, "weekly": 8, "monthly": 12, "enforce": true}
+  }
+}
+```
+
+A storage destination can also define `minimumFreeBytes` (for example 150 GiB = `161061273600`). When the provider reports free capacity at or below that value, a new AdminCraft Native backup targeting that destination is blocked before the archive is created. `softLimitBytes` remains available for providers where a real quota is absent or unreliable.
+
+Retention never makes unsupported Multicraft/plugin/custom backups deletable. AdminCraft does not silently remove backups outside the configured retention rules.

@@ -164,6 +164,7 @@ try {
         storagePath: process.env.MANAGEMENT_STORAGE_PATH,
         storagesJson: process.env.BACKUP_STORAGES_JSON,
         enginesJson: process.env.BACKUP_ENGINES_JSON,
+        retentionJson: process.env.BACKUP_RETENTION_JSON,
         nativeBackupPath: process.env.MANAGEMENT_NATIVE_BACKUP_PATH,
         storageProbeMilliseconds: process.env.MANAGEMENT_STORAGE_PROBE_MS,
       },

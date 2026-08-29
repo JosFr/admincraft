@@ -41,6 +41,8 @@ class BackupStorageSnapshot {
   final int? freeBytes;
   final int backupBytes;
   final int? softLimitBytes;
+  final int? minimumFreeBytes;
+  final bool safeguardBlocked;
   final double warningFreePercent;
   final double criticalFreePercent;
   const BackupStorageSnapshot({
@@ -51,6 +53,8 @@ class BackupStorageSnapshot {
     required this.freeBytes,
     required this.backupBytes,
     required this.softLimitBytes,
+    this.minimumFreeBytes,
+    this.safeguardBlocked = false,
     required this.warningFreePercent,
     required this.criticalFreePercent,
   });
@@ -69,6 +73,8 @@ class BackupStorageSnapshot {
     freeBytes: (json['freeBytes'] as num?)?.toInt(),
     backupBytes: (json['backupBytes'] as num?)?.toInt() ?? 0,
     softLimitBytes: (json['softLimitBytes'] as num?)?.toInt(),
+    minimumFreeBytes: (json['minimumFreeBytes'] as num?)?.toInt(),
+    safeguardBlocked: json['safeguardBlocked'] == true,
     warningFreePercent: (json['warningFreePercent'] as num?)?.toDouble() ?? 15,
     criticalFreePercent: (json['criticalFreePercent'] as num?)?.toDouble() ?? 5,
   );
@@ -439,6 +445,96 @@ class ManagementActivity {
       );
 }
 
+class BackupRetentionPolicy {
+  final int daily;
+  final int weekly;
+  final int monthly;
+  final bool enforce;
+
+  const BackupRetentionPolicy({
+    this.daily = 7,
+    this.weekly = 4,
+    this.monthly = 6,
+    this.enforce = false,
+  });
+
+  factory BackupRetentionPolicy.fromJson(Object? raw) {
+    final json = raw is Map<String, dynamic> ? raw : const <String, dynamic>{};
+    return BackupRetentionPolicy(
+      daily: (json['daily'] as num?)?.toInt() ?? 7,
+      weekly: (json['weekly'] as num?)?.toInt() ?? 4,
+      monthly: (json['monthly'] as num?)?.toInt() ?? 6,
+      enforce: json['enforce'] == true,
+    );
+  }
+}
+
+class BackupRetentionSummary {
+  final String serverId;
+  final BackupRetentionPolicy policy;
+  final int kept;
+  final int prunable;
+  const BackupRetentionSummary({
+    required this.serverId,
+    required this.policy,
+    required this.kept,
+    required this.prunable,
+  });
+
+  factory BackupRetentionSummary.fromJson(Map<String, dynamic> json) =>
+      BackupRetentionSummary(
+        serverId: json['serverId']?.toString() ?? '',
+        policy: BackupRetentionPolicy.fromJson(json),
+        kept: (json['kept'] as num?)?.toInt() ?? 0,
+        prunable: (json['prunable'] as num?)?.toInt() ?? 0,
+      );
+}
+
+class BackupRetentionState {
+  final BackupRetentionPolicy global;
+  final Map<String, BackupRetentionPolicy> servers;
+  final List<BackupRetentionSummary> summaries;
+
+  const BackupRetentionState({
+    this.global = const BackupRetentionPolicy(),
+    this.servers = const {},
+    this.summaries = const [],
+  });
+  factory BackupRetentionState.fromJson(Object? raw) {
+    final json = raw is Map<String, dynamic> ? raw : const <String, dynamic>{};
+    final rawServers = json['servers'];
+    final servers = <String, BackupRetentionPolicy>{};
+    if (rawServers is Map) {
+      for (final entry in rawServers.entries) {
+        servers[entry.key.toString()] = BackupRetentionPolicy.fromJson(
+          entry.value,
+        );
+      }
+    }
+    final summaries = json['summaries'] is List
+        ? (json['summaries'] as List)
+              .whereType<Map<String, dynamic>>()
+              .map(BackupRetentionSummary.fromJson)
+              .toList()
+        : <BackupRetentionSummary>[];
+    return BackupRetentionState(
+      global: BackupRetentionPolicy.fromJson(json['global']),
+      servers: servers,
+      summaries: summaries,
+    );
+  }
+
+  BackupRetentionPolicy forServer(String serverId) =>
+      servers[serverId] ?? global;
+
+  BackupRetentionSummary? summaryFor(String serverId) {
+    for (final summary in summaries) {
+      if (summary.serverId == serverId) return summary;
+    }
+    return null;
+  }
+}
+
 class ManagementSnapshot {
   final DateTime? observedAt;
   final List<BackupStorageSnapshot> storages;
@@ -448,6 +544,7 @@ class ManagementSnapshot {
   final List<MaintenanceState> maintenance;
   final List<PluginUpdate> updates;
   final List<ManagementActivity> activity;
+  final BackupRetentionState retention;
 
   const ManagementSnapshot({
     this.observedAt,
@@ -458,6 +555,7 @@ class ManagementSnapshot {
     this.maintenance = const [],
     this.updates = const [],
     this.activity = const [],
+    this.retention = const BackupRetentionState(),
   });
   factory ManagementSnapshot.fromJson(Map<String, dynamic> json) {
     List<T> parseList<T>(String key, T Function(Map<String, dynamic>) parse) {
@@ -480,6 +578,7 @@ class ManagementSnapshot {
       maintenance: parseList('maintenance', MaintenanceState.fromJson),
       updates: parseList('updates', PluginUpdate.fromJson),
       activity: parseList('activity', ManagementActivity.fromJson),
+      retention: BackupRetentionState.fromJson(json['retention']),
     );
   }
 }

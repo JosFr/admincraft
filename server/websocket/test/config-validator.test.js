@@ -125,3 +125,23 @@ test("preflight rejects backup engines pointing at unknown storage", () => {
   assert.equal(result.ok, false);
   assert.ok(result.errors.some((message) => message.includes("Unknown backup storage")));
 });
+
+test("preflight validates retention server overrides", () => {
+  const env = validEnv();
+  env.BACKUP_RETENTION_JSON = JSON.stringify({
+    global: { daily: 7, weekly: 4, monthly: 6 },
+    servers: { lobby: { daily: 14, enforce: false } },
+  });
+  const result = validateEnvironment(env);
+  assert.equal(result.ok, true);
+});
+
+test("preflight rejects retention overrides for unknown servers", () => {
+  const env = validEnv();
+  env.BACKUP_RETENTION_JSON = JSON.stringify({
+    servers: { unknown: { daily: 1 } },
+  });
+  const result = validateEnvironment(env);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((message) => message.includes("Unknown retention server")));
+});

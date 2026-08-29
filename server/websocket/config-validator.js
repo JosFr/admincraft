@@ -2,6 +2,7 @@ const { parseServers } = require("./management-service");
 const { parseProjects } = require("./update-checker");
 const { parseBackupStorages } = require("./backup-storage");
 const { parseBackupEngines } = require("./backup-engines");
+const { parseBackupRetention } = require("./backup-policy");
 
 function requireValue(env, key, errors) {
   if (!String(env[key] || "").trim()) errors.push(`${key} is required.`);
@@ -47,6 +48,7 @@ function validateEnvironment(env = process.env) {
       const storageIds = new Set(storages.map((storage) => storage.id));
       if (String(env.MANAGEMENT_STORAGE_PATH || '').trim()) storageIds.add('management-local');
       engines = parseBackupEngines({ enginesJson: env.BACKUP_ENGINES_JSON }, servers, storageIds);
+      parseBackupRetention(env.BACKUP_RETENTION_JSON || "", servers.map((server) => server.id));
       for (const server of servers) {
         if (server.defaultBackupEngineId === 'multicraft') continue;
         if (!engines.some((engine) => engine.id === server.defaultBackupEngineId && engine.serverId === server.id)) {

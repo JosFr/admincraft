@@ -315,3 +315,35 @@ test("AdminCraft Native backup copies to configured local storage", async () => 
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("minimum-free-space safeguard blocks a native backup before archiving", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "admincraft-safeguard-"));
+  try {
+    const source = path.join(dir, "server");
+    const destination = path.join(dir, "destination");
+    fs.mkdirSync(source, { recursive: true });
+    fs.mkdirSync(destination, { recursive: true });
+    const service = createManagementService({
+      serversJson: JSON.stringify([{
+        id: "lobby", name: "Lobby", multicraftServerId: 7,
+        defaultBackupEngineId: "native-lobby",
+      }]),
+      statePath: path.join(dir, "state.json"),
+      storagesJson: JSON.stringify([{
+        id: "local", type: "local", path: destination,
+        minimumFreeBytes: Number.MAX_SAFE_INTEGER,
+      }]),
+      enginesJson: JSON.stringify([{
+        id: "native-lobby", type: "native", serverId: "lobby",
+        sourcePath: source, destinationIds: ["local"],
+      }]),
+    }, { multicraft: {} });
+    const result = await service.handle("backup-create", {
+      serverId: "lobby", engineId: "native-lobby",
+    });
+    assert.equal(result.success, false);
+    assert.match(result.message, /Minimum free space/u);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

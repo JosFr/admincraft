@@ -38,6 +38,7 @@ function parseBackupStorages(config = {}) {
       username: String(entry?.username || ""),
       password: String(entry?.password || ""),
       softLimitBytes: numberOrNull(entry?.softLimitBytes),
+      minimumFreeBytes: numberOrNull(entry?.minimumFreeBytes),
       warningFreePercent: numberOr(entry?.warningFreePercent, 15),
       criticalFreePercent: numberOr(entry?.criticalFreePercent, 5),
     };
@@ -201,6 +202,9 @@ async function probeStorage(storage, options = {}) {
     freeBytes: metrics.freeBytes ?? null,
     backupBytes,
     softLimitBytes: storage.softLimitBytes,
+    minimumFreeBytes: storage.minimumFreeBytes,
+    safeguardBlocked: storage.minimumFreeBytes != null && metrics.freeBytes != null
+      ? metrics.freeBytes <= storage.minimumFreeBytes : false,
     warningFreePercent: storage.warningFreePercent,
     criticalFreePercent: storage.criticalFreePercent,
   };
@@ -212,6 +216,7 @@ function publicStorage(storage) {
     name: storage.name,
     type: storage.type,
     softLimitBytes: storage.softLimitBytes,
+    minimumFreeBytes: storage.minimumFreeBytes,
     warningFreePercent: storage.warningFreePercent,
     criticalFreePercent: storage.criticalFreePercent,
   };

@@ -108,4 +108,42 @@ void main() {
     expect(engine.availableDestinationIds, ['nextcloud', 'local']);
     expect(engine.capabilities.restore, isTrue);
   });
+
+  test('parses retention and minimum-free-space safeguards', () {
+    final snapshot = ManagementSnapshot.fromJson({
+      'storages': [
+        {
+          'id': 'nextcloud',
+          'name': 'Nextcloud',
+          'type': 'nextcloud',
+          'backupBytes': 1024,
+          'minimumFreeBytes': 161061273600,
+          'safeguardBlocked': true,
+        },
+      ],
+      'retention': {
+        'global': {'daily': 7, 'weekly': 4, 'monthly': 6, 'enforce': false},
+        'servers': {
+          'smp': {'daily': 14, 'weekly': 8, 'monthly': 12, 'enforce': true},
+        },
+        'summaries': [
+          {
+            'serverId': 'smp',
+            'daily': 14,
+            'weekly': 8,
+            'monthly': 12,
+            'enforce': true,
+            'kept': 20,
+            'prunable': 3,
+          },
+        ],
+      },
+    });
+
+    expect(snapshot.storages.single.minimumFreeBytes, 161061273600);
+    expect(snapshot.storages.single.safeguardBlocked, isTrue);
+    expect(snapshot.retention.forServer('smp').daily, 14);
+    expect(snapshot.retention.forServer('smp').enforce, isTrue);
+    expect(snapshot.retention.summaryFor('smp')?.prunable, 3);
+  });
 }

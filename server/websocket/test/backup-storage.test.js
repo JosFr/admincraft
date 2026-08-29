@@ -54,3 +54,19 @@ test("WebDAV quota parsing supports Nextcloud DAV properties", () => {
   );
   assert.deepEqual(quota, { freeBytes: 700, totalBytes: 1000 });
 });
+
+test("storage exposes minimum-free-space safeguard without credentials", () => {
+  const storage = parseBackupStorages({
+    storagesJson: JSON.stringify([{
+      id: "nextcloud",
+      type: "nextcloud",
+      url: "https://cloud.example.test/dav",
+      username: "user",
+      password: "secret",
+      minimumFreeBytes: 150 * 1024 * 1024 * 1024,
+    }]),
+  })[0];
+  const visible = publicStorage(storage);
+  assert.equal(visible.minimumFreeBytes, 150 * 1024 * 1024 * 1024);
+  assert.equal(Object.hasOwn(visible, "password"), false);
+});

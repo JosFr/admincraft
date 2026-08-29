@@ -8,6 +8,9 @@ const {
 const {
   parseBackupEngines, engineDescriptors, createNativeArchive, restoreNativeArchive,
 } = require("./backup-engines");
+const {
+  parseBackupRetention, effectiveRetention, retentionPlan,
+} = require("./backup-policy");
 
 function id(prefix = "item") {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -149,7 +152,7 @@ function createManagementService(config = {}, dependencies = {}) {
     storages.push({
       id: "management-local", name: "Management host", type: "local",
       path: legacyStoragePath, remote: "", basePath: "", url: "", username: "", password: "",
-      softLimitBytes: null, warningFreePercent: 15, criticalFreePercent: 5,
+      softLimitBytes: null, minimumFreeBytes: null, warningFreePercent: 15, criticalFreePercent: 5,
     });
   }
   const storageById = (storageId) => storages.find((storage) => storage.id === storageId);
@@ -164,6 +167,10 @@ function createManagementService(config = {}, dependencies = {}) {
       throw new Error(`Unknown default backup engine for management server ${server.id}.`);
     }
   }
+  const retention = parseBackupRetention(
+    config.retentionJson || process.env.BACKUP_RETENTION_JSON || "",
+    servers.map((server) => server.id),
+  );
   const nativeBackupRoot = config.nativeBackupPath
     || process.env.MANAGEMENT_NATIVE_BACKUP_PATH
     || path.join(path.dirname(statePath), "backups");
@@ -248,6 +255,11 @@ function createManagementService(config = {}, dependencies = {}) {
       maintenance: state.maintenance,
       updates: state.updates || [],
       activity: state.activity,
+      retention: {
+        global: { ...retention.global },
+        servers: { ...retention.servers },
+        summaries: retentionPlan(state.backups, retention).summaries,
+      },
     };
   }
 
@@ -354,6 +366,18 @@ function createManagementService(config = {}, dependencies = {}) {
     return [...new Set(values.map((value) => String(value).trim()).filter(Boolean))];
   }
 
+  async function assertStorageSafeguards(storageIds) {
+    for (const storageId of storageIds) {
+      const storage = storageById(storageId);
+      if (!storage) throw new Error(`Unknown backup storage: ${storageId}.`);
+      const metrics = await probeStorage(storage, dependencies);
+      state.storageMetrics[storage.id] = metrics;
+      const current = storageSnapshot(storage, state.backups, metrics);
+      if (current.safeguardBlocked) throw new Error(`Minimum free space reached on ${storage.name}.`);
+      if (current.softLimitBytes != null && current.backupBytes >= current.softLimitBytes) throw new Error(`Backup soft limit reached on ${storage.name}.`);
+    }
+  }
+
   async function copyBackupToDestinations(backup, storageIds) {
     if (!backup.localPath) throw new Error("Backup has no local source for copying.");
     backup.destinationLocators ||= {};
@@ -380,11 +404,13 @@ function createManagementService(config = {}, dependencies = {}) {
     persist();
     try {
       if (engine.type === "native") {
+        const destinationIds = requestedStorageIds(engine, payload);
+        await assertStorageSafeguards(destinationIds);
         backup.localPath = await createNativeArchive(
           engine, server, nativeBackupRoot, { ...dependencies, now: now() },
         );
         backup.sizeBytes = fs.statSync(backup.localPath).size;
-        await copyBackupToDestinations(backup, requestedStorageIds(engine, payload));
+        await copyBackupToDestinations(backup, destinationIds);
         backup.status = "completed";
         backup.message = "AdminCraft Native backup completed.";
         activity(server, "Backup completed", backup.message);
@@ -585,6 +611,7 @@ function createManagementService(config = {}, dependencies = {}) {
         for (const server of servers) await recordPerformance(server);
         lastPerformanceSampleAt = now().getTime();
       }
+      await runRetention();
       persist();
     } finally {
       ticking = false;
@@ -648,6 +675,35 @@ function createManagementService(config = {}, dependencies = {}) {
     return null;
   }
 
+  async function deleteManagedBackup(backup, detail = "Deleted by AdminCraft") {
+    const engine = engineForBackup(backup);
+    if (!engine || backup.engine !== "native") {
+      throw new Error("Delete is not supported by this backup engine.");
+    }
+    for (const [storageId, locator] of Object.entries(backup.destinationLocators || {})) {
+      const storage = storageById(storageId);
+      if (storage && locator) await deleteFromStorage(storage, locator, dependencies);
+    }
+    if (backup.localPath) await fs.promises.rm(backup.localPath, { force: true });
+    state.backups = state.backups.filter((item) => item.id !== backup.id);
+    activity(serverById(backup.serverId), "Backup deleted", detail);
+  }
+
+  async function runRetention() {
+    const plan = retentionPlan(state.backups, retention);
+    for (const backupId of plan.remove) {
+      const backup = state.backups.find((item) => item.id === backupId);
+      if (!backup) continue;
+      const policy = effectiveRetention(retention, backup.serverId);
+      if (policy.enforce !== true) continue;
+      try {
+        await deleteManagedBackup(backup, "Removed by retention policy.");
+      } catch (error) {
+        activity(serverById(backup.serverId), "Retention cleanup failed", error.message, true);
+      }
+    }
+  }
+
   function response(message, events = []) {
     return {
       success: true,
@@ -701,15 +757,7 @@ function createManagementService(config = {}, dependencies = {}) {
 
       if (action === "backup-delete") {
         const backup = findBackup(payload);
-        const engine = engineForBackup(backup);
-        if (!engine || backup.engine !== "native") throw new Error("Delete is not supported by this backup engine.");
-        for (const [storageId, locator] of Object.entries(backup.destinationLocators || {})) {
-          const storage = storageById(storageId);
-          if (storage && locator) await deleteFromStorage(storage, locator, dependencies);
-        }
-        if (backup.localPath) await fs.promises.rm(backup.localPath, { force: true });
-        state.backups = state.backups.filter((item) => item.id !== backup.id);
-        activity(serverById(backup.serverId), "Backup deleted", backup.id);
+        await deleteManagedBackup(backup, backup.id);
         persist();
         return response("Backup deleted.", [snapshot()]);
       }

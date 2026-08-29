@@ -57,6 +57,8 @@ class BackupView extends StatelessWidget {
             ),
             const SizedBox(height: 12),
           ],
+          _RetentionCard(retention: snapshot.retention, serverId: serverId),
+          const SizedBox(height: 12),
           if (backups.isNotEmpty) ...[
             _RecoveryReadinessCard(backups: backups),
             const SizedBox(height: 12),
@@ -514,12 +516,12 @@ class _StorageCard extends StatelessWidget {
               used == null || storage.totalBytes == null
                   ? '${_formatBytes(storage.backupBytes)} in backups'
                   : '${_formatBytes(used)} used of '
-                        '${_formatBytes(storage.totalBytes!)} Â· '
+                        '${_formatBytes(storage.totalBytes!)} Â� '
                         '${_formatBytes(storage.freeBytes ?? 0)} free',
             ),
             if (storage.otherBytes != null)
               Text(
-                '${_formatBytes(storage.backupBytes)} backups Â· '
+                '${_formatBytes(storage.backupBytes)} backups Â� '
                 '${_formatBytes(storage.otherBytes!)} other data',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
@@ -527,7 +529,15 @@ class _StorageCard extends StatelessWidget {
               const SizedBox(height: 6),
               Text(
                 'Backup soft limit: ${_formatBytes(storage.softLimitBytes!)}'
-                '${storage.backupBytes >= storage.softLimitBytes! ? ' Â· reached' : ''}',
+                '${storage.backupBytes >= storage.softLimitBytes! ? ' Â� reached' : ''}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+            if (storage.minimumFreeBytes != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                "Always keep at least ${_formatBytes(storage.minimumFreeBytes!)} free"
+                "${storage.safeguardBlocked ? " � backup creation blocked" : ""}",
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
@@ -543,7 +553,8 @@ class _StorageCard extends StatelessWidget {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
             ],
-            if (storage.critical ||
+            if (storage.safeguardBlocked ||
+                storage.critical ||
                 storage.warning ||
                 (storage.softLimitBytes != null &&
                     storage.backupBytes >= storage.softLimitBytes!)) ...[
@@ -556,13 +567,85 @@ class _StorageCard extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.all(10),
                   child: Text(
-                    storage.critical
+                    storage.safeguardBlocked
+                        ? 'Critical: the minimum-free-space safeguard blocks new backups.'
+                        : storage.critical
                         ? 'Critical: storage is below the configured free-space threshold.'
                         : storage.warning
                         ? 'Warning: storage is approaching the configured free-space threshold.'
                         : 'Warning: backup storage has reached its configured soft limit.',
                   ),
                 ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RetentionCard extends StatelessWidget {
+  final BackupRetentionState retention;
+  final String? serverId;
+
+  const _RetentionCard({required this.retention, required this.serverId});
+
+  @override
+  Widget build(BuildContext context) {
+    final policy = serverId == null
+        ? retention.global
+        : retention.forServer(serverId!);
+    final summary = serverId == null ? null : retention.summaryFor(serverId!);
+    final totalPrunable = retention.summaries.fold<int>(
+      0,
+      (sum, value) => sum + value.prunable,
+    );
+    final enforced = serverId == null
+        ? retention.global.enforce
+        : policy.enforce;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.auto_delete_outlined),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    serverId == null ? 'Retention' : 'Server retention',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                Chip(label: Text(enforced ? 'Automatic' : 'Preview only')),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '${policy.daily} daily � ${policy.weekly} weekly � ${policy.monthly} monthly',
+            ),
+            const SizedBox(height: 4),
+            Text(
+              enforced
+                  ? 'Only backups outside the configured retention buckets can be removed automatically.'
+                  : 'Automatic cleanup is disabled; AdminCraft only previews retention candidates.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            if (serverId == null && retention.servers.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                '${retention.servers.length} server-specific override(s) configured.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+            if ((summary?.prunable ?? totalPrunable) > 0) ...[
+              const SizedBox(height: 8),
+              Text(
+                '${summary?.prunable ?? totalPrunable} completed backup(s) currently outside retention.',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
           ],
