@@ -148,6 +148,12 @@ try {
       apiKey: process.env.MULTICRAFT_API_KEY,
       serverId: process.env.MULTICRAFT_SERVER_ID,
     });
+    let updateChecker = null;
+    try {
+      updateChecker = createUpdateChecker();
+    } catch (error) {
+      console.warn(`RC4 update checking disabled: ${error.message}`);
+    }
     managementService = createManagementService(
       {
         serversJson: process.env.MANAGEMENT_SERVERS_JSON,
@@ -159,7 +165,7 @@ try {
       },
       {
         multicraft: managementMulticraft,
-        updateChecker: createUpdateChecker(),
+        updateChecker,
         onSnapshot(frame) {
           for (const client of managementClients) send(client, JSON.stringify(frame));
         },

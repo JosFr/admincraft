@@ -73,6 +73,7 @@ test("bridge advertises management and serves a snapshot", async () => {
       MANAGEMENT_SERVER_NAME: "Lobby",
       MANAGEMENT_STATE_PATH: path.join(dir, "management.json"),
       MANAGEMENT_TICK_MS: "60000",
+      UPDATE_PROJECTS_JSON: "{invalid-json",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
