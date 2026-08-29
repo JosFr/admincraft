@@ -928,11 +928,6 @@ class _WorkspaceSidebar extends StatelessWidget {
                 onTap: onDestination,
               ),
               _NavigationTile(
-                destination: _WorkspaceDestination.backups,
-                selected: destination == _WorkspaceDestination.backups,
-                onTap: onDestination,
-              ),
-              _NavigationTile(
                 destination: _WorkspaceDestination.overview,
                 selected: destination == _WorkspaceDestination.overview,
                 onTap: onDestination,
