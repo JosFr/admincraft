@@ -11,6 +11,7 @@ void main() {
           'serverId': 'lobby',
           'serverName': 'Lobby',
           'action': 'backup',
+          'backupEngineId': 'plugin-lobby',
           'schedule': '0 4 * * *',
           'nextRun': '2026-08-30T02:00:00Z',
           'enabled': true,
@@ -21,6 +22,7 @@ void main() {
         {
           'serverId': 'lobby',
           'serverName': 'Lobby',
+          'backupEngineId': 'plugin-lobby',
           'active': true,
           'endsAt': '2026-08-29T13:10:00Z',
           'stage': 'countdown',
@@ -53,8 +55,10 @@ void main() {
     });
 
     expect(snapshot.schedules.single.action, ScheduledActionType.backup);
+    expect(snapshot.schedules.single.backupEngineId, 'plugin-lobby');
     expect(snapshot.schedules.single.enabled, isTrue);
     expect(snapshot.maintenance.single.active, isTrue);
+    expect(snapshot.maintenance.single.backupEngineId, 'plugin-lobby');
     expect(snapshot.maintenance.single.stage, 'countdown');
     expect(snapshot.updates.single.provider, UpdateProvider.hangar);
     expect(snapshot.updates.single.status, PluginUpdateStatus.updateAvailable);

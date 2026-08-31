@@ -392,9 +392,12 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     required String action,
     String schedule = '',
     DateTime? runAt,
+    String? backupEngineId,
   }) => _manage('schedule-create', {
     'serverId': serverId,
     'action': action,
+    if (backupEngineId != null && backupEngineId.isNotEmpty)
+      'backupEngineId': backupEngineId,
     if (schedule.isNotEmpty) 'schedule': schedule,
     if (runAt != null) 'runAt': runAt.toUtc().toIso8601String(),
   });
@@ -409,12 +412,15 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     String action = 'restart',
     int countdownSeconds = 600,
     bool backup = true,
+    String? backupEngineId,
     bool restartWhenEmpty = false,
   }) => _manage('maintenance-start', {
     'serverId': serverId,
     'action': action,
     'countdownSeconds': countdownSeconds,
     'backup': backup,
+    if (backupEngineId != null && backupEngineId.isNotEmpty)
+      'backupEngineId': backupEngineId,
     'restartWhenEmpty': restartWhenEmpty,
   });
 

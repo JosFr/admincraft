@@ -7,7 +7,7 @@ const { createManagementService, nextCron, parseServers } = require("../manageme
 
 process.env.TZ = "Europe/Amsterdam";
 
-function fixture(dependencyOverrides = {}) {
+function fixture(dependencyOverrides = {}, configOverrides = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "admincraft-management-"));
   let current = new Date("2026-08-29T03:59:00Z");
   const calls = [];
@@ -27,6 +27,7 @@ function fixture(dependencyOverrides = {}) {
     async status() { return serverStatus; },
     async resources() { return { cpuPercent: 12, memoryMb: 512 }; },
     async sendConsole(id, command) { calls.push(["console", id, command]); },
+    async log() { return []; },
   };
   const service = createManagementService(
     {
@@ -35,6 +36,7 @@ function fixture(dependencyOverrides = {}) {
       ]),
       statePath: path.join(dir, "state.json"),
       performanceSampleMilliseconds: 300000,
+      ...configOverrides,
     },
     {
       multicraft,
@@ -167,6 +169,50 @@ test("scheduled actions persist a next run and execute when due", async () => {
   }
 });
 
+test("scheduled backups preserve and execute the selected backup engine", async () => {
+  const fx = fixture({}, {
+    enginesJson: JSON.stringify([{
+      id: "plugin-lobby", type: "plugin", serverId: "lobby",
+      label: "Plugin backup", command: "plugin-backup",
+      completionRegex: "Backup complete",
+    }]),
+  });
+  try {
+    const created = await fx.service.handle("schedule-create", {
+      serverId: "lobby", action: "backup",
+      backupEngineId: "plugin-lobby", runAt: "2026-08-29T04:00:00Z",
+    });
+    assert.equal(created.success, true);
+    assert.equal(fx.service.snapshot().schedules[0].backupEngineId, "plugin-lobby");
+    fx.setNow("2026-08-29T04:00:01Z");
+    await fx.service.tick();
+    assert.ok(fx.calls.some((call) => call[0] === "console" && call[2] === "plugin-backup"));
+    assert.equal(fx.calls.some((call) => call[0] === "backup"), false);
+    assert.equal(fx.service.snapshot().backups[0].engineId, "plugin-lobby");
+  } finally { fx.cleanup(); }
+});
+
+test("maintenance preserves and uses the selected observable safety engine", async () => {
+  const fx = fixture({}, {
+    enginesJson: JSON.stringify([{
+      id: "plugin-lobby", type: "plugin", serverId: "lobby",
+      label: "Plugin backup", command: "plugin-backup",
+      completionRegex: "Backup complete",
+    }]),
+  });
+  try {
+    const started = await fx.service.handle("maintenance-start", {
+      serverId: "lobby", countdownSeconds: 0, backup: true,
+      backupEngineId: "plugin-lobby",
+    });
+    assert.equal(started.success, true);
+    assert.equal(fx.service.snapshot().maintenance[0].backupEngineId, "plugin-lobby");
+    await fx.service.tick();
+    assert.ok(fx.calls.some((call) => call[0] === "console" && call[2] === "plugin-backup"));
+    assert.equal(fx.calls.some((call) => call[0] === "backup"), false);
+    assert.equal(fx.service.snapshot().backups[0].engineId, "plugin-lobby");
+  } finally { fx.cleanup(); }
+});
 test("performance history is delegated to canonical Plan data", async () => {
   const fx = fixture();
   try {

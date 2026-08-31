@@ -277,6 +277,7 @@ class ScheduledAction {
   final String serverId;
   final String serverName;
   final ScheduledActionType action;
+  final String? backupEngineId;
   final String schedule;
   final bool recurring;
   final DateTime? runAt;
@@ -289,6 +290,7 @@ class ScheduledAction {
     required this.serverId,
     required this.serverName,
     required this.action,
+    this.backupEngineId,
     required this.schedule,
     this.recurring = true,
     this.runAt,
@@ -307,6 +309,7 @@ class ScheduledAction {
           json['action'],
           ScheduledActionType.restart,
         ),
+        backupEngineId: json['backupEngineId']?.toString(),
         schedule: json['schedule']?.toString() ?? '',
         recurring: json['recurring'] != false,
         runAt: DateTime.tryParse(json['runAt']?.toString() ?? '')?.toLocal(),
@@ -435,6 +438,7 @@ class MaintenanceState {
   final String serverId;
   final String serverName;
   final String action;
+  final String? backupEngineId;
   final bool active;
   final DateTime? endsAt;
   final String stage;
@@ -444,6 +448,7 @@ class MaintenanceState {
     required this.serverId,
     required this.serverName,
     this.action = 'restart',
+    this.backupEngineId,
     required this.active,
     required this.endsAt,
     required this.stage,
@@ -455,6 +460,7 @@ class MaintenanceState {
         serverId: json['serverId']?.toString() ?? '',
         serverName: json['serverName']?.toString() ?? 'Server',
         action: json['action']?.toString() ?? 'restart',
+        backupEngineId: json['backupEngineId']?.toString(),
         active: json['active'] == true,
         endsAt: DateTime.tryParse(json['endsAt']?.toString() ?? '')?.toLocal(),
         stage: json['stage']?.toString() ?? 'idle',

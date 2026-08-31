@@ -43,6 +43,43 @@ class NetworkActivityView extends StatelessWidget {
   }
 }
 
+List<BackupEngineDescriptor> _managementBackupEnginesFor(
+  ManagementSnapshot snapshot,
+  String serverId, {
+  bool observableOnly = false,
+}) {
+  final engines = snapshot.backupEngines.where((engine) {
+    return engine.supportsServer(serverId) &&
+        engine.capabilities.create &&
+        (!observableOnly || engine.capabilities.progress);
+  }).toList();
+  if (engines.isNotEmpty || snapshot.backupEngines.isNotEmpty) return engines;
+  return [
+    BackupEngineDescriptor(
+      id: 'multicraft',
+      type: BackupEngineType.multicraft,
+      label: 'Multicraft',
+      backupType: 'server-backup',
+      serverIds: [serverId],
+      destinationIds: const [],
+      availableDestinationIds: const [],
+      capabilities: const BackupCapabilities(
+        create: true,
+        list: true,
+        progress: true,
+      ),
+    ),
+  ];
+}
+
+String _backupEngineLabel(ManagementSnapshot snapshot, String? engineId) {
+  if (engineId == null || engineId.isEmpty) return 'Server default';
+  for (final engine in snapshot.backupEngines) {
+    if (engine.id == engineId) return engine.label;
+  }
+  return engineId;
+}
+
 class SchedulesView extends StatelessWidget {
   final String? serverId;
 
@@ -71,6 +108,25 @@ class SchedulesView extends StatelessWidget {
     var recurring = true;
     var preset = 'custom';
     var runAt = DateTime.now().add(const Duration(hours: 1));
+    var backupEngines = _managementBackupEnginesFor(
+      network.management,
+      selectedServer,
+    );
+    var selectedBackupEngineId = backupEngines.isEmpty
+        ? ''
+        : backupEngines.first.id;
+    void refreshBackupEngines() {
+      backupEngines = _managementBackupEnginesFor(
+        network.management,
+        selectedServer,
+        observableOnly: action == ScheduledActionType.maintenance,
+      );
+      if (!backupEngines.any((engine) => engine.id == selectedBackupEngineId)) {
+        selectedBackupEngineId = backupEngines.isEmpty
+            ? ''
+            : backupEngines.first.id;
+      }
+    }
 
     final created = await showDialog<bool>(
       context: context,
@@ -97,7 +153,12 @@ class SchedulesView extends StatelessWidget {
                         )
                         .toList(),
                     onChanged: (value) {
-                      if (value != null) setState(() => selectedServer = value);
+                      if (value != null) {
+                        setState(() {
+                          selectedServer = value;
+                          refreshBackupEngines();
+                        });
+                      }
                     },
                   ),
                 if (serverId == null) const SizedBox(height: 12),
@@ -112,9 +173,46 @@ class SchedulesView extends StatelessWidget {
                       ),
                   ],
                   onChanged: (value) {
-                    if (value != null) setState(() => action = value);
+                    if (value != null) {
+                      setState(() {
+                        action = value;
+                        refreshBackupEngines();
+                      });
+                    }
                   },
                 ),
+                if (action == ScheduledActionType.backup ||
+                    action == ScheduledActionType.maintenance) ...[
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedBackupEngineId.isEmpty
+                        ? null
+                        : selectedBackupEngineId,
+                    decoration: InputDecoration(
+                      labelText: action == ScheduledActionType.maintenance
+                          ? 'Safety backup engine'
+                          : 'Backup engine',
+                    ),
+                    items: backupEngines
+                        .map(
+                          (engine) => DropdownMenuItem(
+                            value: engine.id,
+                            child: Text(engine.label),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() => selectedBackupEngineId = value);
+                      }
+                    },
+                  ),
+                  if (backupEngines.isEmpty)
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text('No compatible backup engine is available.'),
+                    ),
+                ],
                 const SizedBox(height: 12),
                 SegmentedButton<bool>(
                   segments: const [
@@ -221,6 +319,11 @@ class SchedulesView extends StatelessWidget {
             FilledButton(
               onPressed: () {
                 if (selectedServer.isEmpty) return;
+                if ((action == ScheduledActionType.backup ||
+                        action == ScheduledActionType.maintenance) &&
+                    selectedBackupEngineId.isEmpty) {
+                  return;
+                }
                 if (recurring && scheduleController.text.trim().isEmpty) return;
                 if (!recurring && !runAt.isAfter(DateTime.now())) return;
                 Navigator.pop(dialogContext, true);
@@ -237,6 +340,11 @@ class SchedulesView extends StatelessWidget {
         action: action.name,
         schedule: recurring ? scheduleController.text.trim() : '',
         runAt: recurring ? null : runAt,
+        backupEngineId:
+            action == ScheduledActionType.backup ||
+                action == ScheduledActionType.maintenance
+            ? selectedBackupEngineId
+            : null,
       );
     }
     scheduleController.dispose();
@@ -319,6 +427,7 @@ class SchedulesView extends StatelessWidget {
               ),
               subtitle: Text(
                 '${schedule.recurring ? schedule.schedule : 'One-time'}'
+                '${schedule.backupEngineId == null ? '' : '\nEngine: ${_backupEngineLabel(network.management, schedule.backupEngineId)}'}'
                 '${schedule.nextRun == null ? '' : '\nNext: ${_formatDateTime(schedule.nextRun!)}'}'
                 '${schedule.lastResult == null || schedule.lastResult!.trim().isEmpty ? '' : '\nLast: ${schedule.lastResult}'}',
               ),
@@ -501,6 +610,14 @@ class MaintenanceView extends StatelessWidget {
     var action = 'restart';
     var createBackup = true;
     var restartWhenEmpty = false;
+    final backupEngines = _managementBackupEnginesFor(
+      network.management,
+      serverId,
+      observableOnly: true,
+    );
+    var selectedBackupEngineId = backupEngines.isEmpty
+        ? ''
+        : backupEngines.first.id;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -555,6 +672,30 @@ class MaintenanceView extends StatelessWidget {
                   value: createBackup,
                   onChanged: (value) => setState(() => createBackup = value),
                 ),
+                if (createBackup) ...[
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedBackupEngineId.isEmpty
+                        ? null
+                        : selectedBackupEngineId,
+                    decoration: const InputDecoration(
+                      labelText: 'Safety backup engine',
+                    ),
+                    items: backupEngines
+                        .map(
+                          (engine) => DropdownMenuItem(
+                            value: engine.id,
+                            child: Text(engine.label),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() => selectedBackupEngineId = value);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                ],
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Wait until empty'),
@@ -583,7 +724,9 @@ class MaintenanceView extends StatelessWidget {
               child: const Text('Cancel'),
             ),
             FilledButton.icon(
-              onPressed: () => Navigator.pop(dialogContext, true),
+              onPressed: createBackup && selectedBackupEngineId.isEmpty
+                  ? null
+                  : () => Navigator.pop(dialogContext, true),
               icon: const Icon(Icons.play_arrow),
               label: const Text('Start maintenance'),
             ),
@@ -597,6 +740,7 @@ class MaintenanceView extends StatelessWidget {
       action: action,
       countdownSeconds: countdownSeconds,
       backup: createBackup,
+      backupEngineId: createBackup ? selectedBackupEngineId : null,
       restartWhenEmpty: restartWhenEmpty,
     );
   }

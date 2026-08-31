@@ -556,37 +556,49 @@ function createManagementService(config = {}, dependencies = {}) {
     }
   }
 
-  async function createBackupForServer(server, payload = {}, kind = "manual") {
-    const engineId = String(payload.engineId || payload.engine || server.defaultBackupEngineId || "multicraft").trim();
-    if (engineId === "multicraft") return createMulticraftBackup(server, kind);
+  function backupEngineIdFor(server, requested) {
+    const engineId = String(requested || server.defaultBackupEngineId || "multicraft").trim();
+    if (engineId === "multicraft") return engineId;
     const engine = engineById(engineId);
     if (!engine || engine.serverId !== server.id) {
       throw new Error(`Backup engine ${engineId || "<empty>"} is not available for ${server.id}.`);
     }
-    return createConfiguredBackup(server, engine, kind, payload);
+    return engineId;
   }
 
-  function backupCompletionObservable(server) {
-    const engineId = String(server.defaultBackupEngineId || "multicraft").trim();
+  async function createBackupForServer(server, payload = {}, kind = "manual") {
+    const engineId = backupEngineIdFor(server, payload.engineId || payload.engine);
+    if (engineId === "multicraft") return createMulticraftBackup(server, kind);
+    return createConfiguredBackup(server, engineById(engineId), kind, payload);
+  }
+
+  function backupCompletionObservable(server, requestedEngineId) {
+    const engineId = backupEngineIdFor(server, requestedEngineId);
     if (engineId === "multicraft") return true;
     const engine = engineById(engineId);
     if (engine?.type === "native") return true;
     return Boolean(engine?.completionRegex && typeof multicraft?.log === "function");
   }
 
-  async function executeAction(server, action, source = "scheduled") {
+  async function executeAction(server, action, source = "scheduled", options = {}) {
     if (!multicraft) throw new Error("Multicraft management is not configured.");
-    if (action === "backup") return createBackupForServer(server, { engineId: server.defaultBackupEngineId }, source);
+    if (action === "backup") {
+      return createBackupForServer(server, { engineId: options.backupEngineId }, source);
+    }
     if (action === "start") await multicraft.start(server.multicraftServerId);
     else if (action === "stop") await multicraft.stop(server.multicraftServerId);
     else if (action === "restart") await multicraft.restart(server.multicraftServerId);
     else if (action === "maintenance") {
-      return startMaintenance(server, { countdownSeconds: 600, backup: true });
+      return startMaintenance(server, {
+        countdownSeconds: 600,
+        backup: true,
+        backupEngineId: options.backupEngineId,
+      });
     } else throw new Error(`Unsupported scheduled action: ${action}`);
     activity(server, `${action[0].toUpperCase()}${action.slice(1)} completed`, source);
     return null;
   }
-  async function executeJob(server, action, source, scheduleId = null) {
+  async function executeJob(server, action, source, scheduleId = null, options = {}) {
     const job = {
       id: id("job"), scheduleId, serverId: server.id, serverName: server.name,
       action, source, startedAt: isoNow(now), finishedAt: null,
@@ -595,7 +607,7 @@ function createManagementService(config = {}, dependencies = {}) {
     state.jobHistory.unshift(job);
     state.jobHistory = state.jobHistory.slice(0, 250);
     try {
-      const result = await executeAction(server, action, source);
+      const result = await executeAction(server, action, source, options);
       job.success = true;
       job.message = action === "maintenance"
         ? "Maintenance flow started."
@@ -626,8 +638,9 @@ function createManagementService(config = {}, dependencies = {}) {
   }
 
   function startMaintenance(server, options = {}) {
-    if (options.backup !== false && !backupCompletionObservable(server)) {
-      throw new Error("Safety backup requires Multicraft or AdminCraft Native so completion can be verified.");
+    const backupEngineId = backupEngineIdFor(server, options.backupEngineId);
+    if (options.backup !== false && !backupCompletionObservable(server, backupEngineId)) {
+      throw new Error("Safety backup requires an engine whose completion can be verified.");
     }
     const requestedCountdown = Number.parseInt(options.countdownSeconds, 10);
     const countdownSeconds = Number.isInteger(requestedCountdown)
@@ -644,6 +657,7 @@ function createManagementService(config = {}, dependencies = {}) {
       stage: "countdown",
       message: `Maintenance ${action} scheduled after ${countdownSeconds} seconds.`,
       backup: options.backup !== false,
+      backupEngineId,
       restartWhenEmpty: options.restartWhenEmpty === true,
       backupStarted: false,
       backupId: null,
@@ -768,7 +782,7 @@ function createManagementService(config = {}, dependencies = {}) {
         maintenance.stage = "backup";
         maintenance.message = "Starting safety backup.";
         const backup = await createBackupForServer(
-          server, { engineId: server.defaultBackupEngineId }, "maintenance",
+          server, { engineId: maintenance.backupEngineId }, "maintenance",
         );
         maintenance.backupStarted = true;
         maintenance.backupId = backup.id;
@@ -827,7 +841,9 @@ function createManagementService(config = {}, dependencies = {}) {
         schedule.lastResult = "Server mapping unavailable.";
       } else {
         try {
-          await executeJob(server, schedule.action, "scheduled", schedule.id);
+          await executeJob(server, schedule.action, "scheduled", schedule.id, {
+            backupEngineId: schedule.backupEngineId,
+          });
           schedule.lastResult = `Success at ${isoNow(now)}`;
         } catch (error) {
           schedule.lastResult = `Failed: ${error.message}`;
@@ -1023,6 +1039,8 @@ function createManagementService(config = {}, dependencies = {}) {
         const scheduledAction = String(payload.action || "").trim();
         const allowed = ["start", "stop", "restart", "backup", "maintenance"];
         if (!allowed.includes(scheduledAction)) throw new Error("Unsupported scheduled action.");
+        const backupEngineId = ["backup", "maintenance"].includes(scheduledAction)
+          ? backupEngineIdFor(server, payload.backupEngineId) : null;
         const runAtRaw = String(payload.runAt || "").trim();
         const recurring = runAtRaw.length === 0;
         const expression = recurring ? String(payload.schedule || "").trim() : "";
@@ -1044,6 +1062,7 @@ function createManagementService(config = {}, dependencies = {}) {
           serverId: server.id,
           serverName: server.name,
           action: scheduledAction,
+          backupEngineId,
           schedule: expression,
           recurring,
           runAt,
