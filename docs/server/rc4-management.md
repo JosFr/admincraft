@@ -151,7 +151,11 @@ A minimal Nextcloud destination can be supplied as JSON like this (store the rea
 ```
 
 For mounted storage, use `type: local`, `smb`, or `nfs` with a `path`. For SFTP/S3-compatible destinations configure an rclone remote and use its name in `remote`; the RC4 container includes rclone.
-Configure non-Multicraft engines with `BACKUP_ENGINES_JSON`. `native` creates an archive from a mounted server path; `plugin` and `custom` dispatch an explicit console command. Plugin/custom completion is not guessed: their records remain non-authoritative unless a later adapter can observe completion.
+Configure non-Multicraft engines with `BACKUP_ENGINES_JSON`. `native` creates an archive from a mounted server path; `plugin` and `custom` dispatch an explicit console command.
+
+Native full-server backups default to `consistency: offline`. If the server is running, AdminCraft stops it, waits for Multicraft to report it stopped, creates the archive, and then restores the previous running state. During a maintenance safety backup or pre-restore safety backup the server remains stopped because the next coordinated lifecycle action follows immediately. `consistency: live` is an explicit opt-in for environments that accept a crash-consistent archive while files may still be changing.
+
+Plugin/custom engines can make completion observable with `completionRegex`. AdminCraft takes a Multicraft `getServerLog` baseline before dispatching the command and matches only newly observed log lines. Optional `failureRegex` requires `completionRegex`. `completionTimeoutSeconds` defaults to 600 and must be between 5 and 86400 seconds. Commands and regexes remain server-side and are never included in the public management snapshot.
 
 ```json
 [
@@ -161,6 +165,7 @@ Configure non-Multicraft engines with `BACKUP_ENGINES_JSON`. `native` creates an
     "serverId": "smp",
     "label": "AdminCraft Native",
     "sourcePath": "/minecraft/smp",
+    "consistency": "offline",
     "destinationIds": ["nextcloud", "local"],
     "allowRestore": false
   },
@@ -169,7 +174,10 @@ Configure non-Multicraft engines with `BACKUP_ENGINES_JSON`. `native` creates an
     "type": "plugin",
     "serverId": "smp",
     "label": "Server backup plugin",
-    "command": "backup start"
+    "command": "backup start",
+    "completionRegex": "Backup (?:completed|finished)",
+    "failureRegex": "Backup (?:failed|error)",
+    "completionTimeoutSeconds": 600
   }
 ]
 ```

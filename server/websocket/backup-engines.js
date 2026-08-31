@@ -1,4 +1,4 @@
-﻿const fs = require("fs");
+const fs = require("fs");
 const path = require("path");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
@@ -6,6 +6,7 @@ const { promisify } = require("util");
 const execFileAsync = promisify(execFile);
 const ENGINE_TYPES = new Set(["native", "plugin", "custom"]);
 const BACKUP_TYPES = new Set(["full-server", "world-only", "custom"]);
+const NATIVE_CONSISTENCY = new Set(["offline", "live"]);
 
 function parseArray(raw, label) {
   if (!String(raw || "").trim()) return [];
@@ -20,6 +21,29 @@ function cleanId(value, label) {
   return id;
 }
 
+function optionalRegex(value, label) {
+  const source = String(value || "").trim();
+  if (!source) return "";
+  if (source.length > 512 || /[\r\n\0]/u.test(source)) {
+    throw new Error(`${label} must be a single regex of at most 512 characters.`);
+  }
+  try {
+    new RegExp(source, "u");
+  } catch (_) {
+    throw new Error(`Invalid ${label}.`);
+  }
+  return source;
+}
+
+function timeoutSeconds(value) {
+  if (value == null || value === "") return 600;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 5 || parsed > 86400) {
+    throw new Error("Backup completion timeout must be between 5 and 86400 seconds.");
+  }
+  return parsed;
+}
+
 function capabilities(type, engine = {}) {
   if (type === "native") return {
     create: true, list: true, progress: true,
@@ -27,7 +51,7 @@ function capabilities(type, engine = {}) {
     remoteDestination: true, verify: true, copy: true,
   };
   return {
-    create: true, list: true, progress: false, restore: false,
+    create: true, list: true, progress: Boolean(engine.completionRegex), restore: false,
     download: false, delete: false, remoteDestination: false,
     verify: false, copy: false,
   };
@@ -59,6 +83,12 @@ function capabilities(type, engine = {}) {
       backupType: String(entry?.backupType || (type === "native" ? "full-server" : "custom")).trim(),
       allowRestore: entry?.allowRestore === true,
       destinationIds,
+      completionRegex: optionalRegex(entry?.completionRegex, `completionRegex for engine ${id}`),
+      failureRegex: optionalRegex(entry?.failureRegex, `failureRegex for engine ${id}`),
+      completionTimeoutSeconds: timeoutSeconds(entry?.completionTimeoutSeconds),
+      consistency: type === "native"
+        ? String(entry?.consistency || "offline").trim().toLowerCase()
+        : "",
     };
     if (!BACKUP_TYPES.has(engine.backupType)) {
       throw new Error(`Invalid backup type for engine ${id}.`);
@@ -66,8 +96,17 @@ function capabilities(type, engine = {}) {
     if (type === "native" && !engine.sourcePath) {
       throw new Error(`Native backup engine ${id} requires sourcePath.`);
     }
+    if (type === "native" && !NATIVE_CONSISTENCY.has(engine.consistency)) {
+      throw new Error(`Native backup engine ${id} has invalid consistency mode.`);
+    }
     if (["plugin", "custom"].includes(type) && !engine.command) {
       throw new Error(`${type} backup engine ${id} requires command.`);
+    }
+    if (engine.failureRegex && !engine.completionRegex) {
+      throw new Error(`Backup engine ${id} requires completionRegex when failureRegex is configured.`);
+    }
+    if (type === "native" && (engine.completionRegex || engine.failureRegex)) {
+      throw new Error(`Native backup engine ${id} does not use console completion regexes.`);
     }
     engine.capabilities = capabilities(type, engine);
     return engine;
@@ -97,6 +136,7 @@ function capabilities(type, engine = {}) {
       serverIds: [engine.serverId],
       destinationIds: [...engine.destinationIds],
       availableDestinationIds: engine.type === "native" ? [...storageIds] : [...engine.destinationIds],
+      ...(engine.type === "native" ? { consistency: engine.consistency } : {}),
       capabilities: { ...engine.capabilities },
     });
   }
@@ -160,5 +200,6 @@ async function restoreNativeArchive(engine, server, archive, multicraft, options
   engineDescriptors,
   createNativeArchive,
   restoreNativeArchive,
+  waitStopped,
   capabilities,
 };

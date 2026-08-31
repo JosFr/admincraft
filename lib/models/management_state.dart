@@ -151,6 +151,7 @@ class BackupEngineDescriptor {
   final List<String> destinationIds;
   final List<String> availableDestinationIds;
   final BackupCapabilities capabilities;
+  final String? consistency;
 
   const BackupEngineDescriptor({
     required this.id,
@@ -161,6 +162,7 @@ class BackupEngineDescriptor {
     required this.destinationIds,
     required this.availableDestinationIds,
     required this.capabilities,
+    this.consistency,
   });
 
   factory BackupEngineDescriptor.fromJson(Map<String, dynamic> json) =>
@@ -189,9 +191,14 @@ class BackupEngineDescriptor {
                   .toList()
             : const [],
         capabilities: BackupCapabilities.fromJson(json['capabilities']),
+        consistency: json['consistency']?.toString(),
       );
 
   bool supportsServer(String serverId) => serverIds.contains(serverId);
+  bool get isOfflineNative =>
+      type == BackupEngineType.native && consistency == 'offline';
+  bool get isLiveNative =>
+      type == BackupEngineType.native && consistency == 'live';
 }
 
 class BackupRecord {

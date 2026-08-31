@@ -6,7 +6,7 @@ const {
   probeStorage, storageSnapshot,
 } = require("./backup-storage");
 const {
-  parseBackupEngines, engineDescriptors, createNativeArchive, restoreNativeArchive,
+  parseBackupEngines, engineDescriptors, createNativeArchive, restoreNativeArchive, waitStopped,
 } = require("./backup-engines");
 const {
   parseBackupRetention, effectiveRetention, retentionPlan,
@@ -37,6 +37,23 @@ function writeJson(file, value) {
   fs.writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, "utf8");
   fs.renameSync(temp, file);
 }
+function appendedLogLines(previous = [], current = []) {
+  const before = Array.isArray(previous) ? previous : [];
+  const after = Array.isArray(current) ? current : [];
+  const max = Math.min(before.length, after.length);
+  for (let overlap = max; overlap >= 0; overlap--) {
+    let matches = true;
+    for (let index = 0; index < overlap; index++) {
+      if (before[before.length - overlap + index] !== after[index]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return after.slice(overlap);
+  }
+  return [...after];
+}
+
 function hashFile(file) {
   return new Promise((resolve, reject) => {
     const hash = crypto.createHash("sha256");
@@ -182,6 +199,7 @@ function createManagementService(config = {}, dependencies = {}) {
   const nativeBackupRoot = config.nativeBackupPath
     || process.env.MANAGEMENT_NATIVE_BACKUP_PATH
     || path.join(path.dirname(statePath), "backups");
+  const commandBackupObservers = new Map();
   const state = readJson(statePath, {
     backups: [],
     schedules: [],
@@ -207,6 +225,12 @@ function createManagementService(config = {}, dependencies = {}) {
   if (Object.prototype.hasOwnProperty.call(state, "performance")) delete state.performance;
   for (const key of ["backups", "schedules", "jobHistory", "maintenance", "updates", "activity"]) {
     if (!Array.isArray(state[key])) state[key] = [];
+  }
+  for (const backup of state.backups) {
+    if (["plugin", "custom"].includes(backup.engine) && backup.status === "running") {
+      backup.status = "unknown";
+      backup.message = "Backup observation was interrupted by a management bridge restart.";
+    }
   }
 
   function persist() {
@@ -390,6 +414,89 @@ function createManagementService(config = {}, dependencies = {}) {
     }
   }
 
+  async function refreshCommandBackups() {
+    if (!multicraft || typeof multicraft.log !== "function") return;
+    for (const [backupId, observer] of commandBackupObservers) {
+      const backup = state.backups.find((item) => item.id === backupId);
+      if (!backup || backup.status !== "running") {
+        commandBackupObservers.delete(backupId);
+        continue;
+      }
+      const server = serverById(backup.serverId);
+      if (!server) {
+        backup.status = "failed";
+        backup.message = "Server mapping disappeared while observing backup completion.";
+        commandBackupObservers.delete(backupId);
+        continue;
+      }
+      if (now().getTime() >= observer.deadline) {
+        backup.status = "failed";
+        backup.message = `Backup completion was not observed within ${observer.timeoutSeconds} seconds.`;
+        activity(server, "Backup failed", backup.message, true);
+        commandBackupObservers.delete(backupId);
+        continue;
+      }
+      let current;
+      try {
+        current = await multicraft.log(server.multicraftServerId);
+      } catch (_) {
+        continue;
+      }
+      const lines = appendedLogLines(observer.lastLines, current);
+      observer.lastLines = current;
+      const failed = observer.failure && lines.some((line) => observer.failure.test(line));
+      if (failed) {
+        backup.status = "failed";
+        backup.message = "Backup plugin reported a failure.";
+        activity(server, "Backup failed", backup.message, true);
+        commandBackupObservers.delete(backupId);
+        continue;
+      }
+      if (lines.some((line) => observer.completion.test(line))) {
+        backup.status = "completed";
+        backup.message = `${backup.engineLabel} reported completion.`;
+        activity(server, "Backup completed", backup.message);
+        commandBackupObservers.delete(backupId);
+      }
+    }
+  }
+
+  async function createConsistentNativeArchive(server, engine, kind) {
+    if (engine.consistency === "live") {
+      return createNativeArchive(
+        engine, server, nativeBackupRoot, { ...dependencies, now: now() },
+      );
+    }
+    if (!multicraft) throw new Error("Multicraft is required for an offline-consistent native backup.");
+    const wasRunning = await multicraft.status(server.multicraftServerId) === "running";
+    const keepStopped = kind === "maintenance" || kind === "pre-restore";
+    let archive = null;
+    let operationError = null;
+    try {
+      if (wasRunning) {
+        activity(server, "Native backup quiescing", "Stopping server for an offline-consistent snapshot.");
+        await multicraft.stop(server.multicraftServerId);
+        await waitStopped(multicraft, server.multicraftServerId, dependencies);
+      }
+      archive = await createNativeArchive(
+        engine, server, nativeBackupRoot, { ...dependencies, now: now() },
+      );
+    } catch (error) {
+      operationError = error;
+    }
+    if (wasRunning && !keepStopped) {
+      try {
+        await multicraft.start(server.multicraftServerId);
+      } catch (error) {
+        if (!operationError) {
+          operationError = new Error(`Native backup archive was created but the server could not be restarted: ${error.message}`);
+        }
+      }
+    }
+    if (operationError) throw operationError;
+    return archive;
+  }
+
   async function createConfiguredBackup(server, engine, kind, payload = {}) {
     if (activeBackupFor(server.id)) throw new Error("A backup is already in progress for this server.");
     const backup = {
@@ -406,9 +513,7 @@ function createManagementService(config = {}, dependencies = {}) {
       if (engine.type === "native") {
         const destinationIds = requestedStorageIds(engine, payload);
         await assertStorageSafeguards(destinationIds);
-        backup.localPath = await createNativeArchive(
-          engine, server, nativeBackupRoot, { ...dependencies, now: now() },
-        );
+        backup.localPath = await createConsistentNativeArchive(server, engine, kind);
         backup.sizeBytes = fs.statSync(backup.localPath).size;
         await copyBackupToDestinations(backup, destinationIds);
         backup.status = "completed";
@@ -416,9 +521,28 @@ function createManagementService(config = {}, dependencies = {}) {
         activity(server, "Backup completed", backup.message);
       } else {
         if (!multicraft) throw new Error("Multicraft is required to dispatch backup commands.");
+        let baseline = null;
+        if (engine.completionRegex) {
+          if (typeof multicraft.log !== "function") {
+            throw new Error("This backup engine requires Multicraft log access for completion observation.");
+          }
+          baseline = await multicraft.log(server.multicraftServerId);
+        }
         await multicraft.sendConsole(server.multicraftServerId, engine.command);
-        backup.status = "unknown";
-        backup.message = "Backup command dispatched; completion is not observable by the central bridge.";
+        if (engine.completionRegex) {
+          backup.status = "running";
+          backup.message = `Waiting for ${engine.label} completion.`;
+          commandBackupObservers.set(backup.id, {
+            lastLines: baseline,
+            completion: new RegExp(engine.completionRegex, "u"),
+            failure: engine.failureRegex ? new RegExp(engine.failureRegex, "u") : null,
+            timeoutSeconds: engine.completionTimeoutSeconds,
+            deadline: now().getTime() + engine.completionTimeoutSeconds * 1000,
+          });
+        } else {
+          backup.status = "unknown";
+          backup.message = "Backup command dispatched; completion is not observable by the central bridge.";
+        }
         activity(server, "Backup command sent", `${engine.label}: ${engine.command}`);
       }
       persist();
@@ -445,7 +569,9 @@ function createManagementService(config = {}, dependencies = {}) {
   function backupCompletionObservable(server) {
     const engineId = String(server.defaultBackupEngineId || "multicraft").trim();
     if (engineId === "multicraft") return true;
-    return engineById(engineId)?.type === "native";
+    const engine = engineById(engineId);
+    if (engine?.type === "native") return true;
+    return Boolean(engine?.completionRegex && typeof multicraft?.log === "function");
   }
 
   async function executeAction(server, action, source = "scheduled") {
@@ -723,6 +849,7 @@ function createManagementService(config = {}, dependencies = {}) {
     ticking = true;
     try {
       await refreshBackups();
+      await refreshCommandBackups();
       await runSchedules();
       for (const maintenance of state.maintenance) {
         try {
@@ -1057,4 +1184,4 @@ function createManagementService(config = {}, dependencies = {}) {
   };
 }
 
-module.exports = { createManagementService, nextCron, parseServers };
+module.exports = { createManagementService, nextCron, parseServers, appendedLogLines };

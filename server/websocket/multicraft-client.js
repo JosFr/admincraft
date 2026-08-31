@@ -154,6 +154,14 @@ function createMulticraftClient(config = {}) {
       });
     },
 
+    async log(overrideId) {
+      const data = await call("getServerLog", { id: targetId(overrideId) });
+      const entries = Array.isArray(data) ? data : Object.values(data || {});
+      return entries
+        .map((entry) => typeof entry === "string" ? entry : String(entry?.line || ""))
+        .filter((line) => line.length > 0);
+    },
+
     async startBackup(overrideId) {
       return call("startServerBackup", { id: targetId(overrideId) });
     },

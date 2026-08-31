@@ -296,6 +296,7 @@ test("AdminCraft Native backup copies to configured local storage", async () => 
         serverId: "lobby",
         label: "AdminCraft Native",
         sourcePath: source,
+        consistency: "live",
         destinationIds: ["local"],
       }]),
     }, {
@@ -510,5 +511,192 @@ test("maintenance rejects an unobservable plugin safety backup", async () => {
     assert.equal(result.success, false);
     assert.match(result.message, /completion can be verified/u);
     assert.equal(service.snapshot().maintenance.length, 0);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+test("observable plugin backup ignores old completion lines and completes on new log output", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "admincraft-plugin-observer-"));
+  let logLines = ["[Backup] Backup complete: old.zip"];
+  const calls = [];
+  const multicraft = {
+    async sendConsole(id, command) { calls.push(["console", id, command]); },
+    async log() { return [...logLines]; },
+    async backupStatus() { return { status: "completed" }; },
+    async status() { return "running"; },
+    async statusDetails() { return { onlinePlayers: 0 }; },
+    async resources() { return { cpuPercent: 1, memoryMb: 1 }; },
+  };
+  try {
+    const service = createManagementService({
+      serversJson: JSON.stringify([{ id: "smp", name: "SMP", multicraftServerId: 7 }]),
+      statePath: path.join(dir, "state.json"),
+      enginesJson: JSON.stringify([{
+        id: "plugin-smp", type: "plugin", serverId: "smp", label: "WebDavBackup",
+        command: "webdavbackup backup", completionRegex: "Backup complete", failureRegex: "Backup failed",
+        completionTimeoutSeconds: 120,
+      }]),
+    }, { multicraft });
+
+    const result = await service.handle("backup-create", { serverId: "smp", engineId: "plugin-smp" });
+    assert.equal(result.success, true);
+    assert.deepEqual(calls, [["console", 7, "webdavbackup backup"]]);
+    assert.equal(service.snapshot().backups[0].status, "running");
+
+    await service.tick();
+    assert.equal(service.snapshot().backups[0].status, "running");
+
+    logLines = [...logLines, "[Backup] Creating archive", "[Backup] Backup complete: new.zip"];
+    await service.tick();
+    assert.equal(service.snapshot().backups[0].status, "completed");
+    assert.match(service.snapshot().backups[0].message, /reported completion/u);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("observable plugin backup records a matching failure", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "admincraft-plugin-failure-"));
+  let logLines = [];
+  const multicraft = {
+    async sendConsole() {}, async log() { return [...logLines]; },
+    async backupStatus() { return { status: "completed" }; },
+    async status() { return "running"; }, async statusDetails() { return { onlinePlayers: 0 }; },
+    async resources() { return { cpuPercent: 1, memoryMb: 1 }; },
+  };
+  try {
+    const service = createManagementService({
+      serversJson: JSON.stringify([{ id: "smp", name: "SMP", multicraftServerId: 7 }]),
+      statePath: path.join(dir, "state.json"),
+      enginesJson: JSON.stringify([{
+        id: "plugin-smp", type: "plugin", serverId: "smp", command: "backup start",
+        completionRegex: "Backup complete", failureRegex: "Backup failed",
+      }]),
+    }, { multicraft });
+    await service.handle("backup-create", { serverId: "smp", engineId: "plugin-smp" });
+    logLines = ["Backup failed: destination unavailable"];
+    await service.tick();
+    assert.equal(service.snapshot().backups[0].status, "failed");
+    assert.match(service.snapshot().backups[0].message, /reported a failure/u);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("observable plugin backup times out and can be used as a maintenance safety backup", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "admincraft-plugin-timeout-"));
+  let now = new Date("2026-08-29T04:00:00Z");
+  const multicraft = {
+    async sendConsole() {}, async log() { return []; },
+    async backupStatus() { return { status: "completed" }; },
+    async status() { return "running"; }, async statusDetails() { return { onlinePlayers: 0 }; },
+    async resources() { return { cpuPercent: 1, memoryMb: 1 }; },
+    async restart() {},
+  };
+  try {
+    const service = createManagementService({
+      serversJson: JSON.stringify([{
+        id: "smp", name: "SMP", multicraftServerId: 7, defaultBackupEngineId: "plugin-smp",
+      }]),
+      statePath: path.join(dir, "state.json"),
+      enginesJson: JSON.stringify([{
+        id: "plugin-smp", type: "plugin", serverId: "smp", command: "backup start",
+        completionRegex: "Backup complete", completionTimeoutSeconds: 5,
+      }]),
+    }, { multicraft, now: () => new Date(now) });
+    const maintenance = await service.handle("maintenance-start", {
+      serverId: "smp", countdownSeconds: 0, backup: true,
+    });
+    assert.equal(maintenance.success, true);
+    await service.tick();
+    assert.equal(service.snapshot().backups[0].status, "running");
+    now = new Date(now.getTime() + 6000);
+    await service.tick();
+    assert.equal(service.snapshot().backups[0].status, "failed");
+    assert.match(service.snapshot().backups[0].message, /not observed within 5 seconds/u);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+test("offline native backup stops a running server and restores its running state", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "admincraft-native-offline-"));
+  const source = path.join(dir, "server");
+  fs.mkdirSync(source, { recursive: true });
+  fs.writeFileSync(path.join(source, "server.properties"), "motd=test", "utf8");
+  let status = "running";
+  const calls = [];
+  const multicraft = {
+    async status(id) { calls.push(["status", id]); return status; },
+    async stop(id) { calls.push(["stop", id]); status = "stopped"; },
+    async start(id) { calls.push(["start", id]); status = "running"; },
+  };
+  try {
+    const service = createManagementService({
+      serversJson: JSON.stringify([{ id: "smp", name: "SMP", multicraftServerId: 7 }]),
+      statePath: path.join(dir, "state.json"),
+      enginesJson: JSON.stringify([{
+        id: "native-smp", type: "native", serverId: "smp", sourcePath: source,
+      }]),
+    }, {
+      multicraft,
+      execFile: async (command, args) => {
+        assert.equal(command, "tar");
+        fs.mkdirSync(path.dirname(args[1]), { recursive: true });
+        fs.writeFileSync(args[1], "archive", "utf8");
+      },
+    });
+    const result = await service.handle("backup-create", { serverId: "smp", engineId: "native-smp" });
+    assert.equal(result.success, true);
+    assert.equal(service.snapshot().backups[0].status, "completed");
+    assert.equal(status, "running");
+    assert.deepEqual(calls, [["status", 7], ["stop", 7], ["status", 7], ["start", 7]]);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("offline native backup leaves an already stopped server stopped", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "admincraft-native-stopped-"));
+  const source = path.join(dir, "server");
+  fs.mkdirSync(source, { recursive: true });
+  const calls = [];
+  const multicraft = { async status(id) { calls.push(["status", id]); return "stopped"; } };
+  try {
+    const service = createManagementService({
+      serversJson: JSON.stringify([{ id: "smp", name: "SMP", multicraftServerId: 7 }]),
+      statePath: path.join(dir, "state.json"),
+      enginesJson: JSON.stringify([{
+        id: "native-smp", type: "native", serverId: "smp", sourcePath: source,
+      }]),
+    }, {
+      multicraft,
+      execFile: async (_command, args) => {
+        fs.mkdirSync(path.dirname(args[1]), { recursive: true });
+        fs.writeFileSync(args[1], "archive", "utf8");
+      },
+    });
+    const result = await service.handle("backup-create", { serverId: "smp", engineId: "native-smp" });
+    assert.equal(result.success, true);
+    assert.deepEqual(calls, [["status", 7]]);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("offline native backup restarts a running server after archive failure", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "admincraft-native-failure-"));
+  const source = path.join(dir, "server");
+  fs.mkdirSync(source, { recursive: true });
+  let status = "running";
+  const calls = [];
+  const multicraft = {
+    async status(id) { calls.push(["status", id]); return status; },
+    async stop(id) { calls.push(["stop", id]); status = "stopped"; },
+    async start(id) { calls.push(["start", id]); status = "running"; },
+  };
+  try {
+    const service = createManagementService({
+      serversJson: JSON.stringify([{ id: "smp", name: "SMP", multicraftServerId: 7 }]),
+      statePath: path.join(dir, "state.json"),
+      enginesJson: JSON.stringify([{
+        id: "native-smp", type: "native", serverId: "smp", sourcePath: source,
+      }]),
+    }, { multicraft, execFile: async () => { throw new Error("tar failed"); } });
+    const result = await service.handle("backup-create", { serverId: "smp", engineId: "native-smp" });
+    assert.equal(result.success, false);
+    assert.match(result.message, /tar failed/u);
+    assert.equal(status, "running");
+    assert.equal(service.snapshot().backups[0].status, "failed");
+    assert.deepEqual(calls, [["status", 7], ["stop", 7], ["status", 7], ["start", 7]]);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

@@ -1,4 +1,4 @@
-﻿const assert = require("node:assert/strict");
+const assert = require("node:assert/strict");
 const test = require("node:test");
 const { validateEnvironment } = require("../config-validator");
 
@@ -149,6 +149,25 @@ test("preflight rejects backup engines pointing at unknown storage", () => {
   assert.ok(result.errors.some((message) => message.includes("Unknown backup storage")));
 });
 
+test("preflight rejects unsafe backup observation configuration", () => {
+  const invalidConsistency = validEnv();
+  invalidConsistency.BACKUP_ENGINES_JSON = JSON.stringify([{
+    id: "native-lobby", type: "native", serverId: "lobby",
+    sourcePath: "/srv/minecraft/lobby", consistency: "magic",
+  }]);
+  let result = validateEnvironment(invalidConsistency);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((message) => message.includes("invalid consistency mode")));
+
+  const invalidRegex = validEnv();
+  invalidRegex.BACKUP_ENGINES_JSON = JSON.stringify([{
+    id: "plugin-lobby", type: "plugin", serverId: "lobby",
+    command: "backup start", completionRegex: "[broken",
+  }]);
+  result = validateEnvironment(invalidRegex);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((message) => message.includes("Invalid completionRegex")));
+});
 test("preflight validates retention server overrides", () => {
   const env = validEnv();
   env.BACKUP_RETENTION_JSON = JSON.stringify({

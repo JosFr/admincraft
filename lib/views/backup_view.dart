@@ -234,6 +234,37 @@ class BackupView extends StatelessWidget {
                         });
                       },
                     ),
+                    if (engine.type == BackupEngineType.native) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(
+                              engine.isOfflineNative
+                                  ? Icons.power_settings_new_rounded
+                                  : Icons.warning_amber_rounded,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                engine.isOfflineNative
+                                    ? 'Offline-consistent snapshot. If the server is running, AdminCraft briefly stops it while the full-server archive is created and then starts it again.'
+                                    : 'Live snapshot. The server stays online while files are archived, so files can change during the backup. Use this only when that trade-off is intentional.',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     if (engine.capabilities.remoteDestination) ...[
                       const SizedBox(height: 16),
                       Align(
@@ -285,7 +316,11 @@ class BackupView extends StatelessWidget {
                     ? () => Navigator.pop(context, true)
                     : null,
                 icon: const Icon(Icons.backup_outlined),
-                label: const Text('Backup now'),
+                label: Text(
+                  engine.isOfflineNative
+                      ? 'Create offline snapshot'
+                      : 'Backup now',
+                ),
               ),
             ],
           );
