@@ -27,6 +27,7 @@ import 'package:admincraft/views/terminal_tab_view.dart';
 import 'package:admincraft/views/widgets/pixel_backdrop.dart';
 import 'package:admincraft/views/widgets/theme_logo.dart';
 import 'package:admincraft/views/widgets/notification_inbox.dart';
+import 'package:admincraft/views/widgets/server_icon.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -953,7 +954,7 @@ class _ScopeSwitcher extends StatelessWidget {
             value: server.id,
             child: ListTile(
               contentPadding: EdgeInsets.zero,
-              leading: const Icon(Icons.dns_outlined),
+              leading: ServerIcon(server: server, size: 28),
               title: Text(server.alias),
               subtitle: Text(server.edition.label),
             ),
@@ -962,7 +963,10 @@ class _ScopeSwitcher extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(networkScope ? Icons.hub_outlined : Icons.dns_outlined),
+          if (networkScope)
+            const Icon(Icons.hub_outlined)
+          else
+            ServerIcon(server: model.selectedServer, size: 24),
           const SizedBox(width: 8),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 160),
@@ -1285,9 +1289,8 @@ class _SectionLabel extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(10, 6, 10, 5),
       child: Text(
         label.toUpperCase(),
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
+        style: Theme.of(context).textTheme.labelSmall
+            ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
       ),
     );
   }

@@ -42,6 +42,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   List<NetworkAccessEntry> _access = const [];
   bool _accessSnapshotInitialized = false;
   ManagementSnapshot _management = const ManagementSnapshot();
+  bool _managementSnapshotInitialized = false;
   List<PerformanceSample> _performance = const [];
   PerformanceSource _performanceSource = const PerformanceSource();
   String? _managementMessage;
@@ -224,8 +225,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         }
         return;
       case 'admincraft.management-state':
-        _management = ManagementSnapshot.fromJson(decoded);
-        notifyListeners();
+        _updateManagement(ManagementSnapshot.fromJson(decoded));
         return;
       case 'admincraft.performance-history':
         final rawSource = decoded['source'];
@@ -245,10 +245,8 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         _managementMessage = decoded['message']?.toString();
         _managementSuccess = decoded['success'] == true;
         if (_managementSuccess != true) {
-          notifications.add(
-            kind: AppNotificationKind.error,
-            title: 'AdminCraft management',
-            message: _managementMessage ?? 'Management action failed.',
+          ToastUtils.showToastError(
+            _managementMessage ?? 'Management action failed.',
           );
         }
         notifyListeners();
@@ -271,6 +269,102 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         }
         return;
     }
+  }
+
+  void _updateManagement(ManagementSnapshot next) {
+    final previous = _management;
+    final wasInitialized = _managementSnapshotInitialized;
+    _management = next;
+    _managementSnapshotInitialized = true;
+
+    if (wasInitialized) {
+      final previousBackups = {
+        for (final backup in previous.backups) backup.id: backup.status,
+      };
+      if (notifications.ruleEnabled(NotificationRule.backupFailures)) {
+        for (final backup in next.backups) {
+          if (backup.status != BackupStatus.failed ||
+              previousBackups[backup.id] == BackupStatus.failed) {
+            continue;
+          }
+          notifications.add(
+            kind: AppNotificationKind.error,
+            title: '${backup.serverName} backup failed',
+            message: backup.message?.trim().isNotEmpty == true
+                ? backup.message!.trim()
+                : '${backup.engineLabel.isEmpty ? backup.engine.name : backup.engineLabel} backup failed.',
+          );
+        }
+      }
+
+      final previousJobs = {for (final job in previous.jobHistory) job.id};
+      if (notifications.ruleEnabled(NotificationRule.scheduledFailures)) {
+        for (final job in next.jobHistory) {
+          if (previousJobs.contains(job.id) ||
+              job.success != false ||
+              job.source != 'scheduled' ||
+              job.action == ScheduledActionType.backup) {
+            continue;
+          }
+          notifications.add(
+            kind: AppNotificationKind.error,
+            title: '${job.serverName} scheduled action failed',
+            message: job.message.isEmpty
+                ? '${job.action.name} failed.'
+                : job.message,
+          );
+        }
+      }
+
+      final previousMaintenance = {
+        for (final item in previous.maintenance) item.serverId: item.stage,
+      };
+      if (notifications.ruleEnabled(NotificationRule.maintenanceProblems)) {
+        for (final item in next.maintenance) {
+          if (item.stage != 'failed' ||
+              previousMaintenance[item.serverId] == 'failed') {
+            continue;
+          }
+          notifications.add(
+            kind: AppNotificationKind.error,
+            title: '${item.serverName} maintenance failed',
+            message: item.message.isEmpty
+                ? 'Maintenance did not complete successfully.'
+                : item.message,
+          );
+        }
+      }
+
+      String updateKey(PluginUpdate update) =>
+          '${update.serverId}\u0000${update.kind}\u0000${update.plugin}';
+      final previousUpdates = {
+        for (final update in previous.updates)
+          updateKey(update): (update.status, update.latestVersion),
+      };
+      if (notifications.ruleEnabled(NotificationRule.updateAvailable)) {
+        for (final update in next.updates) {
+          if (update.status != PluginUpdateStatus.updateAvailable) continue;
+          final old = previousUpdates[updateKey(update)];
+          if (old != null &&
+              old.$1 == PluginUpdateStatus.updateAvailable &&
+              old.$2 == update.latestVersion) {
+            continue;
+          }
+          final versions = [
+            if (update.currentVersion.isNotEmpty) update.currentVersion,
+            if (update.latestVersion?.trim().isNotEmpty == true)
+              update.latestVersion!.trim(),
+          ];
+          notifications.add(
+            kind: AppNotificationKind.info,
+            title: '${update.plugin} update available',
+            message:
+                '${update.serverName}${versions.isEmpty ? '' : ' · ${versions.join(' → ')}'}',
+          );
+        }
+      }
+    }
+    notifyListeners();
   }
 
   void _updateNetwork(NetworkSnapshot next) {
@@ -539,6 +633,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     _performance = const [];
     _performanceSource = const PerformanceSource();
     _accessSnapshotInitialized = false;
+    _managementSnapshotInitialized = false;
   }
 
   @override

@@ -4,7 +4,16 @@ import 'package:admincraft/models/app_notification.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum NotificationRule { accessRequests, serverStatus, health, playerActivity }
+enum NotificationRule {
+  accessRequests,
+  serverStatus,
+  health,
+  backupFailures,
+  scheduledFailures,
+  maintenanceProblems,
+  updateAvailable,
+  playerActivity,
+}
 
 extension NotificationRuleDetails on NotificationRule {
   String get storageKey => 'notificationRule.$name';
@@ -12,6 +21,10 @@ extension NotificationRuleDetails on NotificationRule {
     NotificationRule.accessRequests => true,
     NotificationRule.serverStatus => true,
     NotificationRule.health => true,
+    NotificationRule.backupFailures => true,
+    NotificationRule.scheduledFailures => true,
+    NotificationRule.maintenanceProblems => true,
+    NotificationRule.updateAvailable => true,
     NotificationRule.playerActivity => false,
   };
 }

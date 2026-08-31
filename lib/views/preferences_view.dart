@@ -418,8 +418,7 @@ class _PreferencesViewState extends State<PreferencesView> {
               if (notifications != null) ...[
                 _PreferenceCard(
                   title: 'Notifications',
-                  subtitle:
-                      'Only events that need attention appear behind the bell; routine activity stays out of notifications.',
+                  subtitle: 'Only events that need attention appear behind the bell; routine activity stays out of notifications.',
                   child: Column(
                     children: [
                       SwitchListTile(
@@ -435,8 +434,12 @@ class _PreferencesViewState extends State<PreferencesView> {
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Access requests'),
-                        subtitle: const Text('Notify when a player asks for network access.'),
-                        value: notifications.ruleEnabled(NotificationRule.accessRequests),
+                        subtitle: const Text(
+                          'Notify when a player asks for network access.',
+                        ),
+                        value: notifications.ruleEnabled(
+                          NotificationRule.accessRequests,
+                        ),
                         onChanged: (value) => notifications.setRuleEnabled(
                           NotificationRule.accessRequests,
                           value,
@@ -445,8 +448,12 @@ class _PreferencesViewState extends State<PreferencesView> {
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Unexpected server offline'),
-                        subtitle: const Text('Notify when a backend becomes unavailable outside standby.'),
-                        value: notifications.ruleEnabled(NotificationRule.serverStatus),
+                        subtitle: const Text(
+                          'Notify when a backend becomes unavailable outside standby.',
+                        ),
+                        value: notifications.ruleEnabled(
+                          NotificationRule.serverStatus,
+                        ),
                         onChanged: (value) => notifications.setRuleEnabled(
                           NotificationRule.serverStatus,
                           value,
@@ -455,10 +462,68 @@ class _PreferencesViewState extends State<PreferencesView> {
                       SwitchListTile(
                         contentPadding: EdgeInsets.zero,
                         title: const Text('Health alerts'),
-                        subtitle: const Text('Notify when Velocity marks a backend as error.'),
-                        value: notifications.ruleEnabled(NotificationRule.health),
+                        subtitle: const Text(
+                          'Notify when Velocity marks a backend as error.',
+                        ),
+                        value: notifications.ruleEnabled(
+                          NotificationRule.health,
+                        ),
                         onChanged: (value) => notifications.setRuleEnabled(
                           NotificationRule.health,
+                          value,
+                        ),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Backup failures'),
+                        subtitle: const Text('Notify when a backup fails.'),
+                        value: notifications.ruleEnabled(
+                          NotificationRule.backupFailures,
+                        ),
+                        onChanged: (value) => notifications.setRuleEnabled(
+                          NotificationRule.backupFailures,
+                          value,
+                        ),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Scheduled action failures'),
+                        subtitle: const Text(
+                          'Notify when a persistent scheduled job fails.',
+                        ),
+                        value: notifications.ruleEnabled(
+                          NotificationRule.scheduledFailures,
+                        ),
+                        onChanged: (value) => notifications.setRuleEnabled(
+                          NotificationRule.scheduledFailures,
+                          value,
+                        ),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Maintenance problems'),
+                        subtitle: const Text(
+                          'Notify when a maintenance flow fails.',
+                        ),
+                        value: notifications.ruleEnabled(
+                          NotificationRule.maintenanceProblems,
+                        ),
+                        onChanged: (value) => notifications.setRuleEnabled(
+                          NotificationRule.maintenanceProblems,
+                          value,
+                        ),
+                      ),
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Updates available'),
+                        subtitle: const Text(
+                          'Notify when an enabled update source reports a newer version.',
+                        ),
+                        value: notifications.ruleEnabled(
+                          NotificationRule.updateAvailable,
+                        ),
+                        onChanged: (value) => notifications.setRuleEnabled(
+                          NotificationRule.updateAvailable,
                           value,
                         ),
                       ),
@@ -466,25 +531,29 @@ class _PreferencesViewState extends State<PreferencesView> {
                         const Divider(),
                         ListTile(
                           contentPadding: EdgeInsets.zero,
-                          leading: const Icon(Icons.notifications_active_outlined),
+                          leading: const Icon(
+                            Icons.notifications_active_outlined,
+                          ),
                           title: const Text('Native iOS push'),
                           subtitle: Text(
-                            push.authorization == 'authorized' || push.authorization == 'provisional'
+                            push.authorization == 'authorized' ||
+                                    push.authorization == 'provisional'
                                 ? (push.bridgeRegistered
-                                    ? (push.providerConfigured
-                                        ? 'APNs device registered and provider ready.'
-                                        : 'Device registered; APNs provider setup is still required.')
-                                    : 'Permission granted; waiting for bridge registration.')
+                                      ? (push.providerConfigured
+                                            ? 'APNs device registered and provider ready.'
+                                            : 'Device registered; APNs provider setup is still required.')
+                                      : 'Permission granted; waiting for bridge registration.')
                                 : push.authorization == 'denied'
-                                    ? 'Notifications are disabled in iOS Settings.'
-                                    : 'Allow native notifications from Admincraft.'
+                                ? 'Notifications are disabled in iOS Settings.'
+                                : 'Allow native notifications from Admincraft.',
                           ),
                           trailing: FilledButton(
                             onPressed: push.authorization == 'denied'
                                 ? null
                                 : push.requestPermission,
                             child: Text(
-                              push.authorization == 'authorized' || push.authorization == 'provisional'
+                              push.authorization == 'authorized' ||
+                                      push.authorization == 'provisional'
                                   ? 'Refresh'
                                   : 'Enable',
                             ),
@@ -495,9 +564,10 @@ class _PreferencesViewState extends State<PreferencesView> {
                             alignment: Alignment.centerLeft,
                             child: Text(
                               push.error!,
-                              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: Theme.of(context).colorScheme.error,
-                              ),
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: Theme.of(context).colorScheme.error,
+                                  ),
                             ),
                           ),
                       ],
@@ -509,8 +579,7 @@ class _PreferencesViewState extends State<PreferencesView> {
               if (network != null) ...[
                 _PreferenceCard(
                   title: 'Plugin update providers',
-                  subtitle:
-                      'Choose which catalogues Admincraft may query for update matches.',
+                  subtitle: 'Choose which catalogues Admincraft may query for update matches.',
                   child: Column(
                     children: [
                       for (final provider in UpdateProvider.values)
@@ -518,12 +587,9 @@ class _PreferencesViewState extends State<PreferencesView> {
                           contentPadding: EdgeInsets.zero,
                           title: Text(provider.label),
                           subtitle: Text(switch (provider) {
-                            UpdateProvider.builtByBit =>
-                              'Uses the server-side BuiltByBit API token; licenses are never bypassed.',
-                            UpdateProvider.spigot =>
-                              'Checks Spigot metadata without bypassing premium downloads.',
-                            UpdateProvider.paperMC =>
-                              'Checks Paper and Velocity platform releases via PaperMC.',
+                            UpdateProvider.builtByBit => 'Uses the server-side BuiltByBit API token; licenses are never bypassed.',
+                            UpdateProvider.spigot => 'Checks Spigot metadata without bypassing premium downloads.',
+                            UpdateProvider.paperMC => 'Checks Paper and Velocity platform releases via PaperMC.',
                             _ => 'Use this provider when checking for plugin updates.',
                           }),
                           value: network.updateProviderEnabled(provider),

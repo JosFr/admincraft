@@ -1,6 +1,7 @@
 import 'package:admincraft/controllers/connection_controller.dart';
 import 'package:admincraft/controllers/google_drive_sync_controller.dart';
 import 'package:admincraft/controllers/notification_controller.dart';
+
 import 'dart:convert';
 
 import 'package:admincraft/main.dart';
@@ -349,7 +350,9 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('selecting a server opens its overview under Servers', (tester) async {
+  testWidgets('selecting a server opens its overview under Servers', (
+    tester,
+  ) async {
     const first = ServerProfile(
       id: 'first',
       alias: 'First server',
@@ -358,6 +361,7 @@ void main() {
       secretKey: 'secret',
       certificate: '',
       security: ConnectionSecurity.privateNetwork,
+      iconAsset: 'assets/mcicons/lantern.png',
     );
     const second = ServerProfile(
       id: 'second',
@@ -367,6 +371,7 @@ void main() {
       secretKey: 'secret',
       certificate: '',
       security: ConnectionSecurity.privateNetwork,
+      iconAsset: 'assets/mcicons/live_chicken.png',
     );
     await pumpApp(
       tester,
@@ -380,6 +385,13 @@ void main() {
 
     await tester.tap(find.byTooltip('Switch scope'));
     await tester.pumpAndSettle();
+    final chickenIcon = find.byWidgetPredicate((widget) {
+      return widget is Image &&
+          widget.image is AssetImage &&
+          (widget.image as AssetImage).assetName ==
+              'assets/mcicons/live_chicken.png';
+    });
+    expect(chickenIcon, findsOneWidget);
     await tester.tap(find.text('Second server'));
     await tester.pumpAndSettle();
 
@@ -693,10 +705,7 @@ void main() {
         capabilities: browserCapabilities,
       );
 
-      expect(
-        find.text('Connection unavailable'),
-        findsOneWidget,
-      );
+      expect(find.text('Connection unavailable'), findsOneWidget);
       expect(find.textContaining('cannot use the self-signed'), findsOneWidget);
       expect(service.connectCalls, 0);
 
@@ -866,10 +875,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('app-title')));
     await tester.pumpAndSettle();
 
-    expect(
-      find.text('Choose a server to open its dashboard.'),
-      findsOneWidget,
-    );
+    expect(find.text('Choose a server to open its dashboard.'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 
