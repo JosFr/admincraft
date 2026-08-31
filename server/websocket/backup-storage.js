@@ -103,7 +103,9 @@ async function ensureWebDavPath(storage, relativeDirectory, fetchImpl = fetch) {
   if (MOUNT_TYPES.has(storage.type)) {
     const target = path.join(storage.path, storage.basePath, safePart(serverId), safePart(fileName));
     fs.mkdirSync(path.dirname(target), { recursive: true });
-    await fs.promises.copyFile(sourceFile, target);
+    if (path.resolve(sourceFile) !== path.resolve(target)) {
+      await fs.promises.copyFile(sourceFile, target);
+    }
     return { storageId: storage.id, locator: target };
   }
   if (WEBDAV_TYPES.has(storage.type)) {

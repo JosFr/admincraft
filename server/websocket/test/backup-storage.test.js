@@ -70,3 +70,20 @@ test("storage exposes minimum-free-space safeguard without credentials", () => {
   assert.equal(visible.minimumFreeBytes, 150 * 1024 * 1024 * 1024);
   assert.equal(Object.hasOwn(visible, "password"), false);
 });
+test("local storage reuses a native archive already at its destination", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "admincraft-storage-same-"));
+  try {
+    const targetRoot = path.join(dir, "target");
+    const source = path.join(targetRoot, "smp", "smp-backup.tar.gz");
+    fs.mkdirSync(path.dirname(source), { recursive: true });
+    fs.writeFileSync(source, "native-backup", "utf8");
+    const storage = parseBackupStorages({
+      storagesJson: JSON.stringify([{ id: "local", type: "local", path: targetRoot }]),
+    })[0];
+    const result = await copyToStorage(storage, source, "smp");
+    assert.equal(path.resolve(result.locator), path.resolve(source));
+    assert.equal(fs.readFileSync(source, "utf8"), "native-backup");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
