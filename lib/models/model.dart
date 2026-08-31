@@ -446,7 +446,8 @@ class Model with ChangeNotifier {
     var updated = 0;
 
     final merged = [..._servers];
-    for (final server in incoming) {
+    for (final rawServer in incoming) {
+      final server = migrateLegacyAdmincraftEndpoint(rawServer);
       final index = merged.indexWhere((existing) => existing.id == server.id);
       if (index >= 0) {
         merged[index] = server;
@@ -466,7 +467,7 @@ class Model with ChangeNotifier {
   /// Replaces the local profile set with an already decrypted cloud copy.
   Future<void> replaceServers(List<ServerProfile> incoming) async {
     if (incoming.isEmpty) return;
-    _servers = [...incoming];
+    _servers = incoming.map(migrateLegacyAdmincraftEndpoint).toList();
     if (_servers.any((server) => server.isComplete)) {
       await _persistenceService.markOnboardingCompleted();
     }

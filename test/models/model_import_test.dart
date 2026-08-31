@@ -88,4 +88,53 @@ void main() {
     expect(model.onboardingCompleted, isTrue);
     expect(preferences.getBool('onboardingCompleted'), isTrue);
   });
+
+  test(
+    'import repairs a pre-icon gateway profile without overriding explicit icons',
+    () async {
+      final preferences = await SharedPreferences.getInstance();
+      final model = Model(PersistenceService(preferences));
+      const legacy = ServerProfile(
+        id: 'legacy-smp',
+        alias: 'Minecraft SMP',
+        ip: 'admincraft.fraanje.net',
+        port: 443,
+        bridgePath: '/smp',
+        secretKey: 'key',
+        certificate: '',
+        security: ConnectionSecurity.trustedCertificate,
+        iconMigrationVersion: 0,
+      );
+
+      await model.importServers([legacy]);
+      final migrated = model.servers.firstWhere(
+        (server) => server.id == legacy.id,
+      );
+
+      expect(migrated.iconAsset, 'docs/logo/variants/grass.png');
+      expect(migrated.iconMigrationVersion, 1);
+    },
+  );
+
+  test('Drive-style replacement applies the same icon migration', () async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final model = Model(PersistenceService(preferences));
+    const legacy = ServerProfile(
+      id: 'legacy-lobby',
+      alias: 'Lobby',
+      ip: 'admincraft.fraanje.net',
+      port: 443,
+      bridgePath: '/lobby',
+      secretKey: 'key',
+      certificate: '',
+      security: ConnectionSecurity.trustedCertificate,
+      iconMigrationVersion: 0,
+    );
+
+    await model.replaceServers([legacy]);
+
+    expect(model.servers.single.iconAsset, 'assets/mcicons/lantern.png');
+    expect(model.servers.single.iconMigrationVersion, 1);
+  });
 }

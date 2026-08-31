@@ -3,18 +3,16 @@ import 'package:admincraft/models/server_profile.dart';
 import 'package:admincraft/services/legacy_endpoint_migration.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-ServerProfile profile({
-  required String host,
-  required int port,
-}) => ServerProfile(
-  id: 'server-1',
-  alias: 'Test server',
-  ip: host,
-  port: port,
-  secretKey: 'keep-this-key',
-  certificate: 'legacy-cert',
-  security: ConnectionSecurity.privateNetwork,
-);
+ServerProfile profile({required String host, required int port}) =>
+    ServerProfile(
+      id: 'server-1',
+      alias: 'Test server',
+      ip: host,
+      port: port,
+      secretKey: 'keep-this-key',
+      certificate: 'legacy-cert',
+      security: ConnectionSecurity.privateNetwork,
+    );
 
 void main() {
   test('migrates every known legacy bridge port to its gateway path', () {
@@ -66,4 +64,62 @@ void main() {
 
     expect(identical(migrated, original), isTrue);
   });
+
+  test('repairs missing legacy icon once for an existing gateway profile', () {
+    const original = ServerProfile(
+      id: 'smp',
+      alias: 'Minecraft SMP',
+      ip: 'admincraft.fraanje.net',
+      port: 443,
+      bridgePath: '/smp',
+      secretKey: 'key',
+      certificate: '',
+      security: ConnectionSecurity.trustedCertificate,
+      iconMigrationVersion: 0,
+    );
+
+    final migrated = migrateLegacyAdmincraftEndpoint(original);
+
+    expect(migrated.iconAsset, 'docs/logo/variants/grass.png');
+    expect(migrated.iconMigrationVersion, 1);
+  });
+
+  test(
+    'never replaces an explicit icon or custom image during icon migration',
+    () {
+      const explicit = ServerProfile(
+        id: 'lobby',
+        alias: 'Lobby',
+        ip: 'admincraft.fraanje.net',
+        port: 443,
+        bridgePath: '/lobby',
+        secretKey: 'key',
+        certificate: '',
+        security: ConnectionSecurity.trustedCertificate,
+        iconAsset: 'assets/mcicons/beacon.png',
+        iconMigrationVersion: 0,
+      );
+      const custom = ServerProfile(
+        id: 'lobby-custom',
+        alias: 'Lobby custom',
+        ip: 'admincraft.fraanje.net',
+        port: 443,
+        bridgePath: '/lobby',
+        secretKey: 'key',
+        certificate: '',
+        security: ConnectionSecurity.trustedCertificate,
+        customIconBase64: 'aWNvbg==',
+        iconMigrationVersion: 0,
+      );
+
+      final explicitMigrated = migrateLegacyAdmincraftEndpoint(explicit);
+      final customMigrated = migrateLegacyAdmincraftEndpoint(custom);
+
+      expect(explicitMigrated.iconAsset, 'assets/mcicons/beacon.png');
+      expect(customMigrated.iconAsset, 'docs/logo/variants/dirt.png');
+      expect(customMigrated.customIconBase64, 'aWNvbg==');
+      expect(explicitMigrated.iconMigrationVersion, 1);
+      expect(customMigrated.iconMigrationVersion, 1);
+    },
+  );
 }

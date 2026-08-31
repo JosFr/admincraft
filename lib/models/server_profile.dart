@@ -16,6 +16,7 @@ class ServerProfile {
   final MinecraftEdition edition;
   final String iconAsset;
   final String customIconBase64;
+  final int iconMigrationVersion;
 
   const ServerProfile({
     required this.id,
@@ -30,6 +31,7 @@ class ServerProfile {
     this.edition = MinecraftEdition.bedrock,
     this.iconAsset = 'docs/logo/variants/dirt.png',
     this.customIconBase64 = '',
+    this.iconMigrationVersion = 1,
   });
 
   factory ServerProfile.empty(String id) => ServerProfile(
@@ -57,6 +59,7 @@ class ServerProfile {
     MinecraftEdition? edition,
     String? iconAsset,
     String? customIconBase64,
+    int? iconMigrationVersion,
   }) {
     return ServerProfile(
       id: id,
@@ -71,6 +74,7 @@ class ServerProfile {
       edition: edition ?? this.edition,
       iconAsset: iconAsset ?? this.iconAsset,
       customIconBase64: customIconBase64 ?? this.customIconBase64,
+      iconMigrationVersion: iconMigrationVersion ?? this.iconMigrationVersion,
     );
   }
 
@@ -106,6 +110,7 @@ class ServerProfile {
     'edition': edition.name,
     'iconAsset': iconAsset,
     if (customIconBase64.isNotEmpty) 'customIconBase64': customIconBase64,
+    'iconMigrationVersion': iconMigrationVersion,
   };
 
   factory ServerProfile.fromJson(Map<String, dynamic> json) {
@@ -132,6 +137,8 @@ class ServerProfile {
       ),
       iconAsset: json['iconAsset'] as String? ?? 'docs/logo/variants/dirt.png',
       customIconBase64: json['customIconBase64'] as String? ?? '',
+      iconMigrationVersion:
+          (json['iconMigrationVersion'] as num?)?.toInt() ?? 0,
     );
   }
 }
