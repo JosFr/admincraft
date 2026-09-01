@@ -3,6 +3,9 @@ import 'package:admincraft/models/management_state.dart';
 import 'package:admincraft/models/model.dart';
 import 'package:admincraft/utils/dialog_utils.dart';
 import 'package:admincraft/utils/toast_utils.dart';
+import 'package:admincraft/views/widgets/backup_retention_management.dart';
+import 'package:admincraft/views/widgets/backup_engine_management.dart';
+import 'package:admincraft/views/widgets/backup_storage_management.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -45,19 +48,55 @@ class BackupView extends StatelessWidget {
               message:
                   'Backup controls appear when the Network/Lobby bridge advertises management support.',
             ),
-          if (snapshot.storages.isNotEmpty) ...[
-            Text('Storage', style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 8),
+          _StorageHeader(
+            available: network.managementAvailable,
+            serverId: serverId,
+            onAdd: () => showBackupStorageEditor(context, network),
+            onDefaults: () => showBackupDestinationDefaultsDialog(
+              context,
+              network,
+              serverId: serverId,
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (snapshot.storages.isEmpty)
+            const _InfoCard(
+              icon: Icons.storage_outlined,
+              title: 'No backup storage configured',
+              message:
+                  'Add Local, Nextcloud, WebDAV, SMB, NFS, SFTP or S3-compatible storage.',
+            )
+          else
             ...snapshot.storages.map(
               (storage) => _StorageCard(
                 storage: storage,
                 backups: snapshot.backups,
                 storageCount: snapshot.storages.length,
+                onTest: () => _testStorage(network, storage),
+                onEdit: storage.managed
+                    ? () => showBackupStorageEditor(
+                        context,
+                        network,
+                        storage: storage,
+                      )
+                    : null,
+                onDelete: storage.managed
+                    ? () => _deleteStorage(context, network, storage)
+                    : null,
               ),
             ),
-            const SizedBox(height: 12),
-          ],
-          _RetentionCard(retention: snapshot.retention, serverId: serverId),
+          const SizedBox(height: 12),
+          _RetentionCard(
+            retention: snapshot.retention,
+            serverId: serverId,
+            onEdit: network.managementAvailable
+                ? () => showBackupRetentionEditor(
+                    context,
+                    network,
+                    serverId: serverId,
+                  )
+                : null,
+          ),
           const SizedBox(height: 12),
           if (backups.isNotEmpty) ...[
             _RecoveryReadinessCard(backups: backups),
@@ -146,6 +185,19 @@ class BackupView extends StatelessWidget {
     ];
   }
 
+  String _availabilityLabel(BackupEngineDescriptor engine) {
+    switch (engine.availability) {
+      case 'notInstalled':
+        return 'Not installed';
+      case 'configurationRequired':
+        return 'Configuration required';
+      case 'unavailable':
+        return 'Unavailable';
+      default:
+        return engine.isReady ? 'Ready' : 'Unavailable';
+    }
+  }
+
   Future<void> _createBackup(
     BuildContext context,
     NetworkController network,
@@ -156,7 +208,19 @@ class BackupView extends StatelessWidget {
         serverId ?? model.selectedServer.effectiveManagementServerId;
     var engines = _enginesFor(snapshot, selectedServer);
     var selectedEngineId = engines.first.id;
-    final selectedDestinations = <String>{...engines.first.destinationIds};
+
+    List<String> defaultsFor(BackupEngineDescriptor engine) {
+      final inherited = snapshot.backupDestinationDefaults.forServer(
+        selectedServer,
+      );
+      final values = inherited.isNotEmpty ? inherited : engine.destinationIds;
+      final available = engine.availableDestinationIds;
+      return values
+          .where((id) => available.isEmpty || available.contains(id))
+          .toList();
+    }
+
+    final selectedDestinations = <String>{...defaultsFor(engines.first)};
 
     void selectServer(String value) {
       selectedServer = value;
@@ -164,7 +228,7 @@ class BackupView extends StatelessWidget {
       selectedEngineId = engines.first.id;
       selectedDestinations
         ..clear()
-        ..addAll(engines.first.destinationIds);
+        ..addAll(defaultsFor(engines.first));
     }
 
     BackupEngineDescriptor selectedEngine() => engines.firstWhere(
@@ -215,11 +279,14 @@ class BackupView extends StatelessWidget {
                         labelText: 'Backup engine',
                       ),
                       items: engines
-                          .where((item) => item.capabilities.create)
                           .map(
                             (item) => DropdownMenuItem(
                               value: item.id,
-                              child: Text(item.label),
+                              child: Text(
+                                item.isReady
+                                    ? item.label
+                                    : '${item.label} — ${_availabilityLabel(item)}',
+                              ),
                             ),
                           )
                           .toList(),
@@ -230,10 +297,57 @@ class BackupView extends StatelessWidget {
                           final next = selectedEngine();
                           selectedDestinations
                             ..clear()
-                            ..addAll(next.destinationIds);
+                            ..addAll(defaultsFor(next));
                         });
                       },
                     ),
+                    if (!engine.isReady) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.info_outline),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                '${_availabilityLabel(engine)}. ${engine.availabilityMessage}',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (engine.configurable) ...[
+                      const SizedBox(height: 12),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                            final changed = await showBackupEngineEditor(
+                              context,
+                              network,
+                              engine,
+                            );
+                            if (changed == true && context.mounted) {
+                              Navigator.pop(context, false);
+                            }
+                          },
+                          icon: const Icon(Icons.tune),
+                          label: Text(
+                            engine.managed ? 'Edit engine' : 'Configure engine',
+                          ),
+                        ),
+                      ),
+                    ],
                     if (engine.type == BackupEngineType.native) ...[
                       const SizedBox(height: 12),
                       Container(
@@ -312,7 +426,7 @@ class BackupView extends StatelessWidget {
                 child: const Text('Cancel'),
               ),
               FilledButton.icon(
-                onPressed: engine.capabilities.create
+                onPressed: engine.isReady
                     ? () => Navigator.pop(context, true)
                     : null,
                 icon: const Icon(Icons.backup_outlined),
@@ -335,6 +449,32 @@ class BackupView extends StatelessWidget {
     )) {
       ToastUtils.showToastError('The management bridge is not connected.');
     }
+  }
+
+  void _testStorage(NetworkController network, BackupStorageSnapshot storage) {
+    _send(
+      network.testBackupStorage(storage.id),
+      'Storage connection test could not be sent.',
+    );
+  }
+
+  Future<void> _deleteStorage(
+    BuildContext context,
+    NetworkController network,
+    BackupStorageSnapshot storage,
+  ) async {
+    final confirmed = await DialogUtils.confirmAction(
+      context,
+      title: 'Delete backup storage?',
+      message:
+          'Delete  from AdminCraft configuration? Existing backups are never deleted by this action.',
+      confirmLabel: 'Delete storage',
+    );
+    if (!confirmed) return;
+    _send(
+      network.deleteBackupStorage(storage.id),
+      'Storage delete request could not be sent.',
+    );
   }
 
   Future<void> _copy(
@@ -495,15 +635,55 @@ class _InfoCard extends StatelessWidget {
   );
 }
 
+class _StorageHeader extends StatelessWidget {
+  final bool available;
+  final String? serverId;
+  final VoidCallback onAdd;
+  final VoidCallback onDefaults;
+  const _StorageHeader({
+    required this.available,
+    required this.serverId,
+    required this.onAdd,
+    required this.onDefaults,
+  });
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Expanded(
+        child: Text('Storage', style: Theme.of(context).textTheme.titleLarge),
+      ),
+      TextButton.icon(
+        onPressed: available ? onDefaults : null,
+        icon: const Icon(Icons.tune),
+        label: Text(serverId == null ? 'Global defaults' : 'Destinations'),
+      ),
+      const SizedBox(width: 6),
+      if (serverId == null)
+        FilledButton.tonalIcon(
+          onPressed: available ? onAdd : null,
+          icon: const Icon(Icons.add),
+          label: const Text('Add storage'),
+        ),
+    ],
+  );
+}
+
 class _StorageCard extends StatelessWidget {
   final BackupStorageSnapshot storage;
   final List<BackupRecord> backups;
   final int storageCount;
+  final VoidCallback? onTest;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
 
   const _StorageCard({
     required this.storage,
     required this.backups,
     required this.storageCount,
+    this.onTest,
+    this.onEdit,
+    this.onDelete,
   });
 
   @override
@@ -538,6 +718,32 @@ class _StorageCard extends StatelessWidget {
                   ),
                 ),
                 Text(storage.type.label),
+                const SizedBox(width: 4),
+                PopupMenuButton<String>(
+                  tooltip: 'Storage actions',
+                  onSelected: (value) {
+                    if (value == 'test') onTest?.call();
+                    if (value == 'edit') onEdit?.call();
+                    if (value == 'delete') onDelete?.call();
+                  },
+                  itemBuilder: (context) => [
+                    if (onTest != null)
+                      const PopupMenuItem(
+                        value: 'test',
+                        child: Text('Test connection'),
+                      ),
+                    if (onEdit != null)
+                      const PopupMenuItem(
+                        value: 'edit',
+                        child: Text('Edit storage'),
+                      ),
+                    if (onDelete != null)
+                      const PopupMenuItem(
+                        value: 'delete',
+                        child: Text('Delete storage'),
+                      ),
+                  ],
+                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -623,8 +829,13 @@ class _StorageCard extends StatelessWidget {
 class _RetentionCard extends StatelessWidget {
   final BackupRetentionState retention;
   final String? serverId;
+  final VoidCallback? onEdit;
 
-  const _RetentionCard({required this.retention, required this.serverId});
+  const _RetentionCard({
+    required this.retention,
+    required this.serverId,
+    this.onEdit,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -655,6 +866,12 @@ class _RetentionCard extends StatelessWidget {
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                 ),
+                if (onEdit != null)
+                  IconButton(
+                    tooltip: 'Edit retention',
+                    onPressed: onEdit,
+                    icon: const Icon(Icons.edit_outlined),
+                  ),
                 Chip(label: Text(enforced ? 'Automatic' : 'Preview only')),
               ],
             ),
@@ -662,6 +879,14 @@ class _RetentionCard extends StatelessWidget {
             Text(
               '${policy.daily} daily | ${policy.weekly} weekly | ${policy.monthly} monthly',
             ),
+            if (serverId != null &&
+                !retention.servers.containsKey(serverId)) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Inheriting global retention.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
             const SizedBox(height: 4),
             Text(
               enforced

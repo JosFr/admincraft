@@ -45,6 +45,13 @@ class BackupStorageSnapshot {
   final bool safeguardBlocked;
   final double warningFreePercent;
   final double criticalFreePercent;
+  final String path;
+  final String remote;
+  final String basePath;
+  final String url;
+  final String username;
+  final bool credentialConfigured;
+  final bool managed;
   const BackupStorageSnapshot({
     required this.id,
     required this.name,
@@ -57,6 +64,13 @@ class BackupStorageSnapshot {
     this.safeguardBlocked = false,
     required this.warningFreePercent,
     required this.criticalFreePercent,
+    this.path = '',
+    this.remote = '',
+    this.basePath = '',
+    this.url = '',
+    this.username = '',
+    this.credentialConfigured = false,
+    this.managed = false,
   });
 
   factory BackupStorageSnapshot.fromJson(
@@ -77,6 +91,13 @@ class BackupStorageSnapshot {
     safeguardBlocked: json['safeguardBlocked'] == true,
     warningFreePercent: (json['warningFreePercent'] as num?)?.toDouble() ?? 15,
     criticalFreePercent: (json['criticalFreePercent'] as num?)?.toDouble() ?? 5,
+    path: json['path']?.toString() ?? '',
+    remote: json['remote']?.toString() ?? '',
+    basePath: json['basePath']?.toString() ?? '',
+    url: json['url']?.toString() ?? '',
+    username: json['username']?.toString() ?? '',
+    credentialConfigured: json['credentialConfigured'] == true,
+    managed: json['managed'] == true,
   );
 
   int? get usedBytes =>
@@ -152,6 +173,11 @@ class BackupEngineDescriptor {
   final List<String> availableDestinationIds;
   final BackupCapabilities capabilities;
   final String? consistency;
+  final bool available;
+  final bool managed;
+  final bool configurable;
+  final String availability;
+  final String availabilityMessage;
 
   const BackupEngineDescriptor({
     required this.id,
@@ -163,6 +189,11 @@ class BackupEngineDescriptor {
     required this.availableDestinationIds,
     required this.capabilities,
     this.consistency,
+    this.available = true,
+    this.managed = false,
+    this.configurable = false,
+    this.availability = 'ready',
+    this.availabilityMessage = 'Configured and ready.',
   });
 
   factory BackupEngineDescriptor.fromJson(Map<String, dynamic> json) =>
@@ -192,6 +223,12 @@ class BackupEngineDescriptor {
             : const [],
         capabilities: BackupCapabilities.fromJson(json['capabilities']),
         consistency: json['consistency']?.toString(),
+        available: json['available'] != false,
+        managed: json['managed'] == true,
+        configurable: json['configurable'] == true,
+        availability: json['availability']?.toString() ?? 'ready',
+        availabilityMessage:
+            json['availabilityMessage']?.toString() ?? 'Configured and ready.',
       );
 
   bool supportsServer(String serverId) => serverIds.contains(serverId);
@@ -199,6 +236,9 @@ class BackupEngineDescriptor {
       type == BackupEngineType.native && consistency == 'offline';
   bool get isLiveNative =>
       type == BackupEngineType.native && consistency == 'live';
+  bool get isReady => available && capabilities.create;
+  bool get needsInstall => availability == 'notInstalled';
+  bool get needsConfiguration => availability == 'configurationRequired';
 }
 
 class BackupRecord {
@@ -608,6 +648,10 @@ class PluginUpdate {
   final String? projectId;
   final bool sourceConfirmed;
   final List<UpdateSourceCandidate> candidates;
+  final UpdateProvider? downloadProvider;
+  final String? downloadProjectId;
+  final bool downloadSourceConfirmed;
+  final String? downloadUrl;
   final PluginUpdateStatus status;
   final String? url;
 
@@ -622,16 +666,30 @@ class PluginUpdate {
     required this.projectId,
     this.sourceConfirmed = false,
     this.candidates = const [],
+    this.downloadProvider,
+    this.downloadProjectId,
+    this.downloadSourceConfirmed = false,
+    this.downloadUrl,
     required this.status,
     required this.url,
   });
   factory PluginUpdate.fromJson(Map<String, dynamic> json) {
     UpdateProvider? provider;
+    UpdateProvider? downloadProvider;
     final rawProvider = json['provider']?.toString();
     if (rawProvider != null) {
       for (final value in UpdateProvider.values) {
         if (value.name.toLowerCase() == rawProvider.toLowerCase()) {
           provider = value;
+          break;
+        }
+      }
+    }
+    final rawDownloadProvider = json['downloadProvider']?.toString();
+    if (rawDownloadProvider != null) {
+      for (final value in UpdateProvider.values) {
+        if (value.name.toLowerCase() == rawDownloadProvider.toLowerCase()) {
+          downloadProvider = value;
           break;
         }
       }
@@ -652,6 +710,10 @@ class PluginUpdate {
                 .map(UpdateSourceCandidate.fromJson)
                 .toList()
           : const [],
+      downloadProvider: downloadProvider,
+      downloadProjectId: json['downloadProjectId']?.toString(),
+      downloadSourceConfirmed: json['downloadSourceConfirmed'] == true,
+      downloadUrl: json['downloadUrl']?.toString(),
       status: _enumByName(
         PluginUpdateStatus.values,
         json['status'],
@@ -660,6 +722,12 @@ class PluginUpdate {
       url: json['url']?.toString(),
     );
   }
+
+  bool get canAutoApply =>
+      kind == 'plugin' &&
+      status == PluginUpdateStatus.updateAvailable &&
+      downloadSourceConfirmed &&
+      (downloadUrl?.trim().isNotEmpty ?? false);
 }
 
 class ManagementActivity {
@@ -781,9 +849,63 @@ class BackupRetentionState {
   }
 }
 
+class BackupDestinationDefaults {
+  final List<String> global;
+  final Map<String, List<String>> servers;
+  const BackupDestinationDefaults({
+    this.global = const [],
+    this.servers = const {},
+  });
+
+  factory BackupDestinationDefaults.fromJson(Object? raw) {
+    final json = raw is Map<String, dynamic> ? raw : const <String, dynamic>{};
+    List<String> ids(Object? value) => value is List
+        ? value
+              .map((item) => item.toString())
+              .where((item) => item.isNotEmpty)
+              .toList()
+        : const [];
+    final serverValues = <String, List<String>>{};
+    if (json['servers'] is Map) {
+      for (final entry in (json['servers'] as Map).entries) {
+        serverValues[entry.key.toString()] = ids(entry.value);
+      }
+    }
+    return BackupDestinationDefaults(
+      global: ids(json['global']),
+      servers: serverValues,
+    );
+  }
+
+  bool inherits(String serverId) => !servers.containsKey(serverId);
+  List<String> forServer(String serverId) => servers[serverId] ?? global;
+}
+
+class UpdateApplyCapabilities {
+  final bool configured;
+  final bool pluginUpdates;
+  final bool rollback;
+
+  const UpdateApplyCapabilities({
+    this.configured = false,
+    this.pluginUpdates = false,
+    this.rollback = false,
+  });
+
+  factory UpdateApplyCapabilities.fromJson(Object? raw) {
+    final json = raw is Map<String, dynamic> ? raw : const <String, dynamic>{};
+    return UpdateApplyCapabilities(
+      configured: json['configured'] == true,
+      pluginUpdates: json['pluginUpdates'] == true,
+      rollback: json['rollback'] == true,
+    );
+  }
+}
+
 class ManagementSnapshot {
   final DateTime? observedAt;
   final List<BackupStorageSnapshot> storages;
+  final BackupDestinationDefaults backupDestinationDefaults;
   final List<BackupEngineDescriptor> backupEngines;
   final List<BackupRecord> backups;
   final List<ScheduledAction> schedules;
@@ -791,6 +913,7 @@ class ManagementSnapshot {
   final List<MaintenanceState> maintenance;
   final MaintenancePoliciesSnapshot maintenancePolicies;
   final List<PluginUpdate> updates;
+  final UpdateApplyCapabilities updateApply;
   final List<ManagementActivity> activity;
   final BackupRetentionState retention;
   final PerformanceSource performanceSource;
@@ -798,6 +921,7 @@ class ManagementSnapshot {
   const ManagementSnapshot({
     this.observedAt,
     this.storages = const [],
+    this.backupDestinationDefaults = const BackupDestinationDefaults(),
     this.backupEngines = const [],
     this.backups = const [],
     this.schedules = const [],
@@ -805,6 +929,7 @@ class ManagementSnapshot {
     this.maintenance = const [],
     this.maintenancePolicies = const MaintenancePoliciesSnapshot(),
     this.updates = const [],
+    this.updateApply = const UpdateApplyCapabilities(),
     this.activity = const [],
     this.retention = const BackupRetentionState(),
     this.performanceSource = const PerformanceSource(),
@@ -821,6 +946,9 @@ class ManagementSnapshot {
         json['observedAt']?.toString() ?? '',
       )?.toLocal(),
       storages: parseList('storages', BackupStorageSnapshot.fromJson),
+      backupDestinationDefaults: BackupDestinationDefaults.fromJson(
+        json['backupDestinationDefaults'],
+      ),
       backupEngines: parseList(
         'backupEngines',
         BackupEngineDescriptor.fromJson,
@@ -833,6 +961,7 @@ class ManagementSnapshot {
         json['maintenancePolicies'],
       ),
       updates: parseList('updates', PluginUpdate.fromJson),
+      updateApply: UpdateApplyCapabilities.fromJson(json['updateApply']),
       activity: parseList('activity', ManagementActivity.fromJson),
       retention: BackupRetentionState.fromJson(json['retention']),
       performanceSource: json['performanceSource'] is Map<String, dynamic>

@@ -481,6 +481,94 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     {'backupId': backupId, 'destinationIds': destinationIds},
   );
 
+  bool saveBackupStorage({
+    required String id,
+    required String name,
+    required StorageProviderType type,
+    String path = '',
+    String remote = '',
+    String basePath = '',
+    String url = '',
+    String username = '',
+    String password = '',
+    bool clearPassword = false,
+    int? softLimitBytes,
+    int? minimumFreeBytes,
+    double warningFreePercent = 15,
+    double criticalFreePercent = 5,
+  }) => _manage('storage-upsert', {
+    'id': id,
+    'name': name,
+    'type': type.name,
+    'path': path,
+    'remote': remote,
+    'basePath': basePath,
+    'url': url,
+    'username': username,
+    if (password.isNotEmpty) 'password': password,
+    if (clearPassword) 'clearPassword': true,
+    'softLimitBytes': softLimitBytes,
+    'minimumFreeBytes': minimumFreeBytes,
+    'warningFreePercent': warningFreePercent,
+    'criticalFreePercent': criticalFreePercent,
+  });
+
+  bool testBackupStorage(String storageId) =>
+      _manage('storage-test', {'storageId': storageId});
+
+  bool deleteBackupStorage(String storageId) =>
+      _manage('storage-delete', {'storageId': storageId});
+
+  bool setBackupDestinationDefaults({
+    String? serverId,
+    List<String> storageIds = const [],
+    bool inherit = false,
+  }) => _manage('storage-defaults-set', {
+    if (serverId != null) 'serverId': serverId,
+    'storageIds': storageIds,
+    if (inherit) 'inherit': true,
+  });
+
+  bool setBackupRetention({
+    String? serverId,
+    required int daily,
+    required int weekly,
+    required int monthly,
+    required bool enforce,
+    bool inherit = false,
+  }) => _manage('retention-set', {
+    if (serverId != null) 'serverId': serverId,
+    if (!inherit) 'daily': daily,
+    if (!inherit) 'weekly': weekly,
+    if (!inherit) 'monthly': monthly,
+    if (!inherit) 'enforce': enforce,
+    if (inherit) 'inherit': true,
+  });
+  bool saveBackupEngine({
+    required BackupEngineDescriptor engine,
+    String label = '',
+    String command = '',
+    String backupType = 'custom',
+    String completionRegex = '',
+    String failureRegex = '',
+    int? completionTimeoutSeconds,
+  }) => _manage('engine-upsert', {
+    'id': engine.id,
+    'type': engine.type.name,
+    'serverId': engine.serverIds.first,
+    'label': label.trim().isEmpty ? engine.label : label.trim(),
+    'backupType': backupType,
+    if (command.trim().isNotEmpty) 'command': command.trim(),
+    if (completionRegex.trim().isNotEmpty)
+      'completionRegex': completionRegex.trim(),
+    if (failureRegex.trim().isNotEmpty) 'failureRegex': failureRegex.trim(),
+    if (completionTimeoutSeconds != null)
+      'completionTimeoutSeconds': completionTimeoutSeconds,
+  });
+
+  bool resetBackupEngine(String engineId) =>
+      _manage('engine-delete', {'engineId': engineId});
+
   bool createSchedule({
     required String serverId,
     required String action,
@@ -532,19 +620,36 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     },
   });
 
-  bool confirmUpdateSource(
-    PluginUpdate update,
-    UpdateSourceCandidate candidate,
-  ) => _manage('updates-source-set', {
+  bool setUpdateSource({
+    required PluginUpdate update,
+    required UpdateProvider provider,
+    required String projectId,
+    String role = 'check',
+    String? url,
+  }) => _manage('updates-source-set', {
     'serverId': update.serverId,
     'plugin': update.plugin,
-    'provider': candidate.provider.name,
-    'projectId': candidate.projectId,
+    'provider': provider.name,
+    'projectId': projectId,
+    'role': role,
+    if (url != null && url.trim().isNotEmpty) 'url': url.trim(),
     'providers': {
       for (final provider in UpdateProvider.values)
         provider.name: updateProviderEnabled(provider),
     },
   });
+
+  bool confirmUpdateSource(
+    PluginUpdate update,
+    UpdateSourceCandidate candidate, {
+    String role = 'check',
+  }) => setUpdateSource(
+    update: update,
+    provider: candidate.provider,
+    projectId: candidate.projectId,
+    role: role,
+    url: candidate.url,
+  );
 
   void _pushChanged() => _syncPushRegistration();
   void _notificationPreferencesChanged() => _syncPushRegistration();

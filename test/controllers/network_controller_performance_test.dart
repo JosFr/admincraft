@@ -76,51 +76,137 @@ void main() {
     expect(sample.freeDiskBytes, 53687091200);
   });
 
-  testWidgets('server tools expose Plan history only for mapped servers', (
-    tester,
-  ) async {
+  testWidgets('performance history renders Plan trend charts', (tester) async {
     final network = await fixture();
     addTearDown(network.dispose);
     network.debugReceive(
       jsonEncode({
-        'type': 'admincraft.management-state',
-        'performanceSource': {
+        'type': 'admincraft.performance-history',
+        'source': {
           'type': 'plan',
           'canonical': true,
-          'configured': true,
-          'readOnlyRequired': true,
-          'serverIds': ['smp'],
-          'ranges': ['1h', '6h', '24h', '7d', '30d'],
+          'readOnly': true,
+          'serverName': 'SMP',
+          'planVersion': '5.8 build 3605',
         },
+        'serverId': 'smp',
+        'range': '1h',
+        'samples': [
+          {
+            'serverId': 'smp',
+            'at': '2026-08-31T18:00:00Z',
+            'tps': 19.9,
+            'mspt': 18.0,
+            'msptAverage': 18.0,
+            'players': 2,
+            'cpuPercent': 20.0,
+            'memoryMb': 1024.0,
+          },
+          {
+            'serverId': 'smp',
+            'at': '2026-08-31T18:30:00Z',
+            'tps': 19.5,
+            'mspt': 24.0,
+            'msptAverage': 24.0,
+            'players': 4,
+            'cpuPercent': 35.0,
+            'memoryMb': 1536.0,
+          },
+        ],
       }),
     );
-    expect(network.management.performanceSource.serverIds, ['smp']);
 
-    Widget tools(String serverId) =>
-        ChangeNotifierProvider<NetworkController>.value(
-          value: network,
-          child: MaterialApp(
-            home: Scaffold(
-              body: ServerToolsView(
-                serverId: serverId,
-                onBackups: () {},
-                onSchedules: () {},
-                onMaintenance: () {},
-                onPerformance: () {},
-                onPlugins: () {},
-                onDiagnostics: () {},
-                onConfiguration: () {},
+    await tester.pumpWidget(
+      ChangeNotifierProvider<NetworkController>.value(
+        value: network,
+        child: const MaterialApp(
+          home: Scaffold(body: PerformanceHistoryView(serverId: 'smp')),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.scrollUntilVisible(
+      find.text('Trends'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pump();
+    expect(find.text('Trends'), findsOneWidget);
+    expect(find.byKey(const ValueKey('performance-chart-tps')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('performance-chart-mspt')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('performance-chart-players')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('performance-chart-cpu')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('performance-chart-memory')),
+      findsOneWidget,
+    );
+    expect(find.byType(CustomPaint), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets(
+    'server tools expose history for every managed performance server',
+    (tester) async {
+      final network = await fixture();
+      addTearDown(network.dispose);
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.management-state',
+          'performanceSource': {
+            'type': 'plan',
+            'canonical': true,
+            'configured': true,
+            'readOnlyRequired': true,
+            'serverIds': ['smp', 'historisch1'],
+            'planServerIds': ['smp'],
+            'ranges': ['1h', '6h', '24h', '7d', '30d'],
+          },
+        }),
+      );
+      expect(network.management.performanceSource.serverIds, [
+        'smp',
+        'historisch1',
+      ]);
+
+      Widget tools(String serverId) =>
+          ChangeNotifierProvider<NetworkController>.value(
+            value: network,
+            child: MaterialApp(
+              home: Scaffold(
+                body: ServerToolsView(
+                  serverId: serverId,
+                  onBackups: () {},
+                  onSchedules: () {},
+                  onMaintenance: () {},
+                  onPerformance: () {},
+                  onPlugins: () {},
+                  onDiagnostics: () {},
+                  onConfiguration: () {},
+                ),
               ),
             ),
-          ),
-        );
+          );
 
-    await tester.pumpWidget(tools('historisch1'));
-    expect(find.text('Performance history'), findsNothing);
+      await tester.pumpWidget(tools('historisch1'));
+      expect(find.text('Performance history'), findsOneWidget);
+      expect(
+        find.textContaining('Plan is used where available'),
+        findsOneWidget,
+      );
 
-    await tester.pumpWidget(tools('smp'));
-    await tester.pump();
-    expect(find.text('Performance history'), findsOneWidget);
-    expect(find.textContaining('Plan history for TPS'), findsOneWidget);
-  });
+      await tester.pumpWidget(tools('smp'));
+      await tester.pump();
+      expect(find.text('Performance history'), findsOneWidget);
+      expect(
+        find.textContaining('Plan is used where available'),
+        findsOneWidget,
+      );
+    },
+  );
 }

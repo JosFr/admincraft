@@ -3,6 +3,7 @@ import 'package:admincraft/controllers/network_controller.dart';
 import 'package:admincraft/models/model.dart';
 import 'package:admincraft/models/management_state.dart';
 import 'package:admincraft/utils/url_utils.dart';
+import 'package:admincraft/views/widgets/performance_metric_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -135,180 +136,193 @@ class SchedulesView extends StatelessWidget {
           title: const Text('Create scheduled action'),
           content: SizedBox(
             width: 440,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (serverId == null)
-                  DropdownButtonFormField<String>(
-                    initialValue: selectedServer.isEmpty
-                        ? null
-                        : selectedServer,
-                    decoration: const InputDecoration(labelText: 'Server'),
-                    items: completeServers
-                        .map(
-                          (server) => DropdownMenuItem(
-                            value: server.effectiveManagementServerId,
-                            child: Text(server.alias),
-                          ),
-                        )
-                        .toList(),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (serverId == null)
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedServer.isEmpty
+                          ? null
+                          : selectedServer,
+                      decoration: const InputDecoration(labelText: 'Server'),
+                      items: completeServers
+                          .map(
+                            (server) => DropdownMenuItem(
+                              value: server.effectiveManagementServerId,
+                              child: Text(server.alias),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() {
+                            selectedServer = value;
+                            refreshBackupEngines();
+                          });
+                        }
+                      },
+                    ),
+                  if (serverId == null) const SizedBox(height: 12),
+                  DropdownButtonFormField<ScheduledActionType>(
+                    initialValue: action,
+                    decoration: const InputDecoration(labelText: 'Action'),
+                    items: [
+                      for (final value in ScheduledActionType.values)
+                        DropdownMenuItem(
+                          value: value,
+                          child: Text(_scheduleActionLabel(value)),
+                        ),
+                    ],
                     onChanged: (value) {
                       if (value != null) {
                         setState(() {
-                          selectedServer = value;
+                          action = value;
                           refreshBackupEngines();
                         });
                       }
                     },
                   ),
-                if (serverId == null) const SizedBox(height: 12),
-                DropdownButtonFormField<ScheduledActionType>(
-                  initialValue: action,
-                  decoration: const InputDecoration(labelText: 'Action'),
-                  items: [
-                    for (final value in ScheduledActionType.values)
-                      DropdownMenuItem(
-                        value: value,
-                        child: Text(_scheduleActionLabel(value)),
+                  if (action == ScheduledActionType.backup ||
+                      action == ScheduledActionType.maintenance) ...[
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedBackupEngineId.isEmpty
+                          ? null
+                          : selectedBackupEngineId,
+                      decoration: InputDecoration(
+                        labelText: action == ScheduledActionType.maintenance
+                            ? 'Safety backup engine'
+                            : 'Backup engine',
+                      ),
+                      items: backupEngines
+                          .map(
+                            (engine) => DropdownMenuItem(
+                              value: engine.id,
+                              child: Text(engine.label),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => selectedBackupEngineId = value);
+                        }
+                      },
+                    ),
+                    if (backupEngines.isEmpty)
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'No compatible backup engine is available.',
+                        ),
                       ),
                   ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() {
-                        action = value;
-                        refreshBackupEngines();
-                      });
-                    }
-                  },
-                ),
-                if (action == ScheduledActionType.backup ||
-                    action == ScheduledActionType.maintenance) ...[
                   const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    initialValue: selectedBackupEngineId.isEmpty
-                        ? null
-                        : selectedBackupEngineId,
-                    decoration: InputDecoration(
-                      labelText: action == ScheduledActionType.maintenance
-                          ? 'Safety backup engine'
-                          : 'Backup engine',
-                    ),
-                    items: backupEngines
-                        .map(
-                          (engine) => DropdownMenuItem(
-                            value: engine.id,
-                            child: Text(engine.label),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      if (value != null) {
-                        setState(() => selectedBackupEngineId = value);
-                      }
-                    },
-                  ),
-                  if (backupEngines.isEmpty)
-                    const Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text('No compatible backup engine is available.'),
-                    ),
-                ],
-                const SizedBox(height: 12),
-                SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(
-                      value: true,
-                      label: Text('Recurring'),
-                      icon: Icon(Icons.repeat),
-                    ),
-                    ButtonSegment(
-                      value: false,
-                      label: Text('One-time'),
-                      icon: Icon(Icons.event_outlined),
-                    ),
-                  ],
-                  selected: {recurring},
-                  onSelectionChanged: (value) =>
-                      setState(() => recurring = value.first),
-                ),
-                const SizedBox(height: 12),
-                if (recurring) ...[
-                  DropdownButtonFormField<String>(
-                    initialValue: preset,
-                    decoration: const InputDecoration(labelText: 'Cron preset'),
-                    items: const [
-                      DropdownMenuItem(value: 'custom', child: Text('Custom')),
-                      DropdownMenuItem(
-                        value: 'daily4',
-                        child: Text('Daily at 04:00'),
+                  SegmentedButton<bool>(
+                    segments: const [
+                      ButtonSegment(
+                        value: true,
+                        label: Text('Recurring'),
+                        icon: Icon(Icons.repeat),
                       ),
-                      DropdownMenuItem(
-                        value: 'weekly4',
-                        child: Text('Sunday at 04:00'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'sixhour',
-                        child: Text('Every 6 hours'),
+                      ButtonSegment(
+                        value: false,
+                        label: Text('One-time'),
+                        icon: Icon(Icons.event_outlined),
                       ),
                     ],
-                    onChanged: (value) {
-                      if (value == null) return;
-                      setState(() {
-                        preset = value;
-                        scheduleController.text = switch (value) {
-                          'daily4' => '0 4 * * *',
-                          'weekly4' => '0 4 * * 0',
-                          'sixhour' => '0 */6 * * *',
-                          _ => scheduleController.text,
-                        };
-                      });
-                    },
+                    selected: {recurring},
+                    onSelectionChanged: (value) =>
+                        setState(() => recurring = value.first),
                   ),
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: scheduleController,
-                    decoration: const InputDecoration(
-                      labelText: 'Schedule expression',
-                      hintText: '0 4 * * *',
-                      helperText: 'Cron uses the bridge/server timezone.',
-                    ),
-                    onChanged: (_) {
-                      if (preset != 'custom') setState(() => preset = 'custom');
-                    },
-                  ),
-                ] else ...[
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.event_outlined),
-                    title: const Text('Run once at'),
-                    subtitle: Text(_formatDateTime(runAt)),
-                    trailing: const Icon(Icons.edit_calendar_outlined),
-                    onTap: () async {
-                      final date = await showDatePicker(
-                        context: context,
-                        initialDate: runAt,
-                        firstDate: DateTime.now(),
-                        lastDate: DateTime.now().add(const Duration(days: 366)),
-                      );
-                      if (date == null || !context.mounted) return;
-                      final time = await showTimePicker(
-                        context: context,
-                        initialTime: TimeOfDay.fromDateTime(runAt),
-                      );
-                      if (time == null) return;
-                      setState(
-                        () => runAt = DateTime(
-                          date.year,
-                          date.month,
-                          date.day,
-                          time.hour,
-                          time.minute,
+                  if (recurring) ...[
+                    DropdownButtonFormField<String>(
+                      initialValue: preset,
+                      decoration: const InputDecoration(
+                        labelText: 'Cron preset',
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'custom',
+                          child: Text('Custom'),
                         ),
-                      );
-                    },
-                  ),
+                        DropdownMenuItem(
+                          value: 'daily4',
+                          child: Text('Daily at 04:00'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'weekly4',
+                          child: Text('Sunday at 04:00'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'sixhour',
+                          child: Text('Every 6 hours'),
+                        ),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setState(() {
+                          preset = value;
+                          scheduleController.text = switch (value) {
+                            'daily4' => '0 4 * * *',
+                            'weekly4' => '0 4 * * 0',
+                            'sixhour' => '0 */6 * * *',
+                            _ => scheduleController.text,
+                          };
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: scheduleController,
+                      decoration: const InputDecoration(
+                        labelText: 'Schedule expression',
+                        hintText: '0 4 * * *',
+                        helperText: 'Cron uses the bridge/server timezone.',
+                      ),
+                      onChanged: (_) {
+                        if (preset != 'custom') {
+                          setState(() => preset = 'custom');
+                        }
+                      },
+                    ),
+                  ] else ...[
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.event_outlined),
+                      title: const Text('Run once at'),
+                      subtitle: Text(_formatDateTime(runAt)),
+                      trailing: const Icon(Icons.edit_calendar_outlined),
+                      onTap: () async {
+                        final date = await showDatePicker(
+                          context: context,
+                          initialDate: runAt,
+                          firstDate: DateTime.now(),
+                          lastDate: DateTime.now().add(
+                            const Duration(days: 366),
+                          ),
+                        );
+                        if (date == null || !context.mounted) return;
+                        final time = await showTimePicker(
+                          context: context,
+                          initialTime: TimeOfDay.fromDateTime(runAt),
+                        );
+                        if (time == null) return;
+                        setState(
+                          () => runAt = DateTime(
+                            date.year,
+                            date.month,
+                            date.day,
+                            time.hour,
+                            time.minute,
+                          ),
+                        );
+                      },
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
           actions: [
@@ -485,49 +499,160 @@ class UpdatesView extends StatelessWidget {
 
   const UpdatesView({super.key, this.serverId});
 
-  Future<void> _confirmSource(
+  Future<void> _configureSource(
     BuildContext context,
     NetworkController network,
-    PluginUpdate update,
-  ) async {
-    if (update.candidates.isEmpty) return;
-    var selected = update.candidates.first;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: Text('Confirm source for ${update.plugin}'),
-          content: SizedBox(
-            width: 430,
-            child: DropdownButtonFormField<UpdateSourceCandidate>(
-              initialValue: selected,
-              decoration: const InputDecoration(labelText: 'Update source'),
-              items: [
-                for (final candidate in update.candidates)
-                  DropdownMenuItem(
-                    value: candidate,
-                    child: Text(candidate.label),
-                  ),
-              ],
-              onChanged: (value) {
-                if (value != null) setState(() => selected = value);
-              },
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Confirm and remember'),
-            ),
-          ],
-        ),
-      ),
+    PluginUpdate update, {
+    required String role,
+  }) async {
+    final download = role == 'download';
+    final candidates = update.candidates;
+    final existingProvider = download
+        ? update.downloadProvider
+        : update.provider;
+    final existingProject = download
+        ? update.downloadProjectId
+        : update.projectId;
+    final existingUrl = download ? update.downloadUrl : update.url;
+    UpdateSourceCandidate? selectedCandidate;
+    if (existingProvider != null && existingProject?.isNotEmpty == true) {
+      for (final candidate in candidates) {
+        if (candidate.provider == existingProvider &&
+            candidate.projectId == existingProject) {
+          selectedCandidate = candidate;
+          break;
+        }
+      }
+    }
+    selectedCandidate ??= candidates.isEmpty ? null : candidates.first;
+    var selectedProvider =
+        existingProvider ??
+        selectedCandidate?.provider ??
+        UpdateProvider.modrinth;
+    final projectController = TextEditingController(
+      text: existingProject ?? selectedCandidate?.projectId ?? '',
     );
-    if (confirmed == true) network.confirmUpdateSource(update, selected);
+    final urlController = TextEditingController(
+      text: existingUrl ?? selectedCandidate?.url ?? '',
+    );
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (context, setState) => AlertDialog(
+            title: Text(
+              download ? 'Configure download source' : 'Configure check source',
+            ),
+            content: SizedBox(
+              width: 480,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (candidates.isNotEmpty) ...[
+                      DropdownButtonFormField<UpdateSourceCandidate>(
+                        initialValue: selectedCandidate,
+                        decoration: const InputDecoration(
+                          labelText: 'Discovered candidate',
+                        ),
+                        items: [
+                          for (final candidate in candidates)
+                            DropdownMenuItem(
+                              value: candidate,
+                              child: Text(candidate.label),
+                            ),
+                        ],
+                        onChanged: (candidate) {
+                          if (candidate == null) return;
+                          setState(() {
+                            selectedCandidate = candidate;
+                            selectedProvider = candidate.provider;
+                            projectController.text = candidate.projectId;
+                            urlController.text = candidate.url ?? '';
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                    ] else ...[
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'No automatic match was found. Configure the provider/project manually.',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                    DropdownButtonFormField<UpdateProvider>(
+                      initialValue: selectedProvider,
+                      decoration: const InputDecoration(labelText: 'Provider'),
+                      items: [
+                        for (final provider in UpdateProvider.values)
+                          DropdownMenuItem(
+                            value: provider,
+                            child: Text(provider.label),
+                          ),
+                      ],
+                      onChanged: (provider) {
+                        if (provider != null) {
+                          setState(() => selectedProvider = provider);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: projectController,
+                      decoration: const InputDecoration(
+                        labelText: 'Project ID / owner/repository',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: urlController,
+                      decoration: const InputDecoration(
+                        labelText: 'URL (optional)',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    Text(
+                      download
+                          ? 'Used for opening/downloading the update. It may differ from the version-check source.'
+                          : 'Used only to check the installed version against the provider.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: Text(
+                  download
+                      ? 'Remember download source'
+                      : 'Remember check source',
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+      if (confirmed == true && projectController.text.trim().isNotEmpty) {
+        network.setUpdateSource(
+          update: update,
+          provider: selectedProvider,
+          projectId: projectController.text.trim(),
+          role: role,
+          url: urlController.text.trim(),
+        );
+      }
+    } finally {
+      projectController.dispose();
+      urlController.dispose();
+    }
   }
 
   @override
@@ -567,23 +692,52 @@ class UpdatesView extends StatelessWidget {
                 '${update.serverName} · ${_updateKindLabel(update.kind)} · '
                 '${update.currentVersion.isEmpty ? 'version unknown' : update.currentVersion}'
                 '${update.latestVersion == null ? '' : ' → ${update.latestVersion}'}'
-                '\n${_updateSourceLabel(update)} · ${_updateStatusLabel(update.status)}'
-                '${!update.sourceConfirmed && update.candidates.isNotEmpty ? '\nSource confirmation required' : ''}',
+                '\nCheck: ${_updateSourceLabel(update)} · ${_updateStatusLabel(update.status)}'
+                '\nDownload: ${_updateDownloadSourceLabel(update)}'
+                '${!update.sourceConfirmed ? (update.candidates.isNotEmpty ? '\nCheck source confirmation required' : '\nNo automatic check-source match; configure manually') : ''}',
               ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (!update.sourceConfirmed && update.candidates.isNotEmpty)
-                    IconButton(
-                      tooltip: 'Confirm update source',
-                      onPressed: () => _confirmSource(context, network, update),
-                      icon: const Icon(Icons.link_outlined),
+              trailing: PopupMenuButton<String>(
+                tooltip: 'Update source options',
+                onSelected: (value) async {
+                  if (value == 'check') {
+                    await _configureSource(
+                      context,
+                      network,
+                      update,
+                      role: 'check',
+                    );
+                  } else if (value == 'download') {
+                    await _configureSource(
+                      context,
+                      network,
+                      update,
+                      role: 'download',
+                    );
+                  } else if (value == 'open-check' && update.url != null) {
+                    await UrlUtils.openUrl(update.url!);
+                  } else if (value == 'open-download' &&
+                      update.downloadUrl != null) {
+                    await UrlUtils.openUrl(update.downloadUrl!);
+                  }
+                },
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'check',
+                    child: Text('Configure check source'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'download',
+                    child: Text('Configure download source'),
+                  ),
+                  if (update.url?.trim().isNotEmpty == true)
+                    const PopupMenuItem(
+                      value: 'open-check',
+                      child: Text('Open check source'),
                     ),
-                  if (update.url != null && update.url!.trim().isNotEmpty)
-                    IconButton(
-                      tooltip: 'Open update source',
-                      onPressed: () async => UrlUtils.openUrl(update.url!),
-                      icon: const Icon(Icons.open_in_new),
+                  if (update.downloadUrl?.trim().isNotEmpty == true)
+                    const PopupMenuItem(
+                      value: 'open-download',
+                      child: Text('Open download source'),
                     ),
                 ],
               ),
@@ -608,6 +762,12 @@ class MaintenanceView extends StatelessWidget {
         : policy.countdownOptionsSeconds;
     var countdownSeconds = options.contains(600) ? 600 : options.first;
     var action = 'restart';
+    final updateCandidates = network.management.updates
+        .where((update) => update.serverId == serverId && update.canAutoApply)
+        .toList();
+    final automaticUpdatesAvailable =
+        network.management.updateApply.pluginUpdates &&
+        updateCandidates.isNotEmpty;
     var createBackup = true;
     var restartWhenEmpty = false;
     final backupEngines = _managementBackupEnginesFor(
@@ -625,97 +785,121 @@ class MaintenanceView extends StatelessWidget {
           title: const Text('Start maintenance'),
           content: SizedBox(
             width: 430,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                DropdownButtonFormField<String>(
-                  initialValue: action,
-                  decoration: const InputDecoration(
-                    labelText: 'Maintenance action',
-                  ),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'restart',
-                      child: Text('Restart and health-check'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'stop',
-                      child: Text('Stop for maintenance'),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) setState(() => action = value);
-                  },
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<int>(
-                  initialValue: countdownSeconds,
-                  decoration: const InputDecoration(labelText: 'Countdown'),
-                  items: [
-                    for (final value in options)
-                      DropdownMenuItem(
-                        value: value,
-                        child: Text(_maintenanceDurationLabel(value)),
-                      ),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) setState(() => countdownSeconds = value);
-                  },
-                ),
-                const SizedBox(height: 8),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Create safety backup'),
-                  subtitle: const Text(
-                    'Wait for a successful backup before the maintenance action.',
-                  ),
-                  value: createBackup,
-                  onChanged: (value) => setState(() => createBackup = value),
-                ),
-                if (createBackup) ...[
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
                   DropdownButtonFormField<String>(
-                    initialValue: selectedBackupEngineId.isEmpty
-                        ? null
-                        : selectedBackupEngineId,
+                    isExpanded: true,
+                    initialValue: action,
                     decoration: const InputDecoration(
-                      labelText: 'Safety backup engine',
+                      labelText: 'Maintenance action',
                     ),
-                    items: backupEngines
-                        .map(
-                          (engine) => DropdownMenuItem(
-                            value: engine.id,
-                            child: Text(engine.label),
-                          ),
-                        )
-                        .toList(),
+                    items: [
+                      const DropdownMenuItem(
+                        value: 'restart',
+                        child: Text('Restart and health-check'),
+                      ),
+                      const DropdownMenuItem(
+                        value: 'stop',
+                        child: Text('Stop for maintenance'),
+                      ),
+                      if (network.management.updateApply.pluginUpdates)
+                        const DropdownMenuItem(
+                          value: 'update',
+                          child: Text('Apply plugin updates + restart'),
+                        ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) setState(() => action = value);
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<int>(
+                    initialValue: countdownSeconds,
+                    decoration: const InputDecoration(labelText: 'Countdown'),
+                    items: [
+                      for (final value in options)
+                        DropdownMenuItem(
+                          value: value,
+                          child: Text(_maintenanceDurationLabel(value)),
+                        ),
+                    ],
                     onChanged: (value) {
                       if (value != null) {
-                        setState(() => selectedBackupEngineId = value);
+                        setState(() => countdownSeconds = value);
                       }
                     },
                   ),
                   const SizedBox(height: 8),
-                ],
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Wait until empty'),
-                  subtitle: Text(
-                    action == 'restart'
-                        ? 'Wait for players to leave before restarting.'
-                        : 'Wait for players to leave before stopping.',
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Create safety backup'),
+                    subtitle: const Text(
+                      'Wait for a successful backup before the maintenance action.',
+                    ),
+                    value: createBackup,
+                    onChanged: (value) => setState(() => createBackup = value),
                   ),
-                  value: restartWhenEmpty,
-                  onChanged: (value) =>
-                      setState(() => restartWhenEmpty = value),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  'After the action the bridge performs up to '
-                  '${policy.healthcheckAttempts} health checks every '
-                  '${policy.healthcheckIntervalSeconds}s.',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
+                  if (createBackup) ...[
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedBackupEngineId.isEmpty
+                          ? null
+                          : selectedBackupEngineId,
+                      decoration: const InputDecoration(
+                        labelText: 'Safety backup engine',
+                      ),
+                      items: backupEngines
+                          .map(
+                            (engine) => DropdownMenuItem(
+                              value: engine.id,
+                              child: Text(engine.label),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => selectedBackupEngineId = value);
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Wait until empty'),
+                    subtitle: Text(
+                      action == 'restart'
+                          ? 'Wait for players to leave before restarting.'
+                          : action == 'update'
+                          ? 'Wait for players to leave before applying updates.'
+                          : 'Wait for players to leave before stopping.',
+                    ),
+                    value: restartWhenEmpty,
+                    onChanged: (value) =>
+                        setState(() => restartWhenEmpty = value),
+                  ),
+                  if (action == 'update') ...[
+                    const SizedBox(height: 6),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        automaticUpdatesAvailable
+                            ? '${updateCandidates.length} validated plugin update(s) will be applied after the safety steps.'
+                            : 'No validated plugin update with a direct JAR download is ready for this server.',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 6),
+                  Text(
+                    'After the action the bridge performs up to '
+                    '${policy.healthcheckAttempts} health checks every '
+                    '${policy.healthcheckIntervalSeconds}s.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -724,7 +908,9 @@ class MaintenanceView extends StatelessWidget {
               child: const Text('Cancel'),
             ),
             FilledButton.icon(
-              onPressed: createBackup && selectedBackupEngineId.isEmpty
+              onPressed:
+                  (createBackup && selectedBackupEngineId.isEmpty) ||
+                      (action == 'update' && !automaticUpdatesAvailable)
                   ? null
                   : () => Navigator.pop(dialogContext, true),
               icon: const Icon(Icons.play_arrow),
@@ -948,11 +1134,15 @@ class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
           ],
         ),
         const SizedBox(height: 12),
-        if (network.performanceSource.isPlan)
+        if (network.performanceSource.type.isNotEmpty)
           Card(
             child: ListTile(
               leading: const Icon(Icons.analytics_outlined),
-              title: const Text('Canonical source: Plan'),
+              title: Text(
+                network.performanceSource.isPlan
+                    ? 'Canonical source: Plan'
+                    : 'Performance source: AdminCraft history',
+              ),
               subtitle: Text(
                 [
                   if (network.performanceSource.serverName?.isNotEmpty == true)
@@ -1073,6 +1263,80 @@ class _PerformanceHistoryViewState extends State<PerformanceHistoryView> {
               title: const Text('Tick health'),
               subtitle: Text(_healthSummary(samples)),
             ),
+          ),
+          const SizedBox(height: 16),
+          Text('Trends', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 6),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final twoColumns = constraints.maxWidth >= 760;
+              final width = twoColumns
+                  ? (constraints.maxWidth - 10) / 2
+                  : constraints.maxWidth;
+              return Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  SizedBox(
+                    width: width,
+                    child: PerformanceMetricChart(
+                      key: const ValueKey('performance-chart-tps'),
+                      title: 'TPS',
+                      samples: samples,
+                      valueOf: (sample) => sample.tps,
+                      fixedCeiling: 20,
+                      warningThreshold: 18,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: PerformanceMetricChart(
+                      key: const ValueKey('performance-chart-mspt'),
+                      title: 'MSPT',
+                      samples: samples,
+                      valueOf: (sample) => sample.msptAverage ?? sample.mspt,
+                      unit: ' ms',
+                      minimumCeiling: 50,
+                      warningThreshold: 50,
+                    ),
+                  ),
+                  SizedBox(
+                    width: width,
+                    child: PerformanceMetricChart(
+                      key: const ValueKey('performance-chart-players'),
+                      title: 'Players',
+                      samples: samples,
+                      valueOf: (sample) => sample.players?.toDouble(),
+                      minimumCeiling: 1,
+                    ),
+                  ),
+                  if (samples.any((sample) => sample.cpuPercent != null))
+                    SizedBox(
+                      width: width,
+                      child: PerformanceMetricChart(
+                        key: const ValueKey('performance-chart-cpu'),
+                        title: 'CPU',
+                        samples: samples,
+                        valueOf: (sample) => sample.cpuPercent,
+                        unit: '%',
+                        fixedCeiling: 100,
+                      ),
+                    ),
+                  if (samples.any((sample) => sample.memoryMb != null))
+                    SizedBox(
+                      width: width,
+                      child: PerformanceMetricChart(
+                        key: const ValueKey('performance-chart-memory'),
+                        title: 'RAM',
+                        samples: samples,
+                        valueOf: (sample) => sample.memoryMb,
+                        unit: ' MB',
+                        minimumCeiling: 512,
+                      ),
+                    ),
+                ],
+              );
+            },
           ),
         ],
         const SizedBox(height: 16),
@@ -1351,7 +1615,7 @@ class ServerToolsView extends StatelessWidget {
             icon: Icons.query_stats_outlined,
             title: 'Performance history',
             subtitle:
-                'Plan history for TPS, MSPT, players, resources and world load.',
+                'TPS, MSPT, players and resource history; Plan is used where available.',
             onTap: onPerformance,
           ),
         _ToolTile(
@@ -1567,6 +1831,15 @@ String _updateStatusLabel(PluginUpdateStatus status) => switch (status) {
 String _updateSourceLabel(PluginUpdate update) {
   final provider = update.provider?.label ?? 'Unknown source';
   final projectId = update.projectId?.trim();
+  return projectId == null || projectId.isEmpty
+      ? provider
+      : '$provider · $projectId';
+}
+
+String _updateDownloadSourceLabel(PluginUpdate update) {
+  final provider = update.downloadProvider?.label;
+  final projectId = update.downloadProjectId?.trim();
+  if (provider == null) return 'Not configured';
   return projectId == null || projectId.isEmpty
       ? provider
       : '$provider · $projectId';
