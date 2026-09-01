@@ -1,11 +1,18 @@
-const fs = require("fs");
+﻿const fs = require("fs");
 const path = require("path");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
 
 const execFileAsync = promisify(execFile);
 const STORAGE_TYPES = new Set([
-  "local", "nextcloud", "webdav", "smb", "nfs", "sftp", "s3", "rclone",
+  "local",
+  "nextcloud",
+  "webdav",
+  "smb",
+  "nfs",
+  "sftp",
+  "s3",
+  "rclone",
 ]);
 const MOUNT_TYPES = new Set(["local", "smb", "nfs"]);
 const WEBDAV_TYPES = new Set(["nextcloud", "webdav"]);
@@ -23,11 +30,14 @@ function parseBackupStorages(config = {}) {
   const ids = new Set();
   return entries.map((entry, index) => {
     const id = String(entry?.id || "").trim();
-    const type = String(entry?.type || "").trim().toLowerCase();
+    const type = String(entry?.type || "")
+      .trim()
+      .toLowerCase();
     if (!id || ids.has(id) || !STORAGE_TYPES.has(type)) {
       throw new Error(`Invalid backup storage at index ${index}.`);
     }
-    ids.add(id);    const storage = {
+    ids.add(id);
+    const storage = {
       id,
       name: String(entry?.name || id).trim(),
       type,
@@ -62,14 +72,20 @@ function numberOrNull(value) {
 function numberOr(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
-}function safePart(value) {
-  const cleaned = String(value).replace(/[^a-zA-Z0-9._-]+/gu, "-").replace(/^-+|-+$/gu, "");
-  if (!cleaned || cleaned === "." || cleaned === "..") throw new Error("Unsafe backup path component.");
+}
+function safePart(value) {
+  const cleaned = String(value)
+    .replace(/[^a-zA-Z0-9._-]+/gu, "-")
+    .replace(/^-+|-+$/gu, "");
+  if (!cleaned || cleaned === "." || cleaned === "..")
+    throw new Error("Unsafe backup path component.");
   return cleaned;
 }
 
 function destinationRelative(serverId, fileName, basePath = "") {
-  return [basePath, safePart(serverId), safePart(fileName)].filter(Boolean).join("/");
+  return [basePath, safePart(serverId), safePart(fileName)]
+    .filter(Boolean)
+    .join("/");
 }
 
 function webDavHeaders(storage, extra = {}) {
@@ -81,27 +97,44 @@ function webDavHeaders(storage, extra = {}) {
 }
 
 function webDavUrl(storage, relative = "") {
-  const suffix = [storage.basePath, relative].filter(Boolean)
-    .map((part) => part.split("/").filter(Boolean).map(encodeURIComponent).join("/"))
-    .filter(Boolean).join("/");
+  const suffix = [storage.basePath, relative]
+    .filter(Boolean)
+    .map((part) =>
+      part.split("/").filter(Boolean).map(encodeURIComponent).join("/"),
+    )
+    .filter(Boolean)
+    .join("/");
   return `${storage.url}${suffix ? `/${suffix}` : ""}`;
 }
 
 async function ensureWebDavPath(storage, relativeDirectory, fetchImpl = fetch) {
-  const parts = [storage.basePath, relativeDirectory].filter(Boolean).join("/").split("/").filter(Boolean);
+  const parts = [storage.basePath, relativeDirectory]
+    .filter(Boolean)
+    .join("/")
+    .split("/")
+    .filter(Boolean);
   let current = storage.url;
   for (const part of parts) {
     current += `/${encodeURIComponent(part)}`;
-    const response = await fetchImpl(current, { method: "MKCOL", headers: webDavHeaders(storage) });
+    const response = await fetchImpl(current, {
+      method: "MKCOL",
+      headers: webDavHeaders(storage),
+    });
     if (![201, 405].includes(response.status) && !response.ok) {
       throw new Error(`WebDAV MKCOL failed with HTTP ${response.status}.`);
     }
   }
-}async function copyToStorage(storage, sourceFile, serverId, options = {}) {
+}
+async function copyToStorage(storage, sourceFile, serverId, options = {}) {
   const fileName = path.basename(sourceFile);
   const relative = destinationRelative(serverId, fileName);
   if (MOUNT_TYPES.has(storage.type)) {
-    const target = path.join(storage.path, storage.basePath, safePart(serverId), safePart(fileName));
+    const target = path.join(
+      storage.path,
+      storage.basePath,
+      safePart(serverId),
+      safePart(fileName),
+    );
     fs.mkdirSync(path.dirname(target), { recursive: true });
     if (path.resolve(sourceFile) !== path.resolve(target)) {
       await fs.promises.copyFile(sourceFile, target);
@@ -114,11 +147,14 @@ async function ensureWebDavPath(storage, relativeDirectory, fetchImpl = fetch) {
     const body = fs.createReadStream(sourceFile);
     const response = await fetchImpl(webDavUrl(storage, relative), {
       method: "PUT",
-      headers: webDavHeaders(storage, { "Content-Type": "application/octet-stream" }),
+      headers: webDavHeaders(storage, {
+        "Content-Type": "application/octet-stream",
+      }),
       body,
       duplex: "half",
     });
-    if (!response.ok) throw new Error(`WebDAV upload failed with HTTP ${response.status}.`);
+    if (!response.ok)
+      throw new Error(`WebDAV upload failed with HTTP ${response.status}.`);
     return { storageId: storage.id, locator: webDavUrl(storage, relative) };
   }
   const run = options.execFile || execFileAsync;
@@ -134,7 +170,8 @@ async function deleteFromStorage(storage, locator, options = {}) {
   }
   if (WEBDAV_TYPES.has(storage.type)) {
     const response = await (options.fetch || fetch)(locator, {
-      method: "DELETE", headers: webDavHeaders(storage),
+      method: "DELETE",
+      headers: webDavHeaders(storage),
     });
     if (!response.ok && response.status !== 404) {
       throw new Error(`WebDAV delete failed with HTTP ${response.status}.`);
@@ -142,14 +179,20 @@ async function deleteFromStorage(storage, locator, options = {}) {
     return;
   }
   await (options.execFile || execFileAsync)("rclone", ["deletefile", locator]);
-}function parseDavQuota(text) {
+}
+function parseDavQuota(text) {
   const value = (name) => {
-    const match = new RegExp(`<[^>]*${name}[^>]*>(\\d+)</[^>]+>`, "iu").exec(text);
+    const match = new RegExp(`<[^>]*${name}[^>]*>(\\d+)</[^>]+>`, "iu").exec(
+      text,
+    );
     return match ? Number(match[1]) : null;
   };
   const free = value("quota-available-bytes");
   const used = value("quota-used-bytes");
-  return { freeBytes: free, totalBytes: free == null || used == null ? null : free + used };
+  return {
+    freeBytes: free,
+    totalBytes: free == null || used == null ? null : free + used,
+  };
 }
 
 async function probeStorage(storage, options = {}) {
@@ -168,32 +211,93 @@ async function probeStorage(storage, options = {}) {
     try {
       const response = await (options.fetch || fetch)(webDavUrl(storage), {
         method: "PROPFIND",
-        headers: webDavHeaders(storage, { Depth: "0", "Content-Type": "application/xml" }),
+        headers: webDavHeaders(storage, {
+          Depth: "0",
+          "Content-Type": "application/xml",
+        }),
         body: '<?xml version="1.0"?><propfind xmlns="DAV:"><prop><quota-available-bytes/><quota-used-bytes/></prop></propfind>',
       });
-      if (!response.ok && response.status !== 207) return { totalBytes: null, freeBytes: null };
+      if (!response.ok && response.status !== 207)
+        return { totalBytes: null, freeBytes: null };
       return parseDavQuota(await response.text());
     } catch (_) {
       return { totalBytes: null, freeBytes: null };
     }
   }
   try {
-    const { stdout } = await (options.execFile || execFileAsync)("rclone", ["about", storage.remote, "--json"]);
+    const { stdout } = await (options.execFile || execFileAsync)("rclone", [
+      "about",
+      storage.remote,
+      "--json",
+    ]);
     const data = JSON.parse(stdout);
-    return { totalBytes: numberOrNull(data.total), freeBytes: numberOrNull(data.free) };
+    return {
+      totalBytes: numberOrNull(data.total),
+      freeBytes: numberOrNull(data.free),
+    };
   } catch (_) {
     return { totalBytes: null, freeBytes: null };
   }
-}function storageSnapshot(storage, backups, metrics = {}) {
-  const backupBytes = backups.reduce((sum, backup) => {
-    const destinations = Array.isArray(backup.destinations) ? backup.destinations : [];
-    const direct = destinations.includes(storage.id);
-    const mounted = MOUNT_TYPES.has(storage.type) && destinations.some((value) => {
-      if (typeof value !== "string" || !path.isAbsolute(value)) return false;
-      const root = path.resolve(storage.path);
-      const candidate = path.resolve(value);
-      return candidate === root || candidate.startsWith(root + path.sep);
+}
+async function testStorageConnection(storage, options = {}) {
+  if (MOUNT_TYPES.has(storage.type)) {
+    fs.accessSync(storage.path, fs.constants.R_OK | fs.constants.W_OK);
+    return {
+      ok: true,
+      detail: `Path is readable and writable: ${storage.path}`,
+    };
+  }
+  if (WEBDAV_TYPES.has(storage.type)) {
+    const response = await (options.fetch || fetch)(webDavUrl(storage), {
+      method: "PROPFIND",
+      headers: webDavHeaders(storage, {
+        Depth: "0",
+        "Content-Type": "application/xml",
+      }),
+      body: '<?xml version="1.0"?><propfind xmlns="DAV:"><prop><resourcetype/></prop></propfind>',
     });
+    if (!response.ok && response.status !== 207) {
+      throw new Error(
+        `WebDAV connection test failed with HTTP ${response.status}.`,
+      );
+    }
+    return {
+      ok: true,
+      detail: `${storage.type === "nextcloud" ? "Nextcloud" : "WebDAV"} endpoint is reachable.`,
+    };
+  }
+  await (options.execFile || execFileAsync)("rclone", [
+    "lsf",
+    storage.remote,
+    "--max-depth",
+    "1",
+  ]);
+  return { ok: true, detail: `rclone remote is reachable: ${storage.remote}` };
+}
+
+function publicStorageUrl(storage) {
+  if (storage.type !== "nextcloud") return storage.url || "";
+  const marker = "/remote.php/dav/files/";
+  const markerIndex = String(storage.url || "").indexOf(marker);
+  return markerIndex >= 0
+    ? storage.url.slice(0, markerIndex)
+    : storage.url || "";
+}
+
+function storageSnapshot(storage, backups, metrics = {}) {
+  const backupBytes = backups.reduce((sum, backup) => {
+    const destinations = Array.isArray(backup.destinations)
+      ? backup.destinations
+      : [];
+    const direct = destinations.includes(storage.id);
+    const mounted =
+      MOUNT_TYPES.has(storage.type) &&
+      destinations.some((value) => {
+        if (typeof value !== "string" || !path.isAbsolute(value)) return false;
+        const root = path.resolve(storage.path);
+        const candidate = path.resolve(value);
+        return candidate === root || candidate.startsWith(root + path.sep);
+      });
     return direct || mounted ? sum + (Number(backup.sizeBytes) || 0) : sum;
   }, 0);
   return {
@@ -205,10 +309,18 @@ async function probeStorage(storage, options = {}) {
     backupBytes,
     softLimitBytes: storage.softLimitBytes,
     minimumFreeBytes: storage.minimumFreeBytes,
-    safeguardBlocked: storage.minimumFreeBytes != null && metrics.freeBytes != null
-      ? metrics.freeBytes <= storage.minimumFreeBytes : false,
+    safeguardBlocked:
+      storage.minimumFreeBytes != null && metrics.freeBytes != null
+        ? metrics.freeBytes <= storage.minimumFreeBytes
+        : false,
     warningFreePercent: storage.warningFreePercent,
     criticalFreePercent: storage.criticalFreePercent,
+    path: storage.path || "",
+    remote: storage.remote || "",
+    basePath: storage.basePath || "",
+    url: publicStorageUrl(storage),
+    credentialConfigured: Boolean(storage.password),
+    managed: storage.managed === true,
   };
 }
 
@@ -221,6 +333,12 @@ function publicStorage(storage) {
     minimumFreeBytes: storage.minimumFreeBytes,
     warningFreePercent: storage.warningFreePercent,
     criticalFreePercent: storage.criticalFreePercent,
+    path: storage.path || "",
+    remote: storage.remote || "",
+    basePath: storage.basePath || "",
+    url: publicStorageUrl(storage),
+    credentialConfigured: Boolean(storage.password),
+    managed: storage.managed === true,
   };
 }
 
@@ -229,6 +347,7 @@ module.exports = {
   copyToStorage,
   deleteFromStorage,
   probeStorage,
+  testStorageConnection,
   storageSnapshot,
   publicStorage,
   parseDavQuota,

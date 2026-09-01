@@ -13,16 +13,22 @@ const {
 const { executeBridgeCommand } = require("./bridge-commands");
 const { createBackend, validateMessage } = require("./minecraft-backend");
 const { createMulticraftClient } = require("./multicraft-client");
-const { createManagementService } = require("./management-service");
+const {
+  createManagementService,
+  parseServers,
+} = require("./management-service");
 const { createUpdateChecker } = require("./update-checker");
+const { createUpdateApplier } = require("./update-applier");
 const { createPushService } = require("./push-service");
 const { createPlanPerformanceAdapter } = require("./plan-performance");
+const { createGenericPerformanceAdapter } = require("./generic-performance");
 const {
   isInternalStateReply,
   splitLogLine,
   trimVisibleLogHistory,
 } = require("./log-history");
-const BRIDGE_VERSION = process.env.BRIDGE_VERSION || require("./package.json").version;
+const BRIDGE_VERSION =
+  process.env.BRIDGE_VERSION || require("./package.json").version;
 
 const USE_SSL = process.env.USE_SSL === "true";
 const PORT = Number.parseInt(process.env.PORT || "8080", 10);
@@ -49,9 +55,15 @@ async function accessApi(pathname, { method = "GET" } = {}) {
   });
   const text = await response.text();
   let data;
-  try { data = text ? JSON.parse(text) : {}; } catch (_) { data = {}; }
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch (_) {
+    data = {};
+  }
   if (!response.ok) {
-    throw new Error(data.message || `Access API returned HTTP ${response.status}`);
+    throw new Error(
+      data.message || `Access API returned HTTP ${response.status}`,
+    );
   }
   return data;
 }
@@ -59,11 +71,16 @@ async function accessApi(pathname, { method = "GET" } = {}) {
 async function networkApi() {
   if (!NETWORK_API_ENABLED) throw new Error("Network API is not configured");
   const response = await fetch(new URL("/v1/network", NETWORK_API_URL), {
-    headers: { Authorization: `Bearer ${NETWORK_API_TOKEN}`, Accept: "application/json" },
+    headers: {
+      Authorization: `Bearer ${NETWORK_API_TOKEN}`,
+      Accept: "application/json",
+    },
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok || data.success !== true) {
-    throw new Error(data.message || `Network API returned HTTP ${response.status}`);
+    throw new Error(
+      data.message || `Network API returned HTTP ${response.status}`,
+    );
   }
   return data;
 }
@@ -97,11 +114,26 @@ const backend = createBackend({
 
 function handleRequest(req, res) {
   if (req.method === "GET" && req.url === "/healthz") {
-    res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-    res.end(JSON.stringify({ ok: true, version: BRIDGE_VERSION, edition: backend.edition, management: managementService?.enabled === true, performanceSource: planPerformance ? "plan" : null }));
+    res.writeHead(200, {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    });
+    res.end(
+      JSON.stringify({
+        ok: true,
+        version: BRIDGE_VERSION,
+        edition: backend.edition,
+        management: managementService?.enabled === true,
+        performanceSource: performance?.descriptor?.().type || null,
+      }),
+    );
     return;
   }
-  if (req.method === "GET" && req.url === "/getcert" && fs.existsSync(CERT_PATH)) {
+  if (
+    req.method === "GET" &&
+    req.url === "/getcert" &&
+    fs.existsSync(CERT_PATH)
+  ) {
     const certFilePath = path.join(__dirname, CERT_PATH);
     res.writeHead(200, {
       "Content-Type": "application/x-x509-ca-cert",
@@ -141,53 +173,93 @@ function sendEvent(ws, type, fields = {}) {
 const managementClients = new Set();
 let managementService = null;
 let planPerformance = null;
+let performance = null;
 
 try {
-  if (process.env.MULTICRAFT_ENABLED === "true" && process.env.MANAGEMENT_ENABLED === "true") {
-    planPerformance = createPlanPerformanceAdapter();
+  if (
+    process.env.MULTICRAFT_ENABLED === "true" &&
+    process.env.MANAGEMENT_ENABLED === "true"
+  ) {
+    const managementConfig = {
+      serversJson: process.env.MANAGEMENT_SERVERS_JSON,
+      serverId: process.env.MANAGEMENT_SERVER_ID,
+      serverName: process.env.MANAGEMENT_SERVER_NAME,
+      multicraftServerId: process.env.MULTICRAFT_SERVER_ID,
+      statePath: process.env.MANAGEMENT_STATE_PATH,
+      storagePath: process.env.MANAGEMENT_STORAGE_PATH,
+      storagesJson: process.env.BACKUP_STORAGES_JSON,
+      enginesJson: process.env.BACKUP_ENGINES_JSON,
+      retentionJson: process.env.BACKUP_RETENTION_JSON,
+      maintenanceConfigJson: process.env.MAINTENANCE_CONFIG_JSON,
+      nativeBackupPath: process.env.MANAGEMENT_NATIVE_BACKUP_PATH,
+      nativeSourceRoot: process.env.MANAGEMENT_NATIVE_SOURCE_ROOT,
+      storageProbeMilliseconds: process.env.MANAGEMENT_STORAGE_PROBE_MS,
+    };
+    const managementServers = parseServers(managementConfig);
     const managementMulticraft = createMulticraftClient({
       url: process.env.MULTICRAFT_URL,
       user: process.env.MULTICRAFT_USER,
       apiKey: process.env.MULTICRAFT_API_KEY,
       serverId: process.env.MULTICRAFT_SERVER_ID,
     });
+    try {
+      if (
+        process.env.PLAN_DB_HOST &&
+        process.env.PLAN_DB_USER &&
+        process.env.PLAN_SERVER_MAP_JSON
+      ) {
+        planPerformance = createPlanPerformanceAdapter({
+          managementServerIds: managementServers.map((server) => server.id),
+        });
+      }
+    } catch (error) {
+      planPerformance = null;
+      console.warn(
+        `Plan performance disabled; AdminCraft fallback remains available: ${error.message}`,
+      );
+    }
+    performance = createGenericPerformanceAdapter(
+      {
+        servers: managementServers,
+        statePath: managementConfig.statePath,
+        root: process.env.MANAGEMENT_PERFORMANCE_PATH,
+        sampleMilliseconds: process.env.MANAGEMENT_PERFORMANCE_SAMPLE_MS,
+      },
+      { multicraft: managementMulticraft, planPerformance },
+    );
     let updateChecker = null;
     try {
-      updateChecker = createUpdateChecker();
+      updateChecker = createUpdateChecker({
+        servers: managementServers,
+        sourceRoot: managementConfig.nativeSourceRoot || "/minecraft",
+        projectsJson: process.env.UPDATE_PROJECTS_JSON,
+        builtByBitApiToken: process.env.BUILTBYBIT_API_TOKEN,
+        builtByBitApiTokenType: process.env.BUILTBYBIT_API_TOKEN_TYPE,
+      });
     } catch (error) {
       console.warn(`RC4 update checking disabled: ${error.message}`);
     }
-    managementService = createManagementService(
-      {
-        serversJson: process.env.MANAGEMENT_SERVERS_JSON,
-        serverId: process.env.MANAGEMENT_SERVER_ID,
-        serverName: process.env.MANAGEMENT_SERVER_NAME,
-        multicraftServerId: process.env.MULTICRAFT_SERVER_ID,
-        statePath: process.env.MANAGEMENT_STATE_PATH,
-        storagePath: process.env.MANAGEMENT_STORAGE_PATH,
-        storagesJson: process.env.BACKUP_STORAGES_JSON,
-        enginesJson: process.env.BACKUP_ENGINES_JSON,
-        retentionJson: process.env.BACKUP_RETENTION_JSON,
-        maintenanceConfigJson: process.env.MAINTENANCE_CONFIG_JSON,
-        nativeBackupPath: process.env.MANAGEMENT_NATIVE_BACKUP_PATH,
-        storageProbeMilliseconds: process.env.MANAGEMENT_STORAGE_PROBE_MS,
+    const updateApplier = createUpdateApplier({
+      sourceRoot: managementConfig.nativeSourceRoot || "/minecraft",
+      writeRoot: process.env.MANAGEMENT_UPDATE_SOURCE_ROOT,
+      rollbackRoot: process.env.MANAGEMENT_UPDATE_ROLLBACK_PATH,
+    });
+    managementService = createManagementService(managementConfig, {
+      multicraft: managementMulticraft,
+      performance,
+      updateChecker,
+      updateApplier,
+      onSnapshot(frame) {
+        for (const client of managementClients)
+          send(client, JSON.stringify(frame));
       },
-      {
-        multicraft: managementMulticraft,
-        planPerformance,
-        updateChecker,
-        onSnapshot(frame) {
-          for (const client of managementClients) send(client, JSON.stringify(frame));
-        },
-      },
-    );
+    });
     managementService.start();
   }
 } catch (error) {
   managementService = null;
   console.error(`RC4 management disabled: ${error.message}`);
 }
-
 
 function eventId(stream, at, message) {
   return crypto
@@ -232,7 +304,11 @@ function startSession(ws, request, authenticated) {
   const scope = authenticated.scope;
   const baseCapabilities = capabilitiesFor(backend.capabilities, scope);
   const capabilities = [...baseCapabilities];
-  if (ACCESS_API_ENABLED && scope === "admin" && !capabilities.includes("access")) {
+  if (
+    ACCESS_API_ENABLED &&
+    scope === "admin" &&
+    !capabilities.includes("access")
+  ) {
     capabilities.push("access");
   }
   if (NETWORK_API_ENABLED && !capabilities.includes("network")) {
@@ -241,7 +317,11 @@ function startSession(ws, request, authenticated) {
   if (scope === "admin" && !capabilities.includes("push")) {
     capabilities.push("push");
   }
-  if (scope === "admin" && managementService?.enabled && !capabilities.includes("management")) {
+  if (
+    scope === "admin" &&
+    managementService?.enabled &&
+    !capabilities.includes("management")
+  ) {
     capabilities.push("management");
   }
 
@@ -496,7 +576,10 @@ function startSession(ws, request, authenticated) {
           ? sendEvent(ws, "admincraft.pong")
           : send(ws, "Admincraft pong");
       } else {
-        const manageMatch = /^admincraft manage ([a-z0-9-]+)(?: ([A-Za-z0-9_-]+))?$/u.exec(command);
+        const manageMatch =
+          /^admincraft manage ([a-z0-9-]+)(?: ([A-Za-z0-9_-]+))?$/u.exec(
+            command,
+          );
         if (manageMatch) {
           if (!capabilities.includes("management") || !managementService) {
             sendEvent(ws, "admincraft.management-result", {
@@ -509,8 +592,12 @@ function startSession(ws, request, authenticated) {
           let payload = {};
           try {
             if (manageMatch[2]) {
-              const padded = manageMatch[2] + "=".repeat((4 - manageMatch[2].length % 4) % 4);
-              payload = JSON.parse(Buffer.from(padded, "base64url").toString("utf8"));
+              const padded =
+                manageMatch[2] +
+                "=".repeat((4 - (manageMatch[2].length % 4)) % 4);
+              payload = JSON.parse(
+                Buffer.from(padded, "base64url").toString("utf8"),
+              );
             }
           } catch (_) {
             sendEvent(ws, "admincraft.management-result", {
@@ -520,8 +607,12 @@ function startSession(ws, request, authenticated) {
             });
             return;
           }
-          const result = await managementService.handle(manageMatch[1], payload);
-          for (const event of result.events || []) send(ws, JSON.stringify(event));
+          const result = await managementService.handle(
+            manageMatch[1],
+            payload,
+          );
+          for (const event of result.events || [])
+            send(ws, JSON.stringify(event));
           sendEvent(ws, "admincraft.management-result", {
             success: result.success === true,
             refresh: result.refresh === true,
@@ -529,23 +620,39 @@ function startSession(ws, request, authenticated) {
           });
           return;
         }
-        const pushMatch = /^admincraft push-register ([A-Za-z0-9_-]+)$/u.exec(command);
+        const pushMatch = /^admincraft push-register ([A-Za-z0-9_-]+)$/u.exec(
+          command,
+        );
         if (pushMatch) {
           if (!capabilities.includes("push")) {
-            sendEvent(ws, "admincraft.push-result", { success: false, providerConfigured: pushService.providerConfigured, message: "Native push registration requires an admin credential." });
+            sendEvent(ws, "admincraft.push-result", {
+              success: false,
+              providerConfigured: pushService.providerConfigured,
+              message: "Native push registration requires an admin credential.",
+            });
             return;
           }
           try {
-            const padded = pushMatch[1] + "=".repeat((4 - pushMatch[1].length % 4) % 4);
-            const payload = JSON.parse(Buffer.from(padded, "base64url").toString("utf8"));
+            const padded =
+              pushMatch[1] + "=".repeat((4 - (pushMatch[1].length % 4)) % 4);
+            const payload = JSON.parse(
+              Buffer.from(padded, "base64url").toString("utf8"),
+            );
             const result = pushService.register(payload);
             sendEvent(ws, "admincraft.push-result", result);
           } catch (error) {
-            sendEvent(ws, "admincraft.push-result", { success: false, providerConfigured: pushService.providerConfigured, message: error.message || "Native push registration failed." });
+            sendEvent(ws, "admincraft.push-result", {
+              success: false,
+              providerConfigured: pushService.providerConfigured,
+              message: error.message || "Native push registration failed.",
+            });
           }
           return;
         }
-                const accessMatch = /^admincraft access (allow|approve|deny|blacklist|revoke|reset) ([0-9a-f-]{36})$/iu.exec(command);
+        const accessMatch =
+          /^admincraft access (allow|approve|deny|blacklist|revoke|reset) ([0-9a-f-]{36})$/iu.exec(
+            command,
+          );
         if (accessMatch) {
           if (!capabilities.includes("access")) {
             sendEvent(ws, "admincraft.access-result", {
@@ -554,7 +661,14 @@ function startSession(ws, request, authenticated) {
             });
             return;
           }
-          const actionMap = { allow: "approve", approve: "approve", deny: "deny", blacklist: "deny", revoke: "reset", reset: "reset" };
+          const actionMap = {
+            allow: "approve",
+            approve: "approve",
+            deny: "deny",
+            blacklist: "deny",
+            revoke: "reset",
+            reset: "reset",
+          };
           const action = actionMap[accessMatch[1].toLowerCase()];
           const uuid = accessMatch[2].toLowerCase();
           try {
