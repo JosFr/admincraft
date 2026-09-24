@@ -74,12 +74,10 @@ class ServersView extends StatelessWidget {
                       children: [
                         heading,
                         const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(child: network),
-                            const SizedBox(width: 8),
-                            Expanded(child: add),
-                          ],
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [network, add],
                         ),
                       ],
                     );
@@ -211,22 +209,20 @@ class _ServerTile extends StatelessWidget {
                         ],
                       ],
                     ),
-                    Row(
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           server.edition.label,
                           style: theme.textTheme.bodySmall,
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Tooltip(
-                            message: address,
-                            child: Text(
-                              address,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodySmall,
-                            ),
+                        Tooltip(
+                          message: address,
+                          child: Text(
+                            address,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall,
                           ),
                         ),
                       ],

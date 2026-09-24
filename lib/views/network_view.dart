@@ -512,23 +512,19 @@ class _AccessGroup extends StatelessWidget {
             for (final entry in entries)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(entry.name),
-                          if ((entry.requestedTarget ?? '').isNotEmpty)
-                            Text(
-                              entry.requestedTarget!,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                        ],
+                    Text(entry.name),
+                    if ((entry.requestedTarget ?? '').isNotEmpty)
+                      Text(
+                        entry.requestedTarget!,
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
-                    ),
+                    const SizedBox(height: 6),
                     Wrap(
                       spacing: 6,
+                      runSpacing: 6,
                       children: [
                         for (final action in actions)
                           OutlinedButton(

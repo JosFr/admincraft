@@ -606,17 +606,30 @@ class _Header extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Expanded(
-        child: Text(title, style: Theme.of(context).textTheme.headlineMedium),
-      ),
-      FilledButton.icon(
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final heading = Text(
+        title,
+        style: Theme.of(context).textTheme.headlineMedium,
+      );
+      final button = FilledButton.icon(
         onPressed: available ? onBackup : null,
         icon: const Icon(Icons.add),
         label: const Text('Create backup'),
-      ),
-    ],
+      );
+      if (constraints.maxWidth < 560) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [heading, const SizedBox(height: 10), button],
+        );
+      }
+      return Row(
+        children: [
+          Expanded(child: heading),
+          button,
+        ],
+      );
+    },
   );
 }
 
@@ -724,12 +737,20 @@ class _StorageCard extends StatelessWidget {
                 const Icon(Icons.storage_outlined),
                 const SizedBox(width: 10),
                 Expanded(
-                  child: Text(
-                    storage.name,
-                    style: Theme.of(context).textTheme.titleMedium,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        storage.name,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      Text(
+                        storage.type.label,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
                   ),
                 ),
-                Text(storage.type.label),
                 const SizedBox(width: 4),
                 PopupMenuButton<String>(
                   tooltip: 'Storage actions',
@@ -884,8 +905,11 @@ class _RetentionCard extends StatelessWidget {
                     onPressed: onEdit,
                     icon: const Icon(Icons.edit_outlined),
                   ),
-                Chip(label: Text(enforced ? 'Automatic' : 'Preview only')),
               ],
+            ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Chip(label: Text(enforced ? 'Automatic' : 'Preview only')),
             ),
             const SizedBox(height: 8),
             Text(
@@ -1347,6 +1371,8 @@ class BackupHub extends StatelessWidget {
     child: Column(
       children: [
         const TabBar(
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
           tabs: [
             Tab(text: 'Backups'),
             Tab(text: 'Schedules'),
