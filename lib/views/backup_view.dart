@@ -8,6 +8,7 @@ import 'package:admincraft/views/widgets/backup_retention_management.dart';
 import 'package:admincraft/views/widgets/backup_engine_management.dart';
 import 'package:admincraft/views/widgets/backup_storage_management.dart';
 import 'package:flutter/material.dart';
+import 'package:admincraft/views/widgets/management_feedback.dart';
 import 'package:provider/provider.dart';
 
 class BackupView extends StatelessWidget {
@@ -32,34 +33,7 @@ class BackupView extends StatelessWidget {
 
     return Column(
       children: [
-        if (network.managementMessage?.isNotEmpty == true)
-          Card(
-            key: const ValueKey('backup-management-feedback'),
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Text(
-                    network.managementPending
-                        ? 'Waiting for confirmation'
-                        : network.managementSuccess == true
-                        ? 'Request confirmed'
-                        : network.managementSuccess == false
-                        ? 'Action failed'
-                        : 'Status not confirmed',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(network.managementMessage!),
-                  if (network.managementPending) ...[
-                    const SizedBox(height: 8),
-                    const LinearProgressIndicator(),
-                  ],
-                ],
-              ),
-            ),
-          ),
+        ManagementFeedback(network: network),
         Expanded(
           child: RefreshIndicator(
             onRefresh: () async => network.refreshManagement(),
@@ -168,14 +142,6 @@ class BackupView extends StatelessWidget {
                   const SizedBox(height: 12),
                 ],
                 if (!storageOnly) ...[
-                  if (backups.isNotEmpty) ...[
-                    _RecoveryReadinessCard(backups: backups),
-                    const SizedBox(height: 12),
-                  ],
-                  if (serverId == null && backups.isNotEmpty) ...[
-                    _BackupFootprintCard(backups: backups),
-                    const SizedBox(height: 12),
-                  ],
                   Row(
                     children: [
                       Expanded(
@@ -219,11 +185,22 @@ class BackupView extends StatelessWidget {
                         onCopy: backup.capabilities.copy
                             ? () => _copy(context, network, snapshot, backup)
                             : null,
+                        onForget: backup.capabilities.forget
+                            ? () => _forget(context, network, backup)
+                            : null,
                         onDelete: backup.capabilities.delete
                             ? () => _delete(context, network, backup)
                             : null,
                       ),
                     ),
+                  if (backups.isNotEmpty) ...[
+                    _RecoveryReadinessCard(backups: backups),
+                    const SizedBox(height: 12),
+                  ],
+                  if (serverId == null && backups.isNotEmpty) ...[
+                    _BackupFootprintCard(backups: backups),
+                    const SizedBox(height: 12),
+                  ],
                 ],
               ],
             ),
@@ -639,6 +616,21 @@ class BackupView extends StatelessWidget {
 
   void _send(bool sent, String failureMessage) {
     if (!sent) ToastUtils.showToastError(failureMessage);
+  }
+
+  Future<void> _forget(
+    BuildContext context,
+    NetworkController network,
+    BackupRecord backup,
+  ) async {
+    final confirmed = await DialogUtils.confirmAction(
+      context,
+      title: 'Remove backup record?',
+      message:
+          'Remove this entry from Admincraft history? This does not delete any backup files or cancel a backup command that may still be running.',
+      confirmLabel: 'Remove record',
+    );
+    if (confirmed) network.forgetBackup(backup.id);
   }
 
   Future<void> _delete(
@@ -1112,7 +1104,7 @@ class _RecoveryReadinessCard extends StatelessWidget {
               for (final issue in issues)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4),
-                  child: Text('â€¢ $issue'),
+                  child: Text('• $issue'),
                 ),
             ],
           ],
@@ -1199,6 +1191,7 @@ class _BackupCard extends StatelessWidget {
   final VoidCallback? onVerify;
   final VoidCallback? onCopy;
   final VoidCallback? onDelete;
+  final VoidCallback? onForget;
 
   const _BackupCard({
     required this.backup,
@@ -1207,6 +1200,7 @@ class _BackupCard extends StatelessWidget {
     required this.onVerify,
     required this.onCopy,
     required this.onDelete,
+    required this.onForget,
   });
 
   @override
@@ -1291,58 +1285,63 @@ class _BackupCard extends StatelessWidget {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
-            if (backup.capabilities.hasRecordActions) ...[
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerRight,
-                child: PopupMenuButton<String>(
-                  tooltip: 'Backup actions',
-                  onSelected: (value) {
-                    if (value == 'restore') onRestore?.call();
-                    if (value == 'download') onDownload?.call();
-                    if (value == 'verify') onVerify?.call();
-                    if (value == 'copy') onCopy?.call();
-                    if (value == 'delete') onDelete?.call();
-                  },
-                  itemBuilder: (context) => [
-                    if (onRestore != null)
-                      _actionItem('restore', Icons.restore, 'Restore'),
-                    if (onDownload != null)
-                      _actionItem(
-                        'download',
-                        Icons.download_outlined,
-                        'Download',
-                      ),
-                    if (onVerify != null)
-                      _actionItem('verify', Icons.verified_outlined, 'Verify'),
-                    if (onCopy != null)
-                      _actionItem('copy', Icons.copy_outlined, 'Copy'),
-                    if (onDelete != null)
-                      _actionItem('delete', Icons.delete_outline, 'Delete'),
-                  ],
-                  child: const Chip(
-                    avatar: Icon(Icons.more_horiz, size: 18),
-                    label: Text('Actions'),
-                  ),
-                ),
+            const SizedBox(height: 8),
+            if (backup.capabilities.hasRecordActions)
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (onForget != null)
+                    OutlinedButton.icon(
+                      onPressed: onForget,
+                      icon: const Icon(Icons.playlist_remove),
+                      label: const Text('Remove from history'),
+                    ),
+                  if (onRestore != null)
+                    OutlinedButton.icon(
+                      onPressed: onRestore,
+                      icon: const Icon(Icons.restore),
+                      label: const Text('Restore'),
+                    ),
+                  if (onDownload != null)
+                    OutlinedButton.icon(
+                      onPressed: onDownload,
+                      icon: const Icon(Icons.download_outlined),
+                      label: const Text('Download'),
+                    ),
+                  if (onVerify != null)
+                    OutlinedButton.icon(
+                      onPressed: onVerify,
+                      icon: const Icon(Icons.verified_outlined),
+                      label: const Text('Verify'),
+                    ),
+                  if (onCopy != null)
+                    OutlinedButton.icon(
+                      onPressed: onCopy,
+                      icon: const Icon(Icons.copy_outlined),
+                      label: const Text('Copy'),
+                    ),
+                  if (onDelete != null)
+                    OutlinedButton.icon(
+                      onPressed: onDelete,
+                      icon: const Icon(Icons.delete_outline),
+                      label: const Text('Delete'),
+                    ),
+                ],
+              )
+            else
+              Text(
+                backup.engine == BackupEngineType.multicraft
+                    ? 'Manage this backup in Multicraft. This bridge does not support deleting or changing its files.'
+                    : 'This backup engine does not provide file actions through this bridge.',
+                style: Theme.of(context).textTheme.bodySmall,
               ),
-            ],
           ],
         ),
       ),
     );
   }
 }
-
-PopupMenuItem<String> _actionItem(String value, IconData icon, String label) =>
-    PopupMenuItem(
-      value: value,
-      child: ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: Icon(icon),
-        title: Text(label),
-      ),
-    );
 
 class _DetailChip extends StatelessWidget {
   final IconData icon;

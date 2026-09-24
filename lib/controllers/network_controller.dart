@@ -77,6 +77,13 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   bool? get managementSuccess => _managementSuccess;
   bool get managementPending => _managementPending;
 
+  void clearManagementFeedback() {
+    if (_managementPending) return;
+    _managementMessage = null;
+    _managementSuccess = null;
+    notifyListeners();
+  }
+
   void _finishManagementWaiting() {
     _managementFeedbackTimer?.cancel();
     _managementFeedbackTimer = null;
@@ -478,7 +485,11 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
 
   bool _manage(String action, [Map<String, dynamic> payload = const {}]) {
     if (!_connected || !managementAvailable) {
-      if (action == 'storage-test' || action == 'backup-create') {
+      if (action == 'storage-test' ||
+          action == 'backup-create' ||
+          action.startsWith('schedule-') ||
+          action == 'backup-forget' ||
+          action == 'backup-delete') {
         _finishManagementWaiting();
         _managementMessage =
             'The management bridge is not connected. Request not sent.';
@@ -490,7 +501,11 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     final raw = jsonEncode(payload);
     final encoded = base64Url.encode(utf8.encode(raw)).replaceAll('=', '');
     _channel?.sink.add('admincraft manage $action $encoded');
-    if (action == 'storage-test' || action == 'backup-create') {
+    if (action == 'storage-test' ||
+        action == 'backup-create' ||
+        action.startsWith('schedule-') ||
+        action == 'backup-forget' ||
+        action == 'backup-delete') {
       _finishManagementWaiting();
       _managementPending = true;
       if (action == 'backup-create') {
@@ -502,7 +517,9 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
       _managementSuccess = null;
       _managementMessage = action == 'storage-test'
           ? 'Testing storage connection… Waiting for the server.'
-          : 'Backup requested. Waiting for the server to confirm its status.';
+          : action == 'backup-create'
+          ? 'Backup requested. Waiting for the server to confirm its status.'
+          : 'Request sent. Waiting for the server to confirm the change.';
       _managementFeedbackTimer = Timer(const Duration(seconds: 45), () {
         _managementPending = false;
         _managementSuccess = null;
@@ -526,6 +543,9 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     'engineId': engineId,
     if (destinationIds.isNotEmpty) 'destinationIds': destinationIds,
   });
+
+  bool forgetBackup(String backupId) =>
+      _manage('backup-forget', {'backupId': backupId});
 
   bool deleteBackup(String backupId) =>
       _manage('backup-delete', {'backupId': backupId});
@@ -633,12 +653,14 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
       _manage('engine-delete', {'engineId': engineId});
 
   bool createSchedule({
+    String? id,
     required String serverId,
     required String action,
     String schedule = '',
     DateTime? runAt,
     String? backupEngineId,
-  }) => _manage('schedule-create', {
+  }) => _manage(id == null ? 'schedule-create' : 'schedule-update', {
+    if (id != null) 'id': id,
     'serverId': serverId,
     'action': action,
     if (backupEngineId != null && backupEngineId.isNotEmpty)

@@ -131,6 +131,7 @@ class BackupCapabilities {
   final bool remoteDestination;
   final bool verify;
   final bool copy;
+  final bool forget;
 
   const BackupCapabilities({
     this.create = false,
@@ -142,6 +143,7 @@ class BackupCapabilities {
     this.remoteDestination = false,
     this.verify = false,
     this.copy = false,
+    this.forget = false,
   });
 
   factory BackupCapabilities.fromJson(Object? raw) {
@@ -157,10 +159,12 @@ class BackupCapabilities {
       remoteDestination: enabled('remoteDestination'),
       verify: enabled('verify'),
       copy: enabled('copy'),
+      forget: enabled('forget'),
     );
   }
 
-  bool get hasRecordActions => restore || download || delete || verify || copy;
+  bool get hasRecordActions =>
+      restore || download || delete || verify || copy || forget;
 }
 
 class BackupEngineDescriptor {
@@ -903,6 +907,7 @@ class UpdateApplyCapabilities {
 }
 
 class ManagementSnapshot {
+  final List<String> features;
   final DateTime? observedAt;
   final List<BackupStorageSnapshot> storages;
   final BackupDestinationDefaults backupDestinationDefaults;
@@ -919,6 +924,7 @@ class ManagementSnapshot {
   final PerformanceSource performanceSource;
 
   const ManagementSnapshot({
+    this.features = const [],
     this.observedAt,
     this.storages = const [],
     this.backupDestinationDefaults = const BackupDestinationDefaults(),
@@ -942,6 +948,11 @@ class ManagementSnapshot {
     }
 
     return ManagementSnapshot(
+      features:
+          (json['features'] as List?)
+              ?.map((item) => item.toString())
+              .toList() ??
+          const [],
       observedAt: DateTime.tryParse(
         json['observedAt']?.toString() ?? '',
       )?.toLocal(),

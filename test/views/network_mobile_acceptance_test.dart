@@ -10,6 +10,7 @@ import 'package:admincraft/services/persistence_service.dart';
 import 'package:admincraft/views/backup_view.dart';
 import 'package:admincraft/views/network_view.dart';
 import 'package:admincraft/views/servers_view.dart';
+import 'package:admincraft/views/management_views.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -20,6 +21,40 @@ import 'package:shared_preferences/shared_preferences.dart';
 class _NetworkFixture extends NetworkController {
   _NetworkFixture(super.notifications);
   final actions = <(String, String)>[];
+  Map<String, Object?>? scheduleEdit;
+  String? deletedSchedule;
+  String? forgottenBackup;
+  @override
+  bool createSchedule({
+    String? id,
+    required String serverId,
+    required String action,
+    String schedule = '',
+    DateTime? runAt,
+    String? backupEngineId,
+  }) {
+    scheduleEdit = {
+      'id': id,
+      'serverId': serverId,
+      'action': action,
+      'schedule': schedule,
+      'runAt': runAt,
+      'backupEngineId': backupEngineId,
+    };
+    return true;
+  }
+
+  @override
+  bool deleteSchedule(String id) {
+    deletedSchedule = id;
+    return true;
+  }
+
+  @override
+  bool forgetBackup(String id) {
+    forgottenBackup = id;
+    return true;
+  }
 
   @override
   bool executeAccessAction(String action, String uuid) {
@@ -355,6 +390,106 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Lobby — completed'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+  testWidgets(
+    'existing schedules expose editing and confirmed deletion on a phone',
+    (tester) async {
+      final network = await pumpScreen(
+        tester,
+        const SchedulesView(),
+        width: 390,
+      );
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.management-state',
+          'features': ['schedule-update', 'backup-forget'],
+          'schedules': [
+            {
+              'id': 'nightly',
+              'serverId': 'skeerekippen',
+              'serverName': 'Skeerekippen',
+              'action': 'backup',
+              'backupEngineId': 'plugin-test',
+              'schedule': '0 4 * * *',
+              'recurring': true,
+              'enabled': false,
+            },
+          ],
+        }),
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Edit schedule'));
+      await tester.tap(find.text('Edit schedule'));
+      await tester.pumpAndSettle();
+      expect(find.text('Edit scheduled action'), findsOneWidget);
+      final cron = find.byType(TextField).first;
+      expect(tester.widget<TextField>(cron).controller!.text, '0 4 * * *');
+      await tester.enterText(cron, '0 6 * * *');
+      await tester.tap(find.text('Save changes'));
+      await tester.pumpAndSettle();
+      expect(network.scheduleEdit?['id'], 'nightly');
+      expect(network.scheduleEdit?['serverId'], 'skeerekippen');
+      expect(network.scheduleEdit?['schedule'], '0 6 * * *');
+      expect(network.scheduleEdit?['action'], 'backup');
+      expect(network.scheduleEdit?['backupEngineId'], 'plugin-test');
+      await tester.ensureVisible(find.text('Delete schedule'));
+      await tester.tap(find.text('Delete schedule'));
+      await tester.pumpAndSettle();
+      expect(network.deletedSchedule, isNull);
+      await tester.tap(find.text('Keep'));
+      await tester.pumpAndSettle();
+      expect(network.deletedSchedule, isNull);
+      await tester.tap(find.text('Delete schedule'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+      expect(network.deletedSchedule, 'nightly');
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'unknown plugin backup offers record cleanup with explicit confirmation',
+    (tester) async {
+      final network = await pumpScreen(tester, const BackupView());
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.management-state',
+          'backups': [
+            {
+              'id': 'plugin-record',
+              'serverId': 'skeerekippen',
+              'serverName': 'Skeerekippen',
+              'engine': 'plugin',
+              'engineLabel': 'WebDavBackup',
+              'status': 'unknown',
+              'capabilities': {'forget': true},
+            },
+          ],
+        }),
+      );
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Remove from history'),
+        250,
+        scrollable: find.byType(Scrollable).last,
+      );
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Remove from history'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove from history'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('does not delete any backup files'),
+        findsOneWidget,
+      );
+      expect(network.forgottenBackup, isNull);
+      await tester.tap(find.text('Remove record'));
+      await tester.pumpAndSettle();
+      expect(network.forgottenBackup, 'plugin-record');
+      expect(find.text('Delete'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );

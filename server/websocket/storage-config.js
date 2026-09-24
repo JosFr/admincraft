@@ -1,4 +1,4 @@
-﻿const fs = require("fs");
+const fs = require("fs");
 const path = require("path");
 const { parseBackupStorages } = require("./backup-storage");
 
@@ -85,9 +85,12 @@ function normalizeManagedStorage(payload = {}, previous = null) {
         : String(payload.url ?? previous?.url ?? "").trim(),
     username,
     password,
-    softLimitBytes: payload.softLimitBytes ?? previous?.softLimitBytes ?? null,
-    minimumFreeBytes:
-      payload.minimumFreeBytes ?? previous?.minimumFreeBytes ?? null,
+    softLimitBytes: Object.hasOwn(payload, "softLimitBytes")
+      ? payload.softLimitBytes
+      : previous?.softLimitBytes ?? null,
+    minimumFreeBytes: Object.hasOwn(payload, "minimumFreeBytes")
+      ? payload.minimumFreeBytes
+      : previous?.minimumFreeBytes ?? null,
     warningFreePercent:
       payload.warningFreePercent ?? previous?.warningFreePercent ?? 15,
     criticalFreePercent:
