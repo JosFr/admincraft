@@ -443,6 +443,15 @@ void main() {
 
     final navigation = find.byKey(const ValueKey('mobile-bottom-navigation'));
     expect(navigation, findsNothing);
+    final serverNavigation = find.byKey(
+      const ValueKey('mobile-server-navigation'),
+    );
+    expect(serverNavigation, findsOneWidget);
+    expect(tester.getTopLeft(serverNavigation).dy, greaterThan(700));
+    expect(
+      find.descendant(of: serverNavigation, matching: find.text('Console')),
+      findsOneWidget,
+    );
     expect(find.byTooltip('Back to Servers'), findsOneWidget);
     expect(find.text('Overview'), findsWidgets);
     expect(find.text('Console'), findsOneWidget);

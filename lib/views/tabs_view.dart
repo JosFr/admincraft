@@ -856,56 +856,67 @@ class _TabsState extends State<Tabs> {
             ),
         ],
       ),
-      body: Column(
-        children: [
-          if (_serverDetail)
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              child: Row(
-                children: [
-                  for (final destination in const [
-                    _WorkspaceDestination.overview,
-                    _WorkspaceDestination.console,
-                    _WorkspaceDestination.controls,
-                    _WorkspaceDestination.players,
-                    _WorkspaceDestination.serverTools,
-                  ])
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text(destination.label),
-                        selected: _destination == destination,
-                        onSelected: (_) => _go(destination),
-                      ),
-                    ),
-                  TextButton(
-                    onPressed: () => _openPage(
-                      'Performance',
-                      PerformanceHistoryView(
-                        serverId:
-                            model.selectedServer.effectiveManagementServerId,
-                      ),
-                    ),
-                    child: const Text('Performance'),
-                  ),
-                  TextButton(
-                    onPressed: () => _openPage(
-                      'Backups',
-                      BackupHub(
-                        serverId:
-                            model.selectedServer.effectiveManagementServerId,
-                      ),
-                    ),
-                    child: const Text('Backups'),
-                  ),
-                ],
+      body: _pageHost(model, connection),
+      bottomNavigationBar: _serverDetail
+          ? DecoratedBox(
+              key: const ValueKey('mobile-server-navigation'),
+              decoration: BoxDecoration(
+                color: navigationColor,
+                border: Border(top: BorderSide(color: scheme.outlineVariant)),
               ),
-            ),
-          Expanded(child: _pageHost(model, connection)),
-        ],
-      ),
-      bottomNavigationBar: _primaryDestinations.contains(_destination)
+              child: SafeArea(
+                top: false,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  child: Row(
+                    children: [
+                      for (final destination in const [
+                        _WorkspaceDestination.overview,
+                        _WorkspaceDestination.console,
+                        _WorkspaceDestination.controls,
+                        _WorkspaceDestination.players,
+                        _WorkspaceDestination.serverTools,
+                      ])
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(destination.label),
+                            selected: _destination == destination,
+                            onSelected: (_) => _go(destination),
+                          ),
+                        ),
+                      TextButton(
+                        onPressed: () => _openPage(
+                          'Performance',
+                          PerformanceHistoryView(
+                            serverId: model
+                                .selectedServer
+                                .effectiveManagementServerId,
+                          ),
+                        ),
+                        child: const Text('Performance'),
+                      ),
+                      TextButton(
+                        onPressed: () => _openPage(
+                          'Backups',
+                          BackupHub(
+                            serverId: model
+                                .selectedServer
+                                .effectiveManagementServerId,
+                          ),
+                        ),
+                        child: const Text('Backups'),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          : _primaryDestinations.contains(_destination)
           ? DecoratedBox(
               key: const ValueKey('mobile-bottom-navigation'),
               decoration: BoxDecoration(

@@ -256,4 +256,106 @@ void main() {
     expect(tester.takeException(), isNull);
     await capture(tester, 'storage');
   });
+  testWidgets('storage test shows waiting, success and failure inline', (
+    tester,
+  ) async {
+    final network = await pumpScreen(
+      tester,
+      const BackupView(storageOnly: true),
+    );
+    await tester.tap(find.byTooltip('Storage actions'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Test connection'));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Waiting for confirmation'), findsOneWidget);
+    expect(find.textContaining('Testing storage connection'), findsOneWidget);
+    network.debugReceive(
+      jsonEncode({
+        'type': 'admincraft.management-result',
+        'success': true,
+        'message': 'Nextcloud connection successful.',
+        'refresh': false,
+      }),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Nextcloud connection successful.'), findsOneWidget);
+    expect(find.text('Waiting for confirmation'), findsNothing);
+    network.testBackupStorage('local');
+    await tester.pump();
+    network.debugReceive(
+      jsonEncode({
+        'type': 'admincraft.management-result',
+        'success': false,
+        'message': 'Nextcloud authentication failed.',
+        'refresh': false,
+      }),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Action failed'), findsOneWidget);
+    expect(find.text('Nextcloud authentication failed.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'backup request and server-confirmed running state remain distinct',
+    (tester) async {
+      final network = await pumpScreen(
+        tester,
+        const BackupView(serverId: 'lobby'),
+      );
+      await tester.tap(find.text('Create backup'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Backup now'));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.textContaining('Backup requested.'), findsOneWidget);
+      expect(find.text('Lobby — running'), findsNothing);
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.management-state',
+          'backups': [
+            {
+              'id': 'test-backup',
+              'serverId': 'lobby',
+              'serverName': 'Lobby',
+              'status': 'running',
+              'createdAt': '2026-09-24T12:00:00Z',
+            },
+          ],
+        }),
+      );
+      expect(network.managementPending, isFalse);
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.management-result',
+          'success': true,
+          'message': 'Backup job started.',
+          'refresh': false,
+        }),
+      );
+      await tester.pump();
+      expect(find.text('Lobby — running'), findsOneWidget);
+      expect(find.text('Waiting for confirmation'), findsNothing);
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.management-state',
+          'backups': [
+            {
+              'id': 'test-backup',
+              'serverId': 'lobby',
+              'serverName': 'Lobby',
+              'status': 'completed',
+              'createdAt': '2026-09-24T12:00:00Z',
+            },
+          ],
+        }),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('backup-status-test-backup')),
+        findsOneWidget,
+      );
+      expect(find.text('Lobby — completed'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

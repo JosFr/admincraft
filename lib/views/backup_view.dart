@@ -30,139 +30,206 @@ class BackupView extends StatelessWidget {
       return serverId == null || backup.serverId == serverId;
     }).toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
-    return RefreshIndicator(
-      onRefresh: () async => network.refreshManagement(),
-      child: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          if (!storageOnly)
-            _Header(
-              title: serverId == null ? 'Network backups' : 'Backups',
-              available: network.managementAvailable,
-              onBackup: network.managementAvailable
-                  ? () => _createBackup(context, network, model)
-                  : null,
-            ),
-          const SizedBox(height: 16),
-          if (!network.managementAvailable)
-            const _InfoCard(
-              icon: Icons.cloud_off_outlined,
-              title: 'Management backend not available',
-              message:
-                  'Backup controls appear when the Network/Lobby bridge advertises management support.',
-            ),
-          if (storageOnly) ...[
-            _StorageHeader(
-              available: network.managementAvailable,
-              serverId: serverId,
-              onAdd: () => showBackupStorageEditor(context, network),
-              onDefaults: () => showBackupDestinationDefaultsDialog(
-                context,
-                network,
-                serverId: serverId,
+    return Column(
+      children: [
+        if (network.managementMessage?.isNotEmpty == true)
+          Card(
+            key: const ValueKey('backup-management-feedback'),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    network.managementPending
+                        ? 'Waiting for confirmation'
+                        : network.managementSuccess == true
+                        ? 'Request confirmed'
+                        : network.managementSuccess == false
+                        ? 'Action failed'
+                        : 'Status not confirmed',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(network.managementMessage!),
+                  if (network.managementPending) ...[
+                    const SizedBox(height: 8),
+                    const LinearProgressIndicator(),
+                  ],
+                ],
               ),
             ),
-            const SizedBox(height: 8),
-            if (snapshot.storages.isEmpty)
-              const _InfoCard(
-                icon: Icons.storage_outlined,
-                title: 'No backup storage configured',
-                message:
-                    'Add Local, Nextcloud, WebDAV, SMB, NFS, SFTP or S3-compatible storage.',
-              )
-            else
-              ...snapshot.storages.map(
-                (storage) => _StorageCard(
-                  storage: storage,
-                  backups: snapshot.backups,
-                  storageCount: snapshot.storages.length,
-                  onTest: () => _testStorage(network, storage),
-                  onEdit: storage.managed
-                      ? () => showBackupStorageEditor(
-                          context,
-                          network,
-                          storage: storage,
-                        )
-                      : null,
-                  onDelete: storage.managed
-                      ? () => _deleteStorage(context, network, storage)
-                      : null,
-                ),
-              ),
-            const SizedBox(height: 12),
-            _RetentionCard(
-              retention: snapshot.retention,
-              serverId: serverId,
-              onEdit: network.managementAvailable
-                  ? () => showBackupRetentionEditor(
+          ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: () async => network.refreshManagement(),
+            child: ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                if (!storageOnly)
+                  _Header(
+                    title: serverId == null ? 'Network backups' : 'Backups',
+                    available:
+                        network.managementAvailable &&
+                        !network.managementPending,
+                    onBackup: network.managementAvailable
+                        ? () => _createBackup(context, network, model)
+                        : null,
+                  ),
+                if (!storageOnly)
+                  for (final backup in backups.where(
+                    (backup) =>
+                        identical(backup, backups.first) ||
+                        backup.status == BackupStatus.queued ||
+                        backup.status == BackupStatus.running ||
+                        backup.status == BackupStatus.verifying,
+                  ))
+                    Card(
+                      key: ValueKey('backup-status-${backup.id}'),
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text(
+                              '${backup.serverName} — ${backup.status.name}',
+                            ),
+                            if (backup.message?.isNotEmpty == true)
+                              Text(backup.message!),
+                            const SizedBox(height: 8),
+                            if (backup.status == BackupStatus.queued ||
+                                backup.status == BackupStatus.running ||
+                                backup.status == BackupStatus.verifying)
+                              const LinearProgressIndicator(),
+                          ],
+                        ),
+                      ),
+                    ),
+                const SizedBox(height: 16),
+                if (!network.managementAvailable)
+                  const _InfoCard(
+                    icon: Icons.cloud_off_outlined,
+                    title: 'Management backend not available',
+                    message:
+                        'Backup controls appear when the Network/Lobby bridge advertises management support.',
+                  ),
+                if (storageOnly) ...[
+                  _StorageHeader(
+                    available: network.managementAvailable,
+                    serverId: serverId,
+                    onAdd: () => showBackupStorageEditor(context, network),
+                    onDefaults: () => showBackupDestinationDefaultsDialog(
                       context,
                       network,
                       serverId: serverId,
-                    )
-                  : null,
-            ),
-            const SizedBox(height: 12),
-          ],
-          if (!storageOnly) ...[
-            if (backups.isNotEmpty) ...[
-              _RecoveryReadinessCard(backups: backups),
-              const SizedBox(height: 12),
-            ],
-            if (serverId == null && backups.isNotEmpty) ...[
-              _BackupFootprintCard(backups: backups),
-              const SizedBox(height: 12),
-            ],
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Backups',
-                    style: Theme.of(context).textTheme.titleLarge,
+                    ),
                   ),
-                ),
-                Text('${backups.length}'),
+                  const SizedBox(height: 8),
+                  if (snapshot.storages.isEmpty)
+                    const _InfoCard(
+                      icon: Icons.storage_outlined,
+                      title: 'No backup storage configured',
+                      message:
+                          'Add Local, Nextcloud, WebDAV, SMB, NFS, SFTP or S3-compatible storage.',
+                    )
+                  else
+                    ...snapshot.storages.map(
+                      (storage) => _StorageCard(
+                        storage: storage,
+                        backups: snapshot.backups,
+                        storageCount: snapshot.storages.length,
+                        onTest: network.managementPending
+                            ? null
+                            : () => _testStorage(network, storage),
+                        onEdit: storage.managed
+                            ? () => showBackupStorageEditor(
+                                context,
+                                network,
+                                storage: storage,
+                              )
+                            : null,
+                        onDelete: storage.managed
+                            ? () => _deleteStorage(context, network, storage)
+                            : null,
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+                  _RetentionCard(
+                    retention: snapshot.retention,
+                    serverId: serverId,
+                    onEdit: network.managementAvailable
+                        ? () => showBackupRetentionEditor(
+                            context,
+                            network,
+                            serverId: serverId,
+                          )
+                        : null,
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (!storageOnly) ...[
+                  if (backups.isNotEmpty) ...[
+                    _RecoveryReadinessCard(backups: backups),
+                    const SizedBox(height: 12),
+                  ],
+                  if (serverId == null && backups.isNotEmpty) ...[
+                    _BackupFootprintCard(backups: backups),
+                    const SizedBox(height: 12),
+                  ],
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Backups',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ),
+                      Text('${backups.length}'),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  if (backups.isEmpty)
+                    const _InfoCard(
+                      icon: Icons.inventory_2_outlined,
+                      title: 'No backups yet',
+                      message:
+                          'Manual, scheduled and maintenance backups will appear here.',
+                    )
+                  else
+                    ...backups.map(
+                      (backup) => _BackupCard(
+                        backup: backup,
+                        onRestore:
+                            backup.status == BackupStatus.completed &&
+                                backup.capabilities.restore
+                            ? () => _restore(context, network, backup)
+                            : null,
+                        onDownload: backup.capabilities.download
+                            ? () => _send(
+                                network.downloadBackup(backup.id),
+                                'Download request could not be sent.',
+                              )
+                            : null,
+                        onVerify: backup.capabilities.verify
+                            ? () => _send(
+                                network.verifyBackup(backup.id),
+                                'Verification could not be started.',
+                              )
+                            : null,
+                        onCopy: backup.capabilities.copy
+                            ? () => _copy(context, network, snapshot, backup)
+                            : null,
+                        onDelete: backup.capabilities.delete
+                            ? () => _delete(context, network, backup)
+                            : null,
+                      ),
+                    ),
+                ],
               ],
             ),
-            const SizedBox(height: 8),
-            if (backups.isEmpty)
-              const _InfoCard(
-                icon: Icons.inventory_2_outlined,
-                title: 'No backups yet',
-                message:
-                    'Manual, scheduled and maintenance backups will appear here.',
-              )
-            else
-              ...backups.map(
-                (backup) => _BackupCard(
-                  backup: backup,
-                  onRestore:
-                      backup.status == BackupStatus.completed &&
-                          backup.capabilities.restore
-                      ? () => _restore(context, network, backup)
-                      : null,
-                  onDownload: backup.capabilities.download
-                      ? () => _send(
-                          network.downloadBackup(backup.id),
-                          'Download request could not be sent.',
-                        )
-                      : null,
-                  onVerify: backup.capabilities.verify
-                      ? () => _send(
-                          network.verifyBackup(backup.id),
-                          'Verification could not be started.',
-                        )
-                      : null,
-                  onCopy: backup.capabilities.copy
-                      ? () => _copy(context, network, snapshot, backup)
-                      : null,
-                  onDelete: backup.capabilities.delete
-                      ? () => _delete(context, network, backup)
-                      : null,
-                ),
-              ),
-          ],
-        ],
-      ),
+          ),
+        ),
+      ],
     );
   }
 

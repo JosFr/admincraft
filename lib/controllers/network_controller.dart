@@ -47,6 +47,10 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   PerformanceSource _performanceSource = const PerformanceSource();
   String? _managementMessage;
   bool? _managementSuccess;
+  bool _managementPending = false;
+  Timer? _managementFeedbackTimer;
+  String? _requestedBackupServerId;
+  Set<String> _backupIdsBeforeRequest = {};
 
   NetworkController(this.notifications, {this.push, this.preferences}) {
     WidgetsBinding.instance.addObserver(this);
@@ -71,6 +75,16 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   PerformanceSource get performanceSource => _performanceSource;
   String? get managementMessage => _managementMessage;
   bool? get managementSuccess => _managementSuccess;
+  bool get managementPending => _managementPending;
+
+  void _finishManagementWaiting() {
+    _managementFeedbackTimer?.cancel();
+    _managementFeedbackTimer = null;
+    _managementPending = false;
+    _requestedBackupServerId = null;
+    _backupIdsBeforeRequest = {};
+  }
+
   void start(Model model) {
     if (identical(_model, model)) return;
     _model?.removeListener(_modelChanged);
@@ -204,8 +218,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         _connecting = false;
         _connected = true;
         _error = null;
-        _managementMessage = null;
-        _managementSuccess = null;
+        _finishManagementWaiting();
         notifyListeners();
         _syncPushRegistration();
         if (managementAvailable) refreshManagement();
@@ -242,6 +255,13 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         notifyListeners();
         return;
       case 'admincraft.management-result':
+        // Legacy bridges do not echo an action ID. Automatic snapshot replies
+        // must not replace the visible result of a user action.
+        if (decoded['success'] == true &&
+            decoded['message'] == 'Management snapshot refreshed.') {
+          return;
+        }
+        _finishManagementWaiting();
         _managementMessage = decoded['message']?.toString();
         _managementSuccess = decoded['success'] == true;
         if (_managementSuccess != true) {
@@ -276,6 +296,18 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     final wasInitialized = _managementSnapshotInitialized;
     _management = next;
     _managementSnapshotInitialized = true;
+    final confirmedBackups = next.backups.where(
+      (backup) =>
+          backup.serverId == _requestedBackupServerId &&
+          !_backupIdsBeforeRequest.contains(backup.id),
+    );
+    if (_requestedBackupServerId != null && confirmedBackups.isNotEmpty) {
+      final backup = confirmedBackups.first;
+      _finishManagementWaiting();
+      _managementMessage =
+          '${backup.serverName} backup: ${backup.status.name}.';
+      _managementSuccess = backup.status != BackupStatus.failed;
+    }
 
     if (wasInitialized) {
       final previousBackups = {
@@ -445,10 +477,41 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   }
 
   bool _manage(String action, [Map<String, dynamic> payload = const {}]) {
-    if (!_connected || !managementAvailable) return false;
+    if (!_connected || !managementAvailable) {
+      if (action == 'storage-test' || action == 'backup-create') {
+        _finishManagementWaiting();
+        _managementMessage =
+            'The management bridge is not connected. Request not sent.';
+        _managementSuccess = false;
+        notifyListeners();
+      }
+      return false;
+    }
     final raw = jsonEncode(payload);
     final encoded = base64Url.encode(utf8.encode(raw)).replaceAll('=', '');
     _channel?.sink.add('admincraft manage $action $encoded');
+    if (action == 'storage-test' || action == 'backup-create') {
+      _finishManagementWaiting();
+      _managementPending = true;
+      if (action == 'backup-create') {
+        _requestedBackupServerId = payload['serverId'] as String?;
+        _backupIdsBeforeRequest = _management.backups
+            .map((backup) => backup.id)
+            .toSet();
+      }
+      _managementSuccess = null;
+      _managementMessage = action == 'storage-test'
+          ? 'Testing storage connection… Waiting for the server.'
+          : 'Backup requested. Waiting for the server to confirm its status.';
+      _managementFeedbackTimer = Timer(const Duration(seconds: 45), () {
+        _managementPending = false;
+        _managementSuccess = null;
+        _managementMessage =
+            'No confirmation received yet. The request may still be running. Refresh the status before trying again.';
+        notifyListeners();
+      });
+      notifyListeners();
+    }
     return true;
   }
 
@@ -698,8 +761,12 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     _bridgeVersion = null;
     _bridgeScope = null;
     _bridgeConnectedAt = null;
-    _managementMessage = null;
-    _managementSuccess = null;
+    if (_managementPending) {
+      _managementMessage =
+          'Connection lost before confirmation. Reconnect and check the status before trying again.';
+      _managementSuccess = false;
+    }
+    _finishManagementWaiting();
     _performance = const [];
     _performanceSource = const PerformanceSource();
     _error = 'Network connection closed.';
@@ -733,8 +800,12 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     _bridgeVersion = null;
     _bridgeScope = null;
     _bridgeConnectedAt = null;
-    _managementMessage = null;
-    _managementSuccess = null;
+    if (_managementPending) {
+      _managementMessage =
+          'Connection lost before confirmation. Reconnect and check the status before trying again.';
+      _managementSuccess = false;
+    }
+    _finishManagementWaiting();
     _performance = const [];
     _performanceSource = const PerformanceSource();
     _accessSnapshotInitialized = false;
