@@ -1,3 +1,4 @@
+import 'package:admincraft/controllers/network_controller.dart';
 import 'package:admincraft/controllers/connection_controller.dart';
 import 'package:admincraft/controllers/google_drive_sync_controller.dart';
 import 'package:admincraft/controllers/notification_controller.dart';
@@ -27,6 +28,7 @@ void main() {
     WidgetTester tester,
     Size size, {
     bool withServer = true,
+    bool withNetwork = false,
     Map<String, Object> extraPrefs = const {},
     ConnectionService? connectionService,
     ConnectionPlatformCapabilities capabilities =
@@ -58,6 +60,11 @@ void main() {
             create: (_) => GoogleDriveSyncController(prefs),
           ),
           ChangeNotifierProvider(create: (_) => NotificationController(prefs)),
+          if (withNetwork)
+            ChangeNotifierProvider<NetworkController>(
+              create: (context) =>
+                  NetworkController(context.read<NotificationController>()),
+            ),
         ],
         child: const Admincraft(),
       ),
@@ -252,7 +259,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Edit server'), findsWidgets);
 
-    await tester.tap(find.text('Console'));
+    await tester.tap(find.byTooltip('Back to Servers'));
     await tester.pumpAndSettle();
     expect(find.text('Save server changes?'), findsOneWidget);
     await tester.tap(
@@ -272,7 +279,7 @@ void main() {
       find.text('Disconnected — saved console output remains available.'),
       findsNothing,
     );
-    expect(find.byKey(const ValueKey('console-surface')), findsOneWidget);
+    expect(find.text('Choose a server to open its dashboard.'), findsOneWidget);
     final prefs = await SharedPreferences.getInstance();
     final stored = (prefs.getStringList('servers') ?? const [])
         .map((server) => ServerProfile.fromJson(jsonDecode(server)))
@@ -296,7 +303,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.widgetWithText(TextFormField, 'Alias'), '');
-    await tester.tap(find.text('Console'));
+    await tester.tap(find.byTooltip('Back to Servers'));
     await tester.pumpAndSettle();
 
     expect(find.text('Cancel'), findsOneWidget);
@@ -327,7 +334,7 @@ void main() {
 
     ToastUtils.dismissPopups();
     await tester.pump();
-    await tester.tap(find.text('Console'));
+    await tester.tap(find.byTooltip('Back to Servers'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Discard changes'));
     await tester.pumpAndSettle();
@@ -336,7 +343,7 @@ void main() {
       find.text('Disconnected — saved console output remains available.'),
       findsNothing,
     );
-    expect(find.byKey(const ValueKey('console-surface')), findsOneWidget);
+    expect(find.text('Choose a server to open its dashboard.'), findsOneWidget);
     await openServers(tester);
     await tester.tap(find.byTooltip('Edit server'));
     await tester.pumpAndSettle();
@@ -435,7 +442,8 @@ void main() {
     expect(find.text('Diagnostics'), findsOneWidget);
 
     final navigation = find.byKey(const ValueKey('mobile-bottom-navigation'));
-    expect(navigation, findsOneWidget);
+    expect(navigation, findsNothing);
+    expect(find.byTooltip('Back to Servers'), findsOneWidget);
     expect(find.text('Overview'), findsWidgets);
     expect(find.text('Console'), findsOneWidget);
     expect(find.text('Actions'), findsOneWidget);
@@ -463,7 +471,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('scope switcher exposes five network destinations', (
+  testWidgets('scope switcher exposes four primary destinations', (
     tester,
   ) async {
     await pumpApp(
@@ -477,10 +485,11 @@ void main() {
     await tester.tap(find.text('Network'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Dashboard'), findsOneWidget);
-    expect(find.text('Activity'), findsOneWidget);
+    expect(find.text('Home'), findsOneWidget);
+    expect(find.text('Servers'), findsOneWidget);
+    expect(find.text('Activity'), findsNothing);
     expect(find.text('Backups'), findsOneWidget);
-    expect(find.text('Schedules'), findsOneWidget);
+    expect(find.text('Schedules'), findsNothing);
     expect(find.text('Updates'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('mobile-connection-action')),
@@ -488,6 +497,93 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'Home reaches Access and Activity and Backups groups storage and schedules',
+    (tester) async {
+      await pumpApp(
+        tester,
+        const Size(390, 844),
+        withNetwork: true,
+        extraPrefs: {'workspaceDestination': 'network'},
+        connectionService: _NoopConnectionService(),
+      );
+      final bar = find.byType(NavigationBar);
+      expect(tester.widget<NavigationBar>(bar).destinations.length, 4);
+      expect(find.text('Velocity backends'), findsNothing);
+      await tester.tap(find.text('Access'));
+      await tester.pumpAndSettle();
+      expect(find.text('Network Access'), findsOneWidget);
+      expect(find.byType(NavigationBar), findsNothing);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('View all'));
+      await tester.pumpAndSettle();
+      expect(find.text('Activity'), findsWidgets);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(of: bar, matching: find.text('Backups')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('No backups yet'), findsOneWidget);
+      await tester.tap(find.text('Storage'));
+      await tester.pumpAndSettle();
+      expect(find.text('No backup storage configured'), findsOneWidget);
+      await tester.tap(find.text('Schedules'));
+      await tester.pumpAndSettle();
+      expect(find.text('No backup storage configured'), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  for (final entry in {'networkActivity': 0, 'networkSchedules': 2}.entries) {
+    testWidgets('legacy ${entry.key} restores its new primary parent', (
+      tester,
+    ) async {
+      await pumpApp(
+        tester,
+        const Size(390, 844),
+        extraPrefs: {'workspaceDestination': entry.key},
+        connectionService: _NoopConnectionService(),
+      );
+      expect(
+        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+        entry.value,
+      );
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets(
+    'back from server details reaches Servers then Home without cycling',
+    (tester) async {
+      await pumpApp(
+        tester,
+        const Size(390, 844),
+        extraPrefs: {'workspaceDestination': 'console'},
+        connectionService: _NoopConnectionService(),
+      );
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+        1,
+      );
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+        0,
+      );
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(find.text('Close Admincraft?'), findsOneWidget);
+      await tester.tap(find.text('Stay'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('base navigation is restored after an app reload', (
     tester,
@@ -574,7 +670,7 @@ void main() {
 
     expect(find.byType(WelcomeView), findsNothing);
     expect(find.text('Preferences'), findsWidgets);
-    expect(find.text('Players'), findsWidgets);
+    expect(find.byType(NavigationBar), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -590,7 +686,7 @@ void main() {
       find.text('Move or protect every saved server profile.'),
       findsOneWidget,
     );
-    expect(find.text('Players'), findsWidgets);
+    expect(find.byType(NavigationBar), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -890,7 +986,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Choose a server to open its dashboard.'), findsOneWidget);
-    expect(find.text('Players'), findsWidgets);
+    expect(find.byKey(const ValueKey('sidebar-network')), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

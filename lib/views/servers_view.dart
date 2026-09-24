@@ -1,3 +1,5 @@
+import 'package:admincraft/controllers/network_controller.dart';
+import 'package:admincraft/views/network_view.dart';
 import 'package:admincraft/controllers/connection_controller.dart';
 import 'package:admincraft/models/connection_status.dart';
 import 'package:admincraft/models/model.dart';
@@ -11,6 +13,7 @@ class ServersView extends StatelessWidget {
   final Future<void> Function() onAdd;
   final VoidCallback onNetwork;
   final VoidCallback onEditSelected;
+  final Future<void> Function(String, NetworkQuickAction)? onServerAction;
 
   const ServersView({
     super.key,
@@ -18,11 +21,13 @@ class ServersView extends StatelessWidget {
     required this.onAdd,
     required this.onNetwork,
     required this.onEditSelected,
+    this.onServerAction,
   });
 
   @override
   Widget build(BuildContext context) {
     final model = context.watch<Model>();
+    final network = context.watch<NetworkController?>();
     final connection = context.watch<ConnectionController>();
 
     return SingleChildScrollView(
@@ -90,6 +95,18 @@ class ServersView extends StatelessWidget {
                 },
               ),
               const SizedBox(height: 16),
+              if (network != null && onServerAction != null) ...[
+                NetworkServersCard(
+                  snapshot: network.snapshot,
+                  onAction: onServerAction!,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Saved profiles',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+              ],
               for (final server in model.servers) ...[
                 _ServerTile(
                   server: server,
