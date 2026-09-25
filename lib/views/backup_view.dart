@@ -165,6 +165,11 @@ class BackupView extends StatelessWidget {
                     ...backups.map(
                       (backup) => _BackupCard(
                         backup: backup,
+                        verifyPending:
+                            network.managementPending &&
+                            network.managementPendingAction ==
+                                'backup-verify' &&
+                            network.managementPendingBackupId == backup.id,
                         onRestore:
                             backup.status == BackupStatus.completed &&
                                 backup.capabilities.restore
@@ -176,7 +181,13 @@ class BackupView extends StatelessWidget {
                                 'Download request could not be sent.',
                               )
                             : null,
-                        onVerify: backup.capabilities.verify
+                        onVerify:
+                            backup.capabilities.verify &&
+                                !(network.managementPending &&
+                                    network.managementPendingAction ==
+                                        'backup-verify' &&
+                                    network.managementPendingBackupId ==
+                                        backup.id)
                             ? () => _send(
                                 network.verifyBackup(backup.id),
                                 'Verification could not be started.',
@@ -1237,6 +1248,7 @@ class _BackupFootprintCard extends StatelessWidget {
 
 class _BackupCard extends StatelessWidget {
   final BackupRecord backup;
+  final bool verifyPending;
   final VoidCallback? onRestore;
   final VoidCallback? onDownload;
   final VoidCallback? onVerify;
@@ -1246,6 +1258,7 @@ class _BackupCard extends StatelessWidget {
 
   const _BackupCard({
     required this.backup,
+    required this.verifyPending,
     required this.onRestore,
     required this.onDownload,
     required this.onVerify,
@@ -1336,6 +1349,23 @@ class _BackupCard extends StatelessWidget {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
+            if (verifyPending) ...[
+              const SizedBox(height: 10),
+              const Row(
+                children: [
+                  SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                  SizedBox(width: 10),
+                  Expanded(child: Text('Verifying SHA-256 integrity…')),
+                ],
+              ),
+            ] else if (backup.verified) ...[
+              const SizedBox(height: 8),
+              const Text('SHA-256 integrity verified.'),
+            ],
             const SizedBox(height: 8),
             if (backup.capabilities.hasRecordActions)
               Wrap(
@@ -1360,11 +1390,23 @@ class _BackupCard extends StatelessWidget {
                       icon: const Icon(Icons.download_outlined),
                       label: const Text('Download'),
                     ),
-                  if (onVerify != null)
+                  if (onVerify != null || verifyPending)
                     OutlinedButton.icon(
-                      onPressed: onVerify,
-                      icon: const Icon(Icons.verified_outlined),
-                      label: const Text('Verify'),
+                      onPressed: verifyPending ? null : onVerify,
+                      icon: verifyPending
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.verified_outlined),
+                      label: Text(
+                        verifyPending
+                            ? 'Verifying…'
+                            : backup.verified
+                            ? 'Verify again'
+                            : 'Verify',
+                      ),
                     ),
                   if (onCopy != null)
                     OutlinedButton.icon(

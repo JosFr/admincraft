@@ -48,6 +48,8 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   String? _managementMessage;
   bool? _managementSuccess;
   bool _managementPending = false;
+  String? _managementPendingAction;
+  String? _managementPendingBackupId;
   Timer? _managementFeedbackTimer;
   String? _requestedBackupServerId;
   Set<String> _backupIdsBeforeRequest = {};
@@ -76,6 +78,8 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   String? get managementMessage => _managementMessage;
   bool? get managementSuccess => _managementSuccess;
   bool get managementPending => _managementPending;
+  String? get managementPendingAction => _managementPendingAction;
+  String? get managementPendingBackupId => _managementPendingBackupId;
 
   void clearManagementFeedback() {
     if (_managementPending) return;
@@ -88,6 +92,8 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     _managementFeedbackTimer?.cancel();
     _managementFeedbackTimer = null;
     _managementPending = false;
+    _managementPendingAction = null;
+    _managementPendingBackupId = null;
     _requestedBackupServerId = null;
     _backupIdsBeforeRequest = {};
   }
@@ -268,6 +274,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
             decoded['message'] == 'Management snapshot refreshed.') {
           return;
         }
+        final completedAction = _managementPendingAction;
         _finishManagementWaiting();
         _managementMessage = decoded['message']?.toString();
         _managementSuccess = decoded['success'] == true;
@@ -275,6 +282,8 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
           ToastUtils.showToastError(
             _managementMessage ?? 'Management action failed.',
           );
+        } else if (completedAction == 'backup-verify') {
+          ToastUtils.showToastSuccess(_managementMessage ?? 'Backup verified.');
         }
         notifyListeners();
         if (decoded['refresh'] != false) refreshManagement();
@@ -484,12 +493,15 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   }
 
   bool _manage(String action, [Map<String, dynamic> payload = const {}]) {
+    final tracksFeedback =
+        action == 'storage-test' ||
+        action == 'backup-create' ||
+        action == 'backup-verify' ||
+        action.startsWith('schedule-') ||
+        action == 'backup-forget' ||
+        action == 'backup-delete';
     if (!_connected || !managementAvailable) {
-      if (action == 'storage-test' ||
-          action == 'backup-create' ||
-          action.startsWith('schedule-') ||
-          action == 'backup-forget' ||
-          action == 'backup-delete') {
+      if (tracksFeedback) {
         _finishManagementWaiting();
         _managementMessage =
             'The management bridge is not connected. Request not sent.';
@@ -501,13 +513,13 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     final raw = jsonEncode(payload);
     final encoded = base64Url.encode(utf8.encode(raw)).replaceAll('=', '');
     _channel?.sink.add('admincraft manage $action $encoded');
-    if (action == 'storage-test' ||
-        action == 'backup-create' ||
-        action.startsWith('schedule-') ||
-        action == 'backup-forget' ||
-        action == 'backup-delete') {
+    if (tracksFeedback) {
       _finishManagementWaiting();
       _managementPending = true;
+      _managementPendingAction = action;
+      if (action == 'backup-verify') {
+        _managementPendingBackupId = payload['backupId']?.toString();
+      }
       if (action == 'backup-create') {
         _requestedBackupServerId = payload['serverId'] as String?;
         _backupIdsBeforeRequest = _management.backups
@@ -519,9 +531,14 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
           ? 'Testing storage connection… Waiting for the server.'
           : action == 'backup-create'
           ? 'Backup requested. Waiting for the server to confirm its status.'
+          : action == 'backup-verify'
+          ? 'Verifying backup integrity with SHA-256…'
           : 'Request sent. Waiting for the server to confirm the change.';
-      _managementFeedbackTimer = Timer(const Duration(seconds: 45), () {
-        _managementPending = false;
+      final feedbackTimeout = action == 'backup-verify'
+          ? const Duration(minutes: 5)
+          : const Duration(seconds: 45);
+      _managementFeedbackTimer = Timer(feedbackTimeout, () {
+        _finishManagementWaiting();
         _managementSuccess = null;
         _managementMessage =
             'No confirmation received yet. The request may still be running. Refresh the status before trying again.';

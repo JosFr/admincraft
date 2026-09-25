@@ -114,6 +114,43 @@ void main() {
     expect(notifications.entries, isEmpty);
   });
 
+  test(
+    'backup verification exposes pending context and success feedback',
+    () async {
+      final (network, notifications) = await fixture();
+      addTearDown(() {
+        ToastUtils.detach(notifications);
+        network.dispose();
+      });
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.hello',
+          'capabilities': ['management'],
+        }),
+      );
+
+      expect(network.verifyBackup('backup-1'), isTrue);
+      expect(network.managementPending, isTrue);
+      expect(network.managementPendingAction, 'backup-verify');
+      expect(network.managementPendingBackupId, 'backup-1');
+      expect(network.managementMessage, contains('SHA-256'));
+
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.management-result',
+          'success': true,
+          'message': 'Backup verified.',
+          'refresh': false,
+        }),
+      );
+
+      expect(network.managementPending, isFalse);
+      expect(network.managementSuccess, isTrue);
+      expect(network.managementMessage, 'Backup verified.');
+      expect(notifications.entries, isEmpty);
+    },
+  );
+
   test('management state promotes only new attention events', () async {
     final (network, notifications) = await fixture();
     addTearDown(() {

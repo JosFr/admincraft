@@ -426,6 +426,73 @@ void main() {
   );
 
   testWidgets(
+    'backup Verify shows inline progress and confirmed SHA-256 result',
+    (tester) async {
+      final network = await pumpScreen(
+        tester,
+        const BackupView(serverId: 'lobby'),
+      );
+      Map<String, Object?> backup({required bool verified}) => {
+        'id': 'native-backup',
+        'serverId': 'lobby',
+        'serverName': 'Lobby',
+        'createdAt': '2026-09-25T09:00:00Z',
+        'sizeBytes': 123456,
+        'status': 'completed',
+        'engine': 'native',
+        'engineId': 'native-lobby',
+        'engineLabel': 'AdminCraft Native',
+        'backupType': 'full-server',
+        'kind': 'manual',
+        'verified': verified,
+        'destinations': ['nc-jos'],
+        'capabilities': {'verify': true},
+        'message': 'AdminCraft Native backup completed.',
+      };
+
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.management-state',
+          'backups': [backup(verified: false)],
+        }),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Verify'));
+      await tester.tap(find.text('Verify'));
+      await tester.pump();
+
+      expect(network.managementPending, isTrue);
+      expect(network.managementPendingAction, 'backup-verify');
+      expect(network.managementPendingBackupId, 'native-backup');
+      expect(find.text('Verifying SHA-256 integrity…'), findsOneWidget);
+      expect(find.text('Verifying…'), findsOneWidget);
+
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.management-state',
+          'backups': [backup(verified: true)],
+        }),
+      );
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.management-result',
+          'success': true,
+          'message': 'Backup verified.',
+          'refresh': false,
+        }),
+      );
+      await tester.pumpAndSettle();
+
+      expect(network.managementPending, isFalse);
+      expect(find.text('SHA-256 integrity verified.'), findsOneWidget);
+      expect(find.text('Verified'), findsOneWidget);
+      expect(find.text('Verify again'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'backup request and server-confirmed running state remain distinct',
     (tester) async {
       final network = await pumpScreen(
