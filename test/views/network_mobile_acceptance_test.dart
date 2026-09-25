@@ -24,6 +24,9 @@ class _NetworkFixture extends NetworkController {
   Map<String, Object?>? scheduleEdit;
   String? deletedSchedule;
   String? forgottenBackup;
+  String? createdBackupServer;
+  String? createdBackupEngine;
+  List<String> createdBackupDestinations = const [];
   @override
   bool createSchedule({
     String? id,
@@ -54,6 +57,22 @@ class _NetworkFixture extends NetworkController {
   bool forgetBackup(String id) {
     forgottenBackup = id;
     return true;
+  }
+
+  @override
+  bool createBackup(
+    String serverId, {
+    String engineId = 'multicraft',
+    List<String> destinationIds = const [],
+  }) {
+    createdBackupServer = serverId;
+    createdBackupEngine = engineId;
+    createdBackupDestinations = List<String>.from(destinationIds);
+    return super.createBackup(
+      serverId,
+      engineId: engineId,
+      destinationIds: destinationIds,
+    );
   }
 
   @override
@@ -330,6 +349,81 @@ void main() {
     expect(find.text('Nextcloud authentication failed.'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    'Create backup exposes configured Nextcloud via the preferred Native engine',
+    (tester) async {
+      final network = await pumpScreen(
+        tester,
+        const BackupView(serverId: 'lobby'),
+      );
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.management-state',
+          'storages': [
+            {
+              'id': 'nc-jos',
+              'name': 'NC Jos',
+              'type': 'nextcloud',
+              'backupBytes': 0,
+              'managed': true,
+            },
+          ],
+          'backupEngines': [
+            {
+              'id': 'multicraft',
+              'type': 'multicraft',
+              'label': 'Multicraft',
+              'serverIds': ['lobby'],
+              'destinationIds': [],
+              'capabilities': {
+                'create': true,
+                'list': true,
+                'progress': true,
+                'remoteDestination': false,
+              },
+            },
+            {
+              'id': 'native-lobby',
+              'type': 'native',
+              'label': 'AdminCraft Native',
+              'backupType': 'full-server',
+              'serverIds': ['lobby'],
+              'destinationIds': [],
+              'availableDestinationIds': ['nc-jos'],
+              'consistency': 'offline',
+              'available': true,
+              'availability': 'ready',
+              'capabilities': {
+                'create': true,
+                'list': true,
+                'progress': true,
+                'remoteDestination': true,
+              },
+            },
+          ],
+        }),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Create backup'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('NC Jos'), findsOneWidget);
+      expect(find.text('Nextcloud'), findsOneWidget);
+      expect(find.text('Create offline snapshot'), findsOneWidget);
+
+      await tester.tap(find.text('NC Jos'));
+      await tester.pump();
+      await tester.tap(find.text('Create offline snapshot'));
+      await tester.pumpAndSettle();
+
+      expect(network.createdBackupServer, 'lobby');
+      expect(network.createdBackupEngine, 'native-lobby');
+      expect(network.createdBackupDestinations, ['nc-jos']);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'backup request and server-confirmed running state remain distinct',

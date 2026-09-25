@@ -249,6 +249,29 @@ class BackupView extends StatelessWidget {
     }
   }
 
+  BackupEngineDescriptor _preferredCreateEngine(
+    ManagementSnapshot snapshot,
+    List<BackupEngineDescriptor> engines,
+  ) {
+    final storageIds = snapshot.storages.map((storage) => storage.id).toSet();
+    if (storageIds.isNotEmpty) {
+      for (final engine in engines) {
+        final available = engine.availableDestinationIds.isEmpty
+            ? engine.destinationIds
+            : engine.availableDestinationIds;
+        if (engine.isReady &&
+            engine.capabilities.remoteDestination &&
+            available.any(storageIds.contains)) {
+          return engine;
+        }
+      }
+    }
+    return engines.firstWhere(
+      (engine) => engine.isReady,
+      orElse: () => engines.first,
+    );
+  }
+
   Future<void> _createBackup(
     BuildContext context,
     NetworkController network,
@@ -258,7 +281,7 @@ class BackupView extends StatelessWidget {
     var selectedServer =
         serverId ?? model.selectedServer.effectiveManagementServerId;
     var engines = _enginesFor(snapshot, selectedServer);
-    var selectedEngineId = engines.first.id;
+    var selectedEngineId = _preferredCreateEngine(snapshot, engines).id;
 
     List<String> defaultsFor(BackupEngineDescriptor engine) {
       final inherited = snapshot.backupDestinationDefaults.forServer(
@@ -271,15 +294,17 @@ class BackupView extends StatelessWidget {
           .toList();
     }
 
-    final selectedDestinations = <String>{...defaultsFor(engines.first)};
+    final initialEngine = _preferredCreateEngine(snapshot, engines);
+    final selectedDestinations = <String>{...defaultsFor(initialEngine)};
 
     void selectServer(String value) {
       selectedServer = value;
       engines = _enginesFor(snapshot, selectedServer);
-      selectedEngineId = engines.first.id;
+      final preferred = _preferredCreateEngine(snapshot, engines);
+      selectedEngineId = preferred.id;
       selectedDestinations
         ..clear()
-        ..addAll(defaultsFor(engines.first));
+        ..addAll(defaultsFor(preferred));
     }
 
     BackupEngineDescriptor selectedEngine() => engines.firstWhere(
@@ -371,6 +396,32 @@ class BackupView extends StatelessWidget {
                             Expanded(
                               child: Text(
                                 '${_availabilityLabel(engine)}. ${engine.availabilityMessage}',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (!engine.capabilities.remoteDestination &&
+                        snapshot.storages.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Icon(Icons.cloud_outlined),
+                            SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                'This engine uses its own backup location. Choose AdminCraft Native to select configured destinations such as Nextcloud.',
                               ),
                             ),
                           ],
