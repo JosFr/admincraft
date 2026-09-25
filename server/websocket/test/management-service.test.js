@@ -1646,3 +1646,59 @@ test("custom backup engine can be configured and reset without changing the cata
     fx.cleanup();
   }
 });
+
+test("schedule update preserves identity, disabled state and rejects invalid edits atomically", async () => {
+  const fx = fixture();
+  try {
+    await fx.service.handle("schedule-create", {serverId: "lobby", action: "backup", schedule: "0 4 * * *"});
+    const first = {...fx.service.snapshot().schedules[0]};
+    await fx.service.handle("schedule-toggle", {id: first.id, enabled: false});
+    const changed = await fx.service.handle("schedule-update", {
+      id: first.id, serverId: "lobby", action: "restart", schedule: "0 6 * * *",
+    });
+    assert.equal(changed.success, true);
+    assert.equal(fx.service.snapshot().schedules.length, 1);
+    const updated = {...fx.service.snapshot().schedules[0]};
+    assert.equal(updated.id, first.id);
+    assert.equal(updated.enabled, false);
+    assert.equal(updated.nextRun, null);
+    assert.equal(updated.schedule, "0 6 * * *");
+    assert.equal(updated.action, "restart");
+    const invalid = await fx.service.handle("schedule-update", {
+      id: first.id, serverId: "lobby", action: "restart", schedule: "invalid",
+    });
+    assert.equal(invalid.success, false);
+    assert.deepEqual(fx.service.snapshot().schedules[0], updated);
+    const deleted = await fx.service.handle("schedule-delete", {id: first.id});
+    assert.equal(deleted.success, true);
+    assert.equal(fx.service.snapshot().schedules.length, 0);
+  } finally { fx.cleanup(); }
+});
+
+test("forget removes an unobservable plugin record without deleting files or issuing commands", async () => {
+  const fx = fixture({}, {
+    enginesJson: JSON.stringify([{
+      id: "plugin-lobby", type: "plugin", serverId: "lobby",
+      label: "WebDavBackup", command: "webdavbackup backup",
+    }]),
+  });
+  try {
+    await fx.service.handle("backup-create", {serverId: "lobby", engineId: "plugin-lobby"});
+    const backup = fx.service.snapshot().backups[0];
+    assert.equal(backup.status, "unknown");
+    assert.equal(backup.capabilities.forget, true);
+    const beforeCalls = [...fx.calls];
+    const result = await fx.service.handle("backup-forget", {backupId: backup.id});
+    assert.equal(result.success, true);
+    assert.equal(fx.service.snapshot().backups.length, 0);
+    assert.deepEqual(fx.calls, beforeCalls);
+    assert.equal(fs.existsSync(fx.backupFile), true);
+    assert.equal(JSON.parse(fs.readFileSync(fx.statePath)).backups.length, 0);
+    await fx.service.handle("backup-create", {serverId: "lobby"});
+    const running = fx.service.snapshot().backups[0];
+    assert.equal(running.capabilities.forget, false);
+    const rejected = await fx.service.handle("backup-forget", {backupId: running.id});
+    assert.equal(rejected.success, false);
+    assert.equal(fx.service.snapshot().backups.length, 1);
+  } finally { fx.cleanup(); }
+});

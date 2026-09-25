@@ -4,6 +4,7 @@ import 'package:admincraft/models/model.dart';
 import 'package:admincraft/models/management_state.dart';
 import 'package:admincraft/utils/url_utils.dart';
 import 'package:admincraft/views/widgets/performance_metric_chart.dart';
+import 'package:admincraft/views/widgets/management_feedback.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -88,15 +89,19 @@ class SchedulesView extends StatelessWidget {
 
   Future<void> _createSchedule(
     BuildContext context,
-    NetworkController network,
-  ) async {
+    NetworkController network, {
+    ScheduledAction? existing,
+  }) async {
     final model = context.read<Model>();
     final completeServers = model.servers
         .where((server) => server.isComplete)
         .toList();
     var selectedServer =
-        serverId ?? model.selectedServer.effectiveManagementServerId;
-    if (serverId == null &&
+        existing?.serverId ??
+        serverId ??
+        model.selectedServer.effectiveManagementServerId;
+    if (existing == null &&
+        serverId == null &&
         !completeServers.any(
           (server) => server.effectiveManagementServerId == selectedServer,
         )) {
@@ -104,18 +109,20 @@ class SchedulesView extends StatelessWidget {
           ? ''
           : completeServers.first.effectiveManagementServerId;
     }
-    final scheduleController = TextEditingController();
-    var action = ScheduledActionType.restart;
-    var recurring = true;
+    final scheduleController = TextEditingController(
+      text: existing?.schedule ?? '',
+    );
+    var action = existing?.action ?? ScheduledActionType.restart;
+    var recurring = existing?.recurring ?? true;
     var preset = 'custom';
-    var runAt = DateTime.now().add(const Duration(hours: 1));
+    var runAt = existing?.runAt ?? DateTime.now().add(const Duration(hours: 1));
     var backupEngines = _managementBackupEnginesFor(
       network.management,
       selectedServer,
     );
-    var selectedBackupEngineId = backupEngines.isEmpty
-        ? ''
-        : backupEngines.first.id;
+    var selectedBackupEngineId =
+        existing?.backupEngineId ??
+        (backupEngines.isEmpty ? '' : backupEngines.first.id);
     void refreshBackupEngines() {
       backupEngines = _managementBackupEnginesFor(
         network.management,
@@ -129,19 +136,25 @@ class SchedulesView extends StatelessWidget {
       }
     }
 
-    final created = await showDialog<bool>(
+    final route = DialogRoute<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: const Text('Create scheduled action'),
+          title: Text(
+            existing == null
+                ? 'Create scheduled action'
+                : 'Edit scheduled action',
+          ),
           content: SizedBox(
             width: 440,
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (serverId == null)
+                  if (existing != null) Text(existing.serverName),
+                  if (serverId == null && existing == null)
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: selectedServer.isEmpty
                           ? null
                           : selectedServer,
@@ -165,6 +178,7 @@ class SchedulesView extends StatelessWidget {
                     ),
                   if (serverId == null) const SizedBox(height: 12),
                   DropdownButtonFormField<ScheduledActionType>(
+                    isExpanded: true,
                     initialValue: action,
                     decoration: const InputDecoration(labelText: 'Action'),
                     items: [
@@ -187,6 +201,7 @@ class SchedulesView extends StatelessWidget {
                       action == ScheduledActionType.maintenance) ...[
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: selectedBackupEngineId.isEmpty
                           ? null
                           : selectedBackupEngineId,
@@ -195,14 +210,24 @@ class SchedulesView extends StatelessWidget {
                             ? 'Safety backup engine'
                             : 'Backup engine',
                       ),
-                      items: backupEngines
-                          .map(
-                            (engine) => DropdownMenuItem(
-                              value: engine.id,
-                              child: Text(engine.label),
+                      items: [
+                        if (selectedBackupEngineId.isNotEmpty &&
+                            !backupEngines.any(
+                              (engine) => engine.id == selectedBackupEngineId,
+                            ))
+                          DropdownMenuItem(
+                            value: selectedBackupEngineId,
+                            child: Text(
+                              '$selectedBackupEngineId (unavailable)',
                             ),
-                          )
-                          .toList(),
+                          ),
+                        ...backupEngines.map(
+                          (engine) => DropdownMenuItem(
+                            value: engine.id,
+                            child: Text(engine.label),
+                          ),
+                        ),
+                      ],
                       onChanged: (value) {
                         if (value != null) {
                           setState(() => selectedBackupEngineId = value);
@@ -238,6 +263,7 @@ class SchedulesView extends StatelessWidget {
                   const SizedBox(height: 12),
                   if (recurring) ...[
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: preset,
                       decoration: const InputDecoration(
                         labelText: 'Cron preset',
@@ -342,14 +368,19 @@ class SchedulesView extends StatelessWidget {
                 if (!recurring && !runAt.isAfter(DateTime.now())) return;
                 Navigator.pop(dialogContext, true);
               },
-              child: const Text('Create'),
+              child: Text(existing == null ? 'Create' : 'Save changes'),
             ),
           ],
         ),
       ),
     );
+    final created = await Navigator.of(
+      context,
+      rootNavigator: true,
+    ).push(route);
     if (created == true) {
       network.createSchedule(
+        id: existing?.id,
         serverId: selectedServer,
         action: action.name,
         schedule: recurring ? scheduleController.text.trim() : '',
@@ -361,6 +392,7 @@ class SchedulesView extends StatelessWidget {
             : null,
       );
     }
+    await route.completed;
     scheduleController.dispose();
   }
 
@@ -416,79 +448,133 @@ class SchedulesView extends StatelessWidget {
             .where((job) => serverId == null || job.serverId == serverId)
             .toList()
           ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
-    return _ManagementList(
-      title: serverId == null ? 'Scheduled actions' : 'Server schedules',
-      count: schedules.length,
-      onRefresh: network.refreshManagement,
-      action: FilledButton.icon(
-        onPressed: network.managementAvailable
-            ? () => _createSchedule(context, network)
-            : null,
-        icon: const Icon(Icons.add),
-        label: const Text('New schedule'),
-      ),
-      emptyIcon: Icons.schedule_outlined,
-      emptyTitle: 'No schedules',
-      emptyMessage:
-          'Persistent start, stop, restart, backup and maintenance jobs appear here.',
+    return Column(
       children: [
-        for (final schedule in schedules)
-          Card(
-            child: ListTile(
-              leading: Icon(_scheduleIcon(schedule.action)),
-              title: Text(
-                '${schedule.serverName} · ${_scheduleActionLabel(schedule.action)}',
-              ),
-              subtitle: Text(
-                '${schedule.recurring ? schedule.schedule : 'One-time'}'
-                '${schedule.backupEngineId == null ? '' : '\nEngine: ${_backupEngineLabel(network.management, schedule.backupEngineId)}'}'
-                '${schedule.nextRun == null ? '' : '\nNext: ${_formatDateTime(schedule.nextRun!)}'}'
-                '${schedule.lastResult == null || schedule.lastResult!.trim().isEmpty ? '' : '\nLast: ${schedule.lastResult}'}',
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Switch(
-                    value: schedule.enabled,
-                    onChanged: network.managementAvailable
-                        ? (enabled) =>
-                              network.toggleSchedule(schedule.id, enabled)
-                        : null,
-                  ),
-                  IconButton(
-                    tooltip: 'Delete schedule',
-                    onPressed: network.managementAvailable
-                        ? () => _deleteSchedule(context, network, schedule)
-                        : null,
-                    icon: const Icon(Icons.delete_outline),
-                  ),
-                ],
-              ),
+        ManagementFeedback(network: network),
+        Expanded(
+          child: _ManagementList(
+            title: serverId == null ? 'Scheduled actions' : 'Server schedules',
+            count: schedules.length,
+            onRefresh: network.refreshManagement,
+            action: FilledButton.icon(
+              onPressed: network.managementAvailable
+                  ? () => _createSchedule(context, network)
+                  : null,
+              icon: const Icon(Icons.add),
+              label: const Text('New schedule'),
             ),
+            emptyIcon: Icons.schedule_outlined,
+            emptyTitle: 'No schedules',
+            emptyMessage:
+                'Persistent start, stop, restart, backup and maintenance jobs appear here.',
+            children: [
+              for (final schedule in schedules)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${schedule.serverName} · ${_scheduleActionLabel(schedule.action)}',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        Text(
+                          schedule.recurring ? schedule.schedule : 'One-time',
+                        ),
+                        if (schedule.backupEngineId != null)
+                          Text(
+                            'Engine: ${_backupEngineLabel(network.management, schedule.backupEngineId)}',
+                          ),
+                        if (schedule.nextRun != null)
+                          Text('Next: ${_formatDateTime(schedule.nextRun!)}'),
+                        if (schedule.lastResult?.isNotEmpty == true)
+                          Text('Last: ${schedule.lastResult}'),
+                        Wrap(
+                          spacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Switch(
+                              value: schedule.enabled,
+                              onChanged:
+                                  network.managementAvailable &&
+                                      !network.managementPending
+                                  ? (enabled) => network.toggleSchedule(
+                                      schedule.id,
+                                      enabled,
+                                    )
+                                  : null,
+                            ),
+                            OutlinedButton.icon(
+                              onPressed:
+                                  network.managementAvailable &&
+                                      !network.managementPending &&
+                                      network.management.features.contains(
+                                        'schedule-update',
+                                      )
+                                  ? () => _createSchedule(
+                                      context,
+                                      network,
+                                      existing: schedule,
+                                    )
+                                  : null,
+                              icon: const Icon(Icons.edit_outlined),
+                              label: const Text('Edit schedule'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed:
+                                  network.managementAvailable &&
+                                      !network.managementPending
+                                  ? () => _deleteSchedule(
+                                      context,
+                                      network,
+                                      schedule,
+                                    )
+                                  : null,
+                              icon: const Icon(Icons.delete_outline),
+                              label: const Text('Delete schedule'),
+                            ),
+                          ],
+                        ),
+                        if (!network.management.features.contains(
+                          'schedule-update',
+                        ))
+                          const Text(
+                            'Editing schedules requires a management bridge update.',
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              if (jobs.isNotEmpty) ...[
+                const SizedBox(height: 18),
+                Text(
+                  'Job history',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                for (final job in jobs.take(50))
+                  Card(
+                    child: ListTile(
+                      leading: Icon(
+                        job.success == true
+                            ? Icons.check_circle_outline
+                            : job.success == false
+                            ? Icons.error_outline
+                            : Icons.hourglass_top,
+                      ),
+                      title: Text(
+                        '${job.serverName} · ${_scheduleActionLabel(job.action)}',
+                      ),
+                      subtitle: Text(
+                        '${_formatDateTime(job.startedAt)} · ${job.source}\n${job.message}',
+                      ),
+                    ),
+                  ),
+              ],
+            ],
           ),
-        if (jobs.isNotEmpty) ...[
-          const SizedBox(height: 18),
-          Text('Job history', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          for (final job in jobs.take(50))
-            Card(
-              child: ListTile(
-                leading: Icon(
-                  job.success == true
-                      ? Icons.check_circle_outline
-                      : job.success == false
-                      ? Icons.error_outline
-                      : Icons.hourglass_top,
-                ),
-                title: Text(
-                  '${job.serverName} · ${_scheduleActionLabel(job.action)}',
-                ),
-                subtitle: Text(
-                  '${_formatDateTime(job.startedAt)} · ${job.source}\n${job.message}',
-                ),
-              ),
-            ),
-        ],
+        ),
       ],
     );
   }
@@ -1797,14 +1883,6 @@ String _scheduleActionLabel(ScheduledActionType action) => switch (action) {
   ScheduledActionType.backup => 'Backup',
   ScheduledActionType.maintenance => 'Maintenance',
 };
-IconData _scheduleIcon(ScheduledActionType action) => switch (action) {
-  ScheduledActionType.start => Icons.play_arrow,
-  ScheduledActionType.stop => Icons.stop,
-  ScheduledActionType.restart => Icons.restart_alt,
-  ScheduledActionType.backup => Icons.inventory_2_outlined,
-  ScheduledActionType.maintenance => Icons.build_circle_outlined,
-};
-
 String _updateKindLabel(String kind) => switch (kind) {
   'paper' => 'Paper platform',
   'velocity' => 'Velocity platform',

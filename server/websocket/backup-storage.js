@@ -1,4 +1,4 @@
-﻿const fs = require("fs");
+const fs = require("fs");
 const path = require("path");
 const { execFile } = require("child_process");
 const { promisify } = require("util");
@@ -66,6 +66,7 @@ function parseBackupStorages(config = {}) {
 }
 
 function numberOrNull(value) {
+  if (value == null || (typeof value === "string" && !value.trim())) return null;
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? number : null;
 }

@@ -98,3 +98,17 @@ test("local storage reuses a native archive already at its destination", async (
     fs.rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("absent storage limits stay unlimited while explicit zero remains a limit", () => {
+  for (const value of [undefined, null, "", "  ", 0, 1024]) {
+    const storage = parseBackupStorages({
+      storagesJson: JSON.stringify([{
+        id: "cloud", type: "nextcloud", url: "https://cloud.example.test",
+        softLimitBytes: value, minimumFreeBytes: value,
+      }]),
+    })[0];
+    const expected = typeof value === "number" ? value : null;
+    assert.equal(storage.softLimitBytes, expected);
+    assert.equal(storage.minimumFreeBytes, expected);
+  }
+});

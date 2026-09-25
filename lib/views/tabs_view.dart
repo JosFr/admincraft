@@ -61,7 +61,7 @@ extension on _WorkspaceDestination {
     _WorkspaceDestination.players => 'Players',
     _WorkspaceDestination.serverTools => 'Tools',
     _WorkspaceDestination.servers => 'Servers',
-    _WorkspaceDestination.network => 'Dashboard',
+    _WorkspaceDestination.network => 'Home',
     _WorkspaceDestination.networkActivity => 'Activity',
     _WorkspaceDestination.networkBackups => 'Backups',
     _WorkspaceDestination.networkSchedules => 'Schedules',
@@ -164,8 +164,13 @@ class _TabsState extends State<Tabs> {
       (destination) => destination.name == savedDestination,
       orElse: () => _WorkspaceDestination.overview,
     );
+    // Restore removed primary destinations to their new parent.
+    if (_destination == _WorkspaceDestination.networkActivity) {
+      _destination = _WorkspaceDestination.network;
+    } else if (_destination == _WorkspaceDestination.networkSchedules) {
+      _destination = _WorkspaceDestination.networkBackups;
+    }
     _pageController = PageController(initialPage: _destination.index);
-    context.read<NetworkController?>()?.start(context.read<Model>());
     _initializationFuture = _initialize();
   }
 
@@ -194,6 +199,7 @@ class _TabsState extends State<Tabs> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final model = context.read<Model>();
+      context.read<NetworkController?>()?.start(model);
       final driveSync = context.read<GoogleDriveSyncController>();
       unawaited(driveSync.initialize(model, onRemoteApplied: _serversImported));
       if (model.selectedServer.isComplete) {
@@ -284,7 +290,11 @@ class _TabsState extends State<Tabs> {
   void _performGo(_WorkspaceDestination destination) {
     FocusManager.instance.primaryFocus?.unfocus();
     setState(() {
-      _navigationHistory.add(_destination);
+      if (_primaryDestinations.contains(destination)) {
+        _navigationHistory.clear();
+      } else {
+        _navigationHistory.add(_destination);
+      }
       _destination = destination;
     });
     // Update the active destination before asking PageView to build the target
@@ -328,13 +338,18 @@ class _TabsState extends State<Tabs> {
       await _go(_WorkspaceDestination.more);
       return;
     }
+    if (_serverDetail) {
+      _navigationHistory.clear();
+      _goWithoutHistory(_WorkspaceDestination.servers);
+      return;
+    }
     if (_navigationHistory.isNotEmpty) {
       final previous = _navigationHistory.removeLast();
       _goWithoutHistory(previous);
       return;
     }
-    if (_destination != _WorkspaceDestination.overview) {
-      _goWithoutHistory(_WorkspaceDestination.overview);
+    if (_destination != _WorkspaceDestination.network) {
+      _goWithoutHistory(_WorkspaceDestination.network);
       return;
     }
 
@@ -448,7 +463,7 @@ class _TabsState extends State<Tabs> {
         _goWithoutHistory(_WorkspaceDestination.players);
       case NetworkQuickAction.start:
         await connection.startServer(model);
-        _goWithoutHistory(_WorkspaceDestination.network);
+        _goWithoutHistory(_WorkspaceDestination.servers);
       case NetworkQuickAction.stop:
         final stopConfirmed = await DialogUtils.confirmAction(
           context,
@@ -458,7 +473,7 @@ class _TabsState extends State<Tabs> {
           confirmLabel: 'Stop',
         );
         if (stopConfirmed) await connection.stopServer(model);
-        if (mounted) _goWithoutHistory(_WorkspaceDestination.network);
+        if (mounted) _goWithoutHistory(_WorkspaceDestination.servers);
       case NetworkQuickAction.restart:
         final restartConfirmed = await DialogUtils.confirmAction(
           context,
@@ -467,7 +482,7 @@ class _TabsState extends State<Tabs> {
           confirmLabel: 'Restart',
         );
         if (restartConfirmed) await connection.restartServer(model);
-        if (mounted) _goWithoutHistory(_WorkspaceDestination.network);
+        if (mounted) _goWithoutHistory(_WorkspaceDestination.servers);
     }
   }
 
@@ -560,9 +575,7 @@ class _TabsState extends State<Tabs> {
         serverId: model.selectedServer.effectiveManagementServerId,
         onBackups: () => _openPage(
           'Backups',
-          BackupView(
-            serverId: model.selectedServer.effectiveManagementServerId,
-          ),
+          BackupHub(serverId: model.selectedServer.effectiveManagementServerId),
         ),
         onSchedules: () => _openPage(
           'Schedules',
@@ -592,6 +605,7 @@ class _TabsState extends State<Tabs> {
         onConfiguration: () => _go(_WorkspaceDestination.serverEditor),
       ),
       _WorkspaceDestination.servers => ServersView(
+        onServerAction: _networkServerAction,
         onSelect: _selectServer,
         onAdd: _addServer,
         onNetwork: () => _go(_WorkspaceDestination.network),
@@ -600,9 +614,12 @@ class _TabsState extends State<Tabs> {
       _WorkspaceDestination.network => NetworkView(
         onServerAction: _networkServerAction,
         onBackups: () => _go(_WorkspaceDestination.networkBackups),
+        onActivity: () => _openPage('Activity', const NetworkActivityView()),
+        onUpdates: () => _go(_WorkspaceDestination.networkUpdates),
+        onAccess: () => _openPage('Network Access', const NetworkAccessView()),
       ),
       _WorkspaceDestination.networkActivity => const NetworkActivityView(),
-      _WorkspaceDestination.networkBackups => const BackupView(),
+      _WorkspaceDestination.networkBackups => const BackupHub(),
       _WorkspaceDestination.networkSchedules => const SchedulesView(),
       _WorkspaceDestination.networkUpdates => const UpdatesView(),
       _WorkspaceDestination.serverEditor => ServerEditorView(
@@ -755,6 +772,7 @@ class _TabsState extends State<Tabs> {
   }
 
   bool get _networkScope => switch (_destination) {
+    _WorkspaceDestination.servers ||
     _WorkspaceDestination.network ||
     _WorkspaceDestination.networkActivity ||
     _WorkspaceDestination.networkBackups ||
@@ -762,6 +780,21 @@ class _TabsState extends State<Tabs> {
     _WorkspaceDestination.networkUpdates => true,
     _ => false,
   };
+
+  bool get _serverDetail => const {
+    _WorkspaceDestination.overview,
+    _WorkspaceDestination.console,
+    _WorkspaceDestination.controls,
+    _WorkspaceDestination.players,
+    _WorkspaceDestination.serverTools,
+  }.contains(_destination);
+
+  static const _primaryDestinations = [
+    _WorkspaceDestination.network,
+    _WorkspaceDestination.servers,
+    _WorkspaceDestination.networkBackups,
+    _WorkspaceDestination.networkUpdates,
+  ];
 
   Widget _buildMobile(
     BuildContext context,
@@ -783,12 +816,21 @@ class _TabsState extends State<Tabs> {
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
-        leading: nestedSettings
+        leading:
+            (nestedSettings ||
+                _serverDetail ||
+                _destination == _WorkspaceDestination.more)
             ? IconButton(
-                tooltip: _destination == _WorkspaceDestination.serverEditor
+                tooltip:
+                    (_serverDetail ||
+                        _destination == _WorkspaceDestination.serverEditor)
                     ? 'Back to Servers'
+                    : _destination == _WorkspaceDestination.more
+                    ? 'Back'
                     : 'Back to Settings',
-                onPressed: _back,
+                onPressed: _serverDetail
+                    ? () => _go(_WorkspaceDestination.servers)
+                    : _back,
                 icon: const Icon(Icons.arrow_back),
               )
             : null,
@@ -815,96 +857,89 @@ class _TabsState extends State<Tabs> {
         ],
       ),
       body: _pageHost(model, connection),
-      bottomNavigationBar: DecoratedBox(
-        key: const ValueKey('mobile-bottom-navigation'),
-        decoration: BoxDecoration(
-          color: navigationColor,
-          border: Border(top: BorderSide(color: scheme.outlineVariant)),
-        ),
-        child: NavigationBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          selectedIndex: _mobileIndex,
-          onDestinationSelected: (index) => _go(_mobileDestinations[index]),
-          destinations: networkScope
-              ? const [
-                  NavigationDestination(
-                    icon: Icon(Icons.dashboard_outlined),
-                    selectedIcon: Icon(Icons.dashboard),
-                    label: 'Dashboard',
+      bottomNavigationBar: _serverDetail
+          ? DecoratedBox(
+              key: const ValueKey('mobile-server-navigation'),
+              decoration: BoxDecoration(
+                color: navigationColor,
+                border: Border(top: BorderSide(color: scheme.outlineVariant)),
+              ),
+              child: SafeArea(
+                top: false,
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
                   ),
-                  NavigationDestination(
-                    icon: Icon(Icons.history_outlined),
-                    selectedIcon: Icon(Icons.history),
-                    label: 'Activity',
+                  child: Row(
+                    children: [
+                      for (final destination in const [
+                        _WorkspaceDestination.overview,
+                        _WorkspaceDestination.console,
+                        _WorkspaceDestination.controls,
+                        _WorkspaceDestination.players,
+                        _WorkspaceDestination.serverTools,
+                      ])
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(destination.label),
+                            selected: _destination == destination,
+                            onSelected: (_) => _go(destination),
+                          ),
+                        ),
+                      TextButton(
+                        onPressed: () => _openPage(
+                          'Performance',
+                          PerformanceHistoryView(
+                            serverId: model
+                                .selectedServer
+                                .effectiveManagementServerId,
+                          ),
+                        ),
+                        child: const Text('Performance'),
+                      ),
+                      TextButton(
+                        onPressed: () => _openPage(
+                          'Backups',
+                          BackupHub(
+                            serverId: model
+                                .selectedServer
+                                .effectiveManagementServerId,
+                          ),
+                        ),
+                        child: const Text('Backups'),
+                      ),
+                    ],
                   ),
-                  NavigationDestination(
-                    icon: Icon(Icons.inventory_2_outlined),
-                    selectedIcon: Icon(Icons.inventory_2),
-                    label: 'Backups',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.schedule_outlined),
-                    selectedIcon: Icon(Icons.schedule),
-                    label: 'Schedules',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.system_update_alt_outlined),
-                    selectedIcon: Icon(Icons.system_update_alt),
-                    label: 'Updates',
-                  ),
-                ]
-              : const [
-                  NavigationDestination(
-                    icon: Icon(Icons.dashboard_outlined),
-                    selectedIcon: Icon(Icons.dashboard),
-                    label: 'Overview',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.terminal_outlined),
-                    selectedIcon: Icon(Icons.terminal),
-                    label: 'Console',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.bolt_outlined),
-                    selectedIcon: Icon(Icons.bolt),
-                    label: 'Actions',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.people_alt_outlined),
-                    selectedIcon: Icon(Icons.people_alt),
-                    label: 'Players',
-                  ),
-                  NavigationDestination(
-                    icon: Icon(Icons.construction_outlined),
-                    selectedIcon: Icon(Icons.construction),
-                    label: 'Tools',
-                  ),
+                ),
+              ),
+            )
+          : _primaryDestinations.contains(_destination)
+          ? DecoratedBox(
+              key: const ValueKey('mobile-bottom-navigation'),
+              decoration: BoxDecoration(
+                color: navigationColor,
+                border: Border(top: BorderSide(color: scheme.outlineVariant)),
+              ),
+              child: NavigationBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                selectedIndex: _primaryDestinations.indexOf(_destination),
+                onDestinationSelected: (index) =>
+                    _go(_primaryDestinations[index]),
+                destinations: [
+                  for (final destination in _primaryDestinations)
+                    NavigationDestination(
+                      icon: Icon(destination.icon),
+                      label: destination.label,
+                    ),
                 ],
-        ),
-      ),
+              ),
+            )
+          : null,
     );
-  }
-
-  List<_WorkspaceDestination> get _mobileDestinations => _networkScope
-      ? const [
-          _WorkspaceDestination.network,
-          _WorkspaceDestination.networkActivity,
-          _WorkspaceDestination.networkBackups,
-          _WorkspaceDestination.networkSchedules,
-          _WorkspaceDestination.networkUpdates,
-        ]
-      : const [
-          _WorkspaceDestination.overview,
-          _WorkspaceDestination.console,
-          _WorkspaceDestination.controls,
-          _WorkspaceDestination.players,
-          _WorkspaceDestination.serverTools,
-        ];
-
-  int get _mobileIndex {
-    final index = _mobileDestinations.indexOf(_destination);
-    return index < 0 ? 0 : index;
   }
 }
 
@@ -968,13 +1003,15 @@ class _ScopeSwitcher extends StatelessWidget {
           else
             ServerIcon(server: model.selectedServer, size: 24),
           const SizedBox(width: 8),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 160),
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleMedium,
+          Flexible(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 160),
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
             ),
           ),
           const SizedBox(width: 4),
@@ -1001,9 +1038,8 @@ class _WorkspaceSidebar extends StatelessWidget {
   List<_WorkspaceDestination> get _destinations => networkScope
       ? const [
           _WorkspaceDestination.network,
-          _WorkspaceDestination.networkActivity,
+          _WorkspaceDestination.servers,
           _WorkspaceDestination.networkBackups,
-          _WorkspaceDestination.networkSchedules,
           _WorkspaceDestination.networkUpdates,
         ]
       : const [
@@ -1041,11 +1077,12 @@ class _WorkspaceSidebar extends StatelessWidget {
                 ),
               const Spacer(),
               const _SectionLabel(label: 'Application'),
-              _NavigationTile(
-                destination: _WorkspaceDestination.servers,
-                selected: destination == _WorkspaceDestination.servers,
-                onTap: onDestination,
-              ),
+              if (!networkScope)
+                _NavigationTile(
+                  destination: _WorkspaceDestination.servers,
+                  selected: destination == _WorkspaceDestination.servers,
+                  onTap: onDestination,
+                ),
               _NavigationTile(
                 destination: _WorkspaceDestination.dataSync,
                 selected: destination == _WorkspaceDestination.dataSync,
@@ -1289,8 +1326,9 @@ class _SectionLabel extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(10, 6, 10, 5),
       child: Text(
         label.toUpperCase(),
-        style: Theme.of(context).textTheme.labelSmall
-            ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
       ),
     );
   }

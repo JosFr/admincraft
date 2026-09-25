@@ -436,7 +436,14 @@ function createManagementService(config = {}, dependencies = {}) {
   }
   function backupPublic(backup) {
     const { localPath, destinationLocators, ...publicBackup } = backup;
-    return publicBackup;
+    return {
+      ...publicBackup,
+      capabilities: {
+        ...publicBackup.capabilities,
+        forget: backup.engine !== "native" &&
+          !["queued", "running", "verifying"].includes(backup.status),
+      },
+    };
   }
 
   function storageSnapshots() {
@@ -462,6 +469,7 @@ function createManagementService(config = {}, dependencies = {}) {
     return {
       type: "admincraft.management-state",
       observedAt: isoNow(now),
+      features: ["schedule-update", "backup-forget"],
       storages: storageSnapshots(),
       backupDestinationDefaults: {
         global: [...state.backupDestinationDefaults.global],
@@ -1826,6 +1834,19 @@ function createManagementService(config = {}, dependencies = {}) {
         return response("Backup copied.", [snapshot()]);
       }
 
+      if (action === "backup-forget") {
+        const backup = findBackup(payload);
+        if (backup.engine === "native")
+          throw new Error("Managed backup files must use Delete, not Remove from history.");
+        if (["queued", "running", "verifying"].includes(backup.status))
+          throw new Error("An active backup cannot be removed from history.");
+        state.backups = state.backups.filter((item) => item.id !== backup.id);
+        activity(serverById(backup.serverId), "Backup record removed",
+          backup.id + " — record only; no backup files deleted or commands cancelled.");
+        persist();
+        return response("Backup record removed. No backup files were deleted.", [snapshot()]);
+      }
+
       if (action === "backup-delete") {
         const backup = findBackup(payload);
         await deleteManagedBackup(backup, backup.id);
@@ -1869,7 +1890,12 @@ function createManagementService(config = {}, dependencies = {}) {
         );
       }
 
-      if (action === "schedule-create") {
+      if (action === "schedule-create" || action === "schedule-update") {
+        const existing = action === "schedule-update"
+          ? state.schedules.find((item) => item.id === String(payload.id || ""))
+          : null;
+        if (action === "schedule-update" && !existing)
+          throw new Error("Schedule not found.");
         const server = requireServer(payload);
         const scheduledAction = String(payload.action || "").trim();
         const allowed = ["start", "stop", "restart", "backup", "maintenance"];
@@ -1904,8 +1930,8 @@ function createManagementService(config = {}, dependencies = {}) {
           runAt = parsed.toISOString();
           nextRun = parsed;
         }
-        state.schedules.push({
-          id: id("schedule"),
+        const updated = {
+          id: existing?.id || id("schedule"),
           serverId: server.id,
           serverName: server.name,
           action: scheduledAction,
@@ -1913,19 +1939,21 @@ function createManagementService(config = {}, dependencies = {}) {
           schedule: expression,
           recurring,
           runAt,
-          nextRun: nextRun.toISOString(),
-          enabled: true,
-          lastResult: null,
-        });
+          nextRun: existing?.enabled === false ? null : nextRun.toISOString(),
+          enabled: existing?.enabled ?? true,
+          lastResult: existing?.lastResult ?? null,
+        };
+        if (existing) Object.assign(existing, updated);
+        else state.schedules.push(updated);
         activity(
           server,
-          "Schedule created",
+          existing ? "Schedule updated" : "Schedule created",
           recurring
             ? `${scheduledAction} · ${expression}`
             : `${scheduledAction} · ${runAt}`,
         );
         persist();
-        return response("Schedule created.", [snapshot()]);
+        return response(existing ? "Schedule updated." : "Schedule created.", [snapshot()]);
       }
 
       if (action === "schedule-toggle") {

@@ -1,3 +1,4 @@
+import 'package:admincraft/models/management_state.dart';
 import 'package:admincraft/controllers/network_controller.dart';
 import 'package:admincraft/models/model.dart';
 import 'package:admincraft/models/network_access_entry.dart';
@@ -9,13 +10,20 @@ enum NetworkQuickAction { open, console, players, start, stop, restart }
 
 class NetworkView extends StatelessWidget {
   final Future<void> Function(String serverName, NetworkQuickAction action)
-      onServerAction;
+  onServerAction;
   final VoidCallback onBackups;
+
+  final VoidCallback onUpdates;
+  final VoidCallback onActivity;
+  final VoidCallback onAccess;
 
   const NetworkView({
     super.key,
     required this.onServerAction,
     required this.onBackups,
+    required this.onActivity,
+    required this.onUpdates,
+    required this.onAccess,
   });
 
   @override
@@ -29,11 +37,18 @@ class NetworkView extends StatelessWidget {
         .where((entry) => entry.status == NetworkAccessStatus.pending)
         .length;
 
+    final failedBackups = network.management.backups
+        .where((backup) => backup.status == BackupStatus.failed)
+        .length;
+    final availableUpdates = network.management.updates
+        .where((update) => update.status == PluginUpdateStatus.updateAvailable)
+        .length;
     return RefreshIndicator(
       onRefresh: () async {
         network.reconnect();
         await Future<void>.delayed(const Duration(milliseconds: 500));
-      },      child: ListView(
+      },
+      child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(20),
         children: [
@@ -45,16 +60,43 @@ class NetworkView extends StatelessWidget {
                 children: [
                   _Header(network: network, onBackups: onBackups),
                   const SizedBox(height: 14),
-                  _Summary(snapshot: network.snapshot, pending: pending),
-                  const SizedBox(height: 14),
-                  _Servers(
+                  _Summary(
                     snapshot: network.snapshot,
-                    onAction: onServerAction,
+                    pending: pending,
+                    onAccess: onAccess,
+                    connected: network.connected,
                   ),
                   const SizedBox(height: 14),
-                  _Access(network: network),
+                  if (network.snapshot.servers.any(
+                    (server) =>
+                        server.state == NetworkServerState.error ||
+                        server.state == NetworkServerState.offline,
+                  ))
+                    NetworkServersCard(
+                      snapshot: network.snapshot,
+                      onAction: onServerAction,
+                      attentionOnly: true,
+                    ),
                   const SizedBox(height: 14),
-                  _Activity(model: model),
+                  if (failedBackups > 0)
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.warning_amber_outlined),
+                        title: Text('$failedBackups failed backups'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: onBackups,
+                      ),
+                    ),
+                  if (availableUpdates > 0)
+                    Card(
+                      child: ListTile(
+                        leading: const Icon(Icons.system_update_alt_outlined),
+                        title: Text('$availableUpdates updates available'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: onUpdates,
+                      ),
+                    ),
+                  _Activity(model: model, onViewAll: onActivity),
                 ],
               ),
             ),
@@ -64,6 +106,7 @@ class NetworkView extends StatelessWidget {
     );
   }
 }
+
 class _Header extends StatelessWidget {
   final NetworkController network;
   final VoidCallback onBackups;
@@ -75,25 +118,26 @@ class _Header extends StatelessWidget {
     final status = network.connected
         ? 'Live from Velocity'
         : network.connecting
-            ? 'Connecting to Lobby…'
-            : network.error ?? 'Network feed unavailable';
+        ? 'Connecting to Lobby…'
+        : network.error ?? 'Network feed unavailable';
     final color = network.connected
         ? Colors.green
         : network.connecting
-            ? Colors.orange
-            : Theme.of(context).colorScheme.error;
+        ? Colors.orange
+        : Theme.of(context).colorScheme.error;
     return Row(
       children: [
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Network', style: Theme.of(context).textTheme.headlineMedium),
+              Text('Home', style: Theme.of(context).textTheme.headlineMedium),
               const SizedBox(height: 3),
               Text(status, style: Theme.of(context).textTheme.bodyMedium),
             ],
           ),
-        ),        Container(
+        ),
+        Container(
           width: 10,
           height: 10,
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
@@ -117,7 +161,14 @@ class _Summary extends StatelessWidget {
   final NetworkSnapshot snapshot;
   final int pending;
 
-  const _Summary({required this.snapshot, required this.pending});
+  final VoidCallback onAccess;
+  final bool connected;
+  const _Summary({
+    required this.snapshot,
+    required this.pending,
+    required this.onAccess,
+    required this.connected,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -127,71 +178,101 @@ class _Summary extends StatelessWidget {
     final via = snapshot.clientMin.isEmpty || snapshot.clientMax.isEmpty
         ? 'Unknown'
         : '${snapshot.clientMin} → ${snapshot.clientMax}';
-    final items = [      (
+    final items = [
+      (
         'Players',
         '${snapshot.playersOnline}/${snapshot.playerLimit}',
         Icons.people_outline,
       ),
-      ('Online', '$online/${snapshot.servers.length}', Icons.dns_outlined),
+      ('Servers', '$online/${snapshot.servers.length}', Icons.dns_outlined),
       ('Access', '$pending pending', Icons.admin_panel_settings_outlined),
-      ('Clients', via, Icons.swap_horiz),
+      (
+        'Health',
+        !connected
+            ? 'Unavailable'
+            : snapshot.servers.any((s) => s.state == NetworkServerState.error)
+            ? 'Needs attention'
+            : 'Feed connected',
+        Icons.monitor_heart_outlined,
+      ),
     ];
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final columns = constraints.maxWidth >= 720 ? 4 : 2;
-        final width = (constraints.maxWidth - 10 * (columns - 1)) / columns;
-        return Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            for (final item in items)
-              SizedBox(
-                width: width,
-                child: Card(
-                  margin: EdgeInsets.zero,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      children: [
-                        Icon(item.$3, size: 24),
-                        const SizedBox(width: 10),                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      children: [
+        Text('Clients: $via'),
+        const SizedBox(height: 8),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final columns = constraints.maxWidth >= 720 ? 4 : 2;
+            final width = (constraints.maxWidth - 10 * (columns - 1)) / columns;
+            return Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final item in items)
+                  SizedBox(
+                    width: width,
+                    child: Card(
+                      margin: EdgeInsets.zero,
+                      child: InkWell(
+                        onTap: item.$1 == 'Access' ? onAccess : null,
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Row(
                             children: [
-                              Text(
-                                item.$1,
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                              FittedBox(
-                                fit: BoxFit.scaleDown,
-                                alignment: Alignment.centerLeft,
-                                child: Text(
-                                  item.$2,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleMedium
-                                      ?.copyWith(fontWeight: FontWeight.w700),
+                              Icon(item.$3, size: 24),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item.$1,
+                                      style: Theme.of(
+                                        context,
+                                      ).textTheme.bodySmall,
+                                    ),
+                                    FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      alignment: Alignment.centerLeft,
+                                      child: Text(
+                                        item.$2,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
                             ],
                           ),
                         ),
-                      ],
+                      ),
                     ),
                   ),
-                ),
-              ),
-          ],
-        );
-      },
+              ],
+            );
+          },
+        ),
+      ],
     );
   }
 }
-class _Servers extends StatelessWidget {
+
+class NetworkServersCard extends StatelessWidget {
   final NetworkSnapshot snapshot;
   final Future<void> Function(String, NetworkQuickAction) onAction;
 
-  const _Servers({required this.snapshot, required this.onAction});
+  final bool attentionOnly;
+  const NetworkServersCard({
+    super.key,
+    required this.snapshot,
+    required this.onAction,
+    this.attentionOnly = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -203,7 +284,7 @@ class _Servers extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              'Velocity backends',
+              attentionOnly ? 'Servers needing attention' : 'Velocity backends',
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const SizedBox(height: 8),
@@ -213,10 +294,16 @@ class _Servers extends StatelessWidget {
                 child: Text('Waiting for network state…'),
               )
             else
-              for (final server in snapshot.servers)
+              for (final server in snapshot.servers.where(
+                (server) =>
+                    !attentionOnly ||
+                    server.state == NetworkServerState.error ||
+                    server.state == NetworkServerState.offline,
+              ))
                 _NetworkServerTile(server: server, onAction: onAction),
           ],
-        ),      ),
+        ),
+      ),
     );
   }
 }
@@ -237,88 +324,100 @@ class _NetworkServerTile extends StatelessWidget {
       NetworkServerState.offline => Theme.of(context).colorScheme.outline,
       NetworkServerState.unknown => Theme.of(context).colorScheme.outline,
     };
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 5),
-      child: Row(
-        children: [
-          Container(
-            width: 9,
-            height: 9,
-            decoration: BoxDecoration(color: stateColor, shape: BoxShape.circle),
-          ),          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(server.label, style: Theme.of(context).textTheme.titleSmall),
-                Text(
-                  '${server.state.label} · ${server.players} players'
-                  '${server.version.isEmpty ? '' : ' · ${server.version}'}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
+    return InkWell(
+      onTap: () => onAction(server.name, NetworkQuickAction.open),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 5),
+        child: Row(
+          children: [
+            Container(
+              width: 9,
+              height: 9,
+              decoration: BoxDecoration(
+                color: stateColor,
+                shape: BoxShape.circle,
+              ),
             ),
-          ),
-          PopupMenuButton<NetworkQuickAction>(
-            tooltip: 'Quick actions',
-            onSelected: (action) => onAction(server.name, action),
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: NetworkQuickAction.open,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.dashboard_outlined),
-                  title: Text('Open dashboard'),
-                ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    server.label,
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
+                  Text(
+                    '${server.state.label} · ${server.players} players'
+                    '${server.version.isEmpty ? '' : ' · ${server.version}'}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
               ),
-              const PopupMenuItem(
-                value: NetworkQuickAction.console,
-                child: ListTile(                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.terminal_outlined),
-                  title: Text('Console'),
-                ),
-              ),
-              const PopupMenuItem(
-                value: NetworkQuickAction.players,
-                child: ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: Icon(Icons.people_alt_outlined),
-                  title: Text('Players'),
-                ),
-              ),
-              const PopupMenuDivider(),
-              if (server.state != NetworkServerState.online)
+            ),
+            PopupMenuButton<NetworkQuickAction>(
+              tooltip: 'Quick actions',
+              onSelected: (action) => onAction(server.name, action),
+              itemBuilder: (context) => [
                 const PopupMenuItem(
-                  value: NetworkQuickAction.start,
+                  value: NetworkQuickAction.open,
                   child: ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.play_arrow_rounded),
-                    title: Text('Start'),
+                    leading: Icon(Icons.dashboard_outlined),
+                    title: Text('Open dashboard'),
                   ),
                 ),
-              if (server.state == NetworkServerState.online)
                 const PopupMenuItem(
-                  value: NetworkQuickAction.restart,
+                  value: NetworkQuickAction.console,
                   child: ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.restart_alt),
-                    title: Text('Restart'),
-                  ),
-                ),              if (server.state == NetworkServerState.online)
-                const PopupMenuItem(
-                  value: NetworkQuickAction.stop,
-                  child: ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.stop_circle_outlined),
-                    title: Text('Stop'),
+                    leading: Icon(Icons.terminal_outlined),
+                    title: Text('Console'),
                   ),
                 ),
-            ],
-            icon: const Icon(Icons.more_horiz),
-          ),
-        ],
+                const PopupMenuItem(
+                  value: NetworkQuickAction.players,
+                  child: ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.people_alt_outlined),
+                    title: Text('Players'),
+                  ),
+                ),
+                const PopupMenuDivider(),
+                if (server.state != NetworkServerState.online)
+                  const PopupMenuItem(
+                    value: NetworkQuickAction.start,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.play_arrow_rounded),
+                      title: Text('Start'),
+                    ),
+                  ),
+                if (server.state == NetworkServerState.online)
+                  const PopupMenuItem(
+                    value: NetworkQuickAction.restart,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.restart_alt),
+                      title: Text('Restart'),
+                    ),
+                  ),
+                if (server.state == NetworkServerState.online)
+                  const PopupMenuItem(
+                    value: NetworkQuickAction.stop,
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(Icons.stop_circle_outlined),
+                      title: Text('Stop'),
+                    ),
+                  ),
+              ],
+              icon: const Icon(Icons.more_horiz),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -336,7 +435,8 @@ class _Access extends StatelessWidget {
         .toList();
     final trusted = network.access
         .where((entry) => entry.status == NetworkAccessStatus.trusted)
-        .toList();    final denied = network.access
+        .toList();
+    final denied = network.access
         .where((entry) => entry.status == NetworkAccessStatus.denied)
         .toList();
     return Card(
@@ -366,7 +466,8 @@ class _Access extends StatelessWidget {
               network: network,
             ),
             _AccessGroup(
-              title: 'Trusted',              entries: trusted,
+              title: 'Trusted',
+              entries: trusted,
               actions: const [('Revoke', 'revoke'), ('Blacklist', 'blacklist')],
               network: network,
             ),
@@ -397,7 +498,8 @@ class _AccessGroup extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {    return Padding(
+  Widget build(BuildContext context) {
+    return Padding(
       padding: const EdgeInsets.only(top: 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -410,27 +512,27 @@ class _AccessGroup extends StatelessWidget {
             for (final entry in entries)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(entry.name),
-                          if ((entry.requestedTarget ?? '').isNotEmpty)
-                            Text(
-                              entry.requestedTarget!,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                        ],
+                    Text(entry.name),
+                    if ((entry.requestedTarget ?? '').isNotEmpty)
+                      Text(
+                        entry.requestedTarget!,
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
-                    ),
+                    const SizedBox(height: 6),
                     Wrap(
                       spacing: 6,
-                      children: [                        for (final action in actions)
+                      runSpacing: 6,
+                      children: [
+                        for (final action in actions)
                           OutlinedButton(
                             onPressed: () {
-                              network.executeAccessAction(action.$2, entry.uuid);
+                              network.executeAccessAction(
+                                action.$2,
+                                entry.uuid,
+                              );
                             },
                             child: Text(action.$1),
                           ),
@@ -448,18 +550,30 @@ class _AccessGroup extends StatelessWidget {
 class _Activity extends StatelessWidget {
   final Model model;
 
-  const _Activity({required this.model});
+  final VoidCallback onViewAll;
+  const _Activity({required this.model, required this.onViewAll});
 
   @override
   Widget build(BuildContext context) {
-    final entries = model.networkAudit.take(12).toList();
+    final entries = model.networkAudit.take(5).toList();
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(
         padding: const EdgeInsets.all(14),
-        child: Column(          crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('Recent activity', style: Theme.of(context).textTheme.titleMedium),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Recent activity',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                TextButton(onPressed: onViewAll, child: const Text('View all')),
+              ],
+            ),
             const SizedBox(height: 8),
             if (entries.isEmpty)
               const Text('No Admincraft actions have been recorded yet.')
@@ -487,7 +601,8 @@ class _Activity extends StatelessWidget {
                             ),
                           ],
                         ),
-                      ),                    ],
+                      ),
+                    ],
                   ),
                 ),
           ],
@@ -499,5 +614,21 @@ class _Activity extends StatelessWidget {
   String _time(DateTime value) {
     String two(int value) => value.toString().padLeft(2, '0');
     return '${two(value.hour)}:${two(value.minute)}:${two(value.second)}';
+  }
+}
+
+class NetworkAccessView extends StatelessWidget {
+  const NetworkAccessView({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final network = context.watch<NetworkController?>();
+    if (network == null) {
+      return const Center(child: Text('Network controller is unavailable.'));
+    }
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [_Access(network: network)],
+    );
   }
 }
