@@ -136,7 +136,7 @@ function versionParts(value) {
     .replace(/^v/iu, "");
   const buildNotation = /^(\d+(?:\.\d+)*)\s+build\s+#?(\d+)$/iu.exec(cleaned);
   if (buildNotation) cleaned = `${buildNotation[1]}.${buildNotation[2]}`;
-  const match = /^(\d+(?:\.\d+)*)(?:[-+](.*))?$/u.exec(cleaned);
+  const match = /^(\d+(?:\.\d+)*)(?:-([^+]+))?(?:\+(.+))?$/u.exec(cleaned);
   if (!match) return null;
   return {
     numbers: match[1].split(".").map((part) => Number.parseInt(part, 10)),
@@ -520,6 +520,20 @@ function createUpdateChecker(config = {}, dependencies = {}) {
   async function projectsFor(providers) {
     const discovered = inventoryDiscovery({ servers, sourceRoot });
     let projects = mergeProjects(configuredProjects, discovered);
+    const paperVersionByServer = new Map();
+    for (const project of projects) {
+      if (project.kind !== "paper") continue;
+      const platformVersion =
+        String(project.platformVersion || "").trim() ||
+        platformVersionInfo(project.currentVersion)?.version ||
+        "";
+      if (platformVersion) paperVersionByServer.set(project.serverId, platformVersion);
+    }
+    projects = projects.map((project) => {
+      if (project.kind !== "plugin") return project;
+      const platformVersion = paperVersionByServer.get(project.serverId);
+      return platformVersion ? { ...project, gameVersion: platformVersion } : project;
+    });
     const providerKey = providerFingerprint(providers);
     projects = await mapLimit(projects, 3, async (project) => {
       if (

@@ -89,10 +89,13 @@ test("verified source catalog injects the reviewed AuctionHouse project", async 
   assert.equal(candidates[0].score, 120);
 });
 
-test("version comparison handles releases and prereleases", () => {
+test("version comparison handles releases, prereleases and build metadata", () => {
   assert.equal(compareVersions("1.2.3", "1.2.4"), -1);
   assert.equal(compareVersions("v2.0.0", "2.0.0"), 0);
   assert.equal(compareVersions("2.0.0-rc1", "2.0.0"), -1);
+  assert.equal(compareVersions("7.0.9+5934e49", "7.0.9"), 0);
+  assert.equal(compareVersions("7.4.5+7590-b8dc4c1", "7.4.5"), 0);
+  assert.equal(compareVersions("2.14.0+spigot", "2.14.0+fabric"), 0);
 });
 
 test("version comparison treats Plan build notation as the release tag", () => {
@@ -648,6 +651,67 @@ test("Modrinth chooses a stable compatible Bukkit release", async () => {
   assert.equal(result.gameVersion, "1.21.4");
   assert.equal(result.latestVersion, "1.8.0");
   assert.equal(result.status, "updateAvailable");
+});
+
+test("Paper inventory supplies the Minecraft version for Modrinth plugin filtering", async () => {
+  const checker = createUpdateChecker(
+    {
+      servers: [
+        { id: "smp", name: "SMP", multicraftServerId: 7 },
+      ],
+    },
+    {
+      discoverUpdateProjects: () => [
+        {
+          serverId: "smp",
+          serverName: "SMP",
+          plugin: "Example",
+          kind: "plugin",
+          currentVersion: "1.0.0",
+          gameVersion: null,
+          provider: "modrinth",
+          projectId: "abc",
+          sourceConfirmed: true,
+          candidates: [],
+          url: "https://modrinth.com/plugin/example",
+        },
+        {
+          serverId: "smp",
+          serverName: "SMP",
+          plugin: "Paper",
+          kind: "paper",
+          currentVersion: "1.21.4+build.123",
+          platformVersion: "1.21.4",
+          provider: "paperMC",
+          projectId: "paper",
+          sourceConfirmed: true,
+          candidates: [],
+          url: null,
+        },
+      ],
+      fetch: async () => ({
+        ok: true,
+        json: async () => [
+          {
+            version_number: "1.8.0",
+            version_type: "release",
+            loaders: ["paper"],
+            game_versions: ["1.21.4"],
+            date_published: "2026-09-01T12:00:00Z",
+            files: [],
+          },
+        ],
+      }),
+    },
+  );
+  const result = await checker({
+    providers: { modrinth: true, paperMC: false },
+  });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].plugin, "Example");
+  assert.equal(result[0].gameVersion, "1.21.4");
+  assert.equal(result[0].latestVersion, "1.8.0");
+  assert.equal(result[0].status, "updateAvailable");
 });
 
 test("automatic Paper inventory reaches Update Center without configured projects", async () => {

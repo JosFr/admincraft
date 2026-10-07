@@ -159,9 +159,32 @@ function pluginDirectoryInventory(directory) {
   return plugins.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function minecraftVersionFromText(text) {
+  const patterns = [
+    /Starting minecraft server version\s+([0-9]+(?:\.[0-9]+){1,3})/giu,
+    /Loading Paper\s+([0-9]+(?:\.[0-9]+){1,3})(?:[-+\s]|$)/giu,
+    /Minecraft Version:\s*([0-9]+(?:\.[0-9]+){1,3})/giu,
+    /Implementing API version\s+([0-9]+(?:\.[0-9]+){1,3})-R/giu,
+  ];
+  let latest = null;
+  for (const pattern of patterns) {
+    for (const match of String(text || "").matchAll(pattern)) {
+      if (!latest || match.index > latest.index) {
+        latest = { index: match.index, version: match[1] };
+      }
+    }
+  }
+  return latest?.version || null;
+}
+
 function minecraftVersionFromLog(file, { fromEnd = false } = {}) {
   if (!fs.existsSync(file)) return null;
   try {
+    if (file.toLowerCase().endsWith(".gz")) {
+      const compressed = fs.readFileSync(file);
+      if (compressed.length > 8 * 1024 * 1024) return null;
+      return minecraftVersionFromText(zlib.gunzipSync(compressed).toString("utf8"));
+    }
     const stat = fs.statSync(file);
     const length = Math.min(stat.size, 2 * 1024 * 1024);
     const buffer = Buffer.alloc(length);
@@ -177,25 +200,37 @@ function minecraftVersionFromLog(file, { fromEnd = false } = {}) {
     } finally {
       fs.closeSync(fd);
     }
-    const text = buffer.toString("utf8");
-    const patterns = [
-      /Starting minecraft server version\s+([0-9]+(?:\.[0-9]+){1,3})/giu,
-      /Loading Paper\s+([0-9]+(?:\.[0-9]+){1,3})(?:[-+\s]|$)/giu,
-      /Minecraft Version:\s*([0-9]+(?:\.[0-9]+){1,3})/giu,
-      /Implementing API version\s+([0-9]+(?:\.[0-9]+){1,3})-R/giu,
-    ];
-    let latest = null;
-    for (const pattern of patterns) {
-      for (const match of text.matchAll(pattern)) {
-        if (!latest || match.index > latest.index) {
-          latest = { index: match.index, version: match[1] };
-        }
-      }
-    }
-    return latest?.version || null;
+    return minecraftVersionFromText(buffer.toString("utf8"));
   } catch (_) {
     return null;
   }
+}
+
+function minecraftVersionFromServerLogs(serverRoot) {
+  const logs = path.join(serverRoot, "logs");
+  const direct =
+    minecraftVersionFromLog(path.join(logs, "latest.log")) ||
+    minecraftVersionFromLog(path.join(serverRoot, "server.log"), { fromEnd: true });
+  if (direct) return direct;
+  let archived = [];
+  try {
+    archived = fs
+      .readdirSync(logs, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".log.gz"))
+      .map((entry) => {
+        const file = path.join(logs, entry.name);
+        return { file, mtime: fs.statSync(file).mtimeMs };
+      })
+      .sort((a, b) => b.mtime - a.mtime)
+      .slice(0, 3);
+  } catch (_) {
+    return null;
+  }
+  for (const entry of archived) {
+    const version = minecraftVersionFromLog(entry.file);
+    if (version) return version;
+  }
+  return null;
 }
 
 function discoverPluginProjects({
@@ -209,11 +244,7 @@ function discoverPluginProjects({
       `server${server.multicraftServerId}`,
     );
     const directory = path.join(serverRoot, "plugins");
-    const gameVersion =
-      minecraftVersionFromLog(path.join(serverRoot, "logs", "latest.log")) ||
-      minecraftVersionFromLog(path.join(serverRoot, "server.log"), {
-        fromEnd: true,
-      });
+    const gameVersion = minecraftVersionFromServerLogs(serverRoot);
     for (const plugin of pluginDirectoryInventory(directory)) {
       projects.push({
         serverId: server.id,
@@ -238,6 +269,7 @@ module.exports = {
   discoverPluginProjects,
   filenameIdentity,
   minecraftVersionFromLog,
+  minecraftVersionFromServerLogs,
   pluginDirectoryInventory,
   pluginJarIdentity,
   readZipEntry,

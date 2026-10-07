@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const zlib = require("node:zlib");
 const test = require("node:test");
 const {
   discoverPluginProjects,
@@ -81,6 +82,39 @@ test("plugin JAR metadata drives automatic project inventory", () => {
     assert.equal(projects[0].plugin, "RealPlugin");
     assert.equal(projects[0].currentVersion, "4.5.6");
     assert.equal(projects[0].gameVersion, "1.21.4");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("plugin inventory falls back to recent compressed server logs", () => {
+  const root = fs.mkdtempSync(
+    path.join(os.tmpdir(), "admincraft-plugin-archived-log-"),
+  );
+  try {
+    const plugins = path.join(root, "server9", "plugins");
+    const logs = path.join(root, "server9", "logs");
+    fs.mkdirSync(plugins, { recursive: true });
+    fs.mkdirSync(logs, { recursive: true });
+    writeStoredZip(
+      path.join(plugins, "example.jar"),
+      "plugin.yml",
+      "name: Example\nversion: 1.0.0\n",
+    );
+    fs.writeFileSync(
+      path.join(logs, "2026-10-06-1.log.gz"),
+      zlib.gzipSync(
+        "[Server thread/INFO]: Starting minecraft server version 1.21.11\n",
+      ),
+    );
+    const projects = discoverPluginProjects({
+      servers: [
+        { id: "new-server", name: "New server", multicraftServerId: 9 },
+      ],
+      sourceRoot: root,
+    });
+    assert.equal(projects.length, 1);
+    assert.equal(projects[0].gameVersion, "1.21.11");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
