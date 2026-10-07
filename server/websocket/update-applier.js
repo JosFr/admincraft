@@ -40,6 +40,14 @@ function updateEligibility(update) {
       reason: "The download source is not approved for automatic JAR replacement.",
     };
   }
+  const automaticProviders = new Set(["modrinth", "github"]);
+  const downloadProvider = String(update?.downloadProvider || "").toLowerCase();
+  if (!automaticProviders.has(downloadProvider)) {
+    return {
+      eligible: false,
+      reason: "Automatic replacement is limited to validated Modrinth or GitHub artifacts.",
+    };
+  }
   const downloadUrl = String(update?.downloadUrl || "").trim();
   if (!downloadUrl) {
     return {

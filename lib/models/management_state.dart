@@ -483,6 +483,7 @@ class MaintenanceState {
   final String serverName;
   final String action;
   final String? backupEngineId;
+  final String? updatePlugin;
   final bool active;
   final DateTime? endsAt;
   final String stage;
@@ -493,6 +494,7 @@ class MaintenanceState {
     required this.serverName,
     this.action = 'restart',
     this.backupEngineId,
+    this.updatePlugin,
     required this.active,
     required this.endsAt,
     required this.stage,
@@ -505,6 +507,7 @@ class MaintenanceState {
         serverName: json['serverName']?.toString() ?? 'Server',
         action: json['action']?.toString() ?? 'restart',
         backupEngineId: json['backupEngineId']?.toString(),
+        updatePlugin: json['updatePlugin']?.toString(),
         active: json['active'] == true,
         endsAt: DateTime.tryParse(json['endsAt']?.toString() ?? '')?.toLocal(),
         stage: json['stage']?.toString() ?? 'idle',
@@ -769,6 +772,8 @@ class PluginUpdate {
       kind == 'plugin' &&
       status == PluginUpdateStatus.updateAvailable &&
       downloadSourceConfirmed &&
+      (downloadProvider == UpdateProvider.modrinth ||
+          downloadProvider == UpdateProvider.github) &&
       downloadReview?.status == 'ready' &&
       (downloadUrl?.trim().isNotEmpty ?? false);
 }

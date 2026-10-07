@@ -545,6 +545,129 @@ void main() {
     },
   );
 
+  testWidgets(
+    'Spigot updates stay manual even when an old snapshot says ready',
+    (tester) async {
+      final network = await fixture();
+      addTearDown(network.dispose);
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.management-state',
+          'features': ['update-targeted'],
+          'updateApply': {
+            'configured': true,
+            'pluginUpdates': true,
+            'rollback': true,
+          },
+          'updates': [
+            {
+              'serverId': 'smp',
+              'serverName': 'SMP',
+              'plugin': 'CMILib',
+              'kind': 'plugin',
+              'currentVersion': '1.5.9.7',
+              'latestVersion': '1.6.0.1',
+              'provider': 'spigot',
+              'projectId': '87610',
+              'sourceConfirmed': true,
+              'downloadProvider': 'spigot',
+              'downloadProjectId': '87610',
+              'downloadSourceConfirmed': true,
+              'downloadReview': {
+                'status': 'ready',
+                'label': 'Legacy ready state',
+                'reason': 'Old bridge snapshot.',
+              },
+              'downloadUrl':
+                  'https://api.spiget.org/v2/resources/87610/download',
+              'status': 'updateAvailable',
+            },
+          ],
+        }),
+      );
+      await tester.pumpWidget(
+        ChangeNotifierProvider<NetworkController>.value(
+          value: network,
+          child: const MaterialApp(home: Scaffold(body: UpdatesView())),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Update now'), findsNothing);
+      expect(find.text('Download manually'), findsOneWidget);
+      expect(
+        find.textContaining('Update this plugin manually'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('failed targeted update remains visible on its plugin card', (
+    tester,
+  ) async {
+    final network = await fixture();
+    addTearDown(network.dispose);
+    network.debugReceive(
+      jsonEncode({
+        'type': 'admincraft.management-state',
+        'features': ['update-targeted'],
+        'updateApply': {
+          'configured': true,
+          'pluginUpdates': true,
+          'rollback': true,
+        },
+        'maintenance': [
+          {
+            'serverId': 'skeerekippen',
+            'serverName': 'skeerekippen',
+            'action': 'update',
+            'updatePlugin': 'CMILib',
+            'active': false,
+            'stage': 'failed',
+            'message':
+                'Download source did not return a valid JAR/ZIP artifact.',
+          },
+        ],
+        'updates': [
+          {
+            'serverId': 'skeerekippen',
+            'serverName': 'skeerekippen',
+            'plugin': 'CMILib',
+            'kind': 'plugin',
+            'currentVersion': '1.5.9.7',
+            'latestVersion': '1.6.0.1',
+            'provider': 'spigot',
+            'projectId': '87610',
+            'sourceConfirmed': true,
+            'downloadProvider': 'spigot',
+            'downloadProjectId': '87610',
+            'downloadSourceConfirmed': true,
+            'downloadReview': {
+              'status': 'manual',
+              'label': 'Spigot JAR available',
+              'reason': 'Manual update only.',
+            },
+            'downloadUrl': 'https://api.spiget.org/v2/resources/87610/download',
+            'status': 'updateAvailable',
+          },
+        ],
+      }),
+    );
+    await tester.pumpWidget(
+      ChangeNotifierProvider<NetworkController>.value(
+        value: network,
+        child: const MaterialApp(home: Scaffold(body: UpdatesView())),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Update failed'), findsOneWidget);
+    expect(
+      find.text('Download source did not return a valid JAR/ZIP artifact.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('one-click update targets only the selected plugin', (
     tester,
   ) async {
@@ -634,5 +757,11 @@ void main() {
     expect(network.startedBackup, true);
     expect(network.startedRestartWhenEmpty, false);
     expect(network.startedUpdatePlugin, 'ExamplePlugin');
+    expect(
+      find.text(
+        'Update ExamplePlugin requested. Progress is shown on this card.',
+      ),
+      findsOneWidget,
+    );
   });
 }

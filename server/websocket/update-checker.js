@@ -454,9 +454,9 @@ function downloadReviewFor(project, latest) {
     }
     return hasDirectArtifact
       ? {
-          status: "ready",
-          label: "Free Spigot JAR",
-          reason: "Spiget reports a non-premium, non-external JAR that can be resolved through the public download endpoint.",
+          status: "manual",
+          label: "Spigot JAR available",
+          reason: "Admincraft can resolve the public JAR, but automatic replacement is intentionally limited to version-bound provider artifacts from Modrinth or GitHub.",
         }
       : {
           status: "manual",
@@ -509,7 +509,9 @@ function sourceFor(project, overrides = {}, role = "check") {
       return {
         provider,
         projectId,
-        url: override.url || candidate?.url || project.url || null,
+        url:
+          override.url ||
+          (role === "check" ? candidate?.url || project.url || null : null),
         sourceConfirmed: true,
       };
     }
@@ -739,11 +741,12 @@ function createUpdateChecker(config = {}, dependencies = {}) {
         let resolvedDownloadSource = downloadSource;
         let downloadReview = downloadReviewFor({ ...project, ...source }, latest);
         if (downloadSource) {
-          let directUrl = explicitDownloadSource?.url || null;
+          const configuredUrl = String(explicitDownloadSource?.url || "").trim();
+          let directUrl = null;
           const sameSource =
             downloadSource.provider === source.provider &&
             downloadSource.projectId === source.projectId;
-          if (!directUrl && sameSource) directUrl = latest.downloadUrl || null;
+          if (sameSource) directUrl = latest.downloadUrl || null;
           if (!sameSource) {
             try {
               const downloadLatest = await latestFor(
@@ -751,7 +754,7 @@ function createUpdateChecker(config = {}, dependencies = {}) {
                 fetchImpl,
                 checkerConfig,
               );
-              if (!directUrl) directUrl = downloadLatest.downloadUrl || null;
+              directUrl = downloadLatest.downloadUrl || null;
               downloadReview = downloadReviewFor(
                 { ...project, ...downloadSource },
                 downloadLatest,
@@ -763,6 +766,14 @@ function createUpdateChecker(config = {}, dependencies = {}) {
                 reason: "The configured download source could not resolve a direct artifact.",
               };
             }
+          }
+          if (configuredUrl && configuredUrl !== directUrl) {
+            directUrl = configuredUrl;
+            downloadReview = {
+              status: "manual",
+              label: "Manual download URL",
+              reason: "Manually entered URLs can be reviewed or opened, but never enable automatic JAR replacement.",
+            };
           }
           resolvedDownloadSource = { ...downloadSource, url: directUrl };
         }

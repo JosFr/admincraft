@@ -815,7 +815,7 @@ test("Modrinth follows beta updates only when the installed plugin is already be
   assert.equal(stable.latestVersion, "3.6.1");
 });
 
-test("Spigot download review distinguishes free and premium JARs", async () => {
+test("Spigot download review keeps free JARs manual and premium JARs authenticated", async () => {
   async function run(premium) {
     const checker = createUpdateChecker(
       {
@@ -848,7 +848,7 @@ test("Spigot download review distinguishes free and premium JARs", async () => {
 
   const free = await run(false);
   assert.equal(free.status, "updateAvailable");
-  assert.equal(free.downloadReview.status, "ready");
+  assert.equal(free.downloadReview.status, "manual");
   assert.equal(free.downloadSourceConfirmed, false);
   assert.equal(free.downloadUrl, null);
 
@@ -856,6 +856,67 @@ test("Spigot download review distinguishes free and premium JARs", async () => {
   assert.equal(premium.status, "updateAvailable");
   assert.equal(premium.downloadReview.status, "authenticated");
   assert.equal(premium.downloadUrl, null);
+});
+
+test("confirmed Spigot download source resolves Spiget artifact and stays manual-only", async () => {
+  const checker = createUpdateChecker(
+    {
+      projectsJson: JSON.stringify([
+        {
+          serverId: "skeerekippen",
+          plugin: "CMILib",
+          currentVersion: "1.5.9.7",
+          provider: "spigot",
+          projectId: "87610",
+          candidates: [
+            {
+              provider: "spigot",
+              projectId: "87610",
+              label: "Spigot · CMILib",
+              url: "https://www.spigotmc.org/resources/87610/",
+            },
+          ],
+        },
+      ]),
+    },
+    {
+      fetch: async (url) => ({
+        ok: true,
+        json: async () =>
+          url.endsWith("/versions/latest")
+            ? { name: "1.6.0.1" }
+            : {
+                premium: false,
+                external: false,
+                file: { type: ".jar" },
+              },
+      }),
+    },
+  );
+  await checker();
+  const confirmed = checker.confirmSource({
+    serverId: "skeerekippen",
+    plugin: "CMILib",
+    provider: "spigot",
+    projectId: "87610",
+    role: "download",
+  });
+  assert.deepEqual(confirmed.source, {
+    provider: "spigot",
+    projectId: "87610",
+  });
+  const result = (
+    await checker({
+      sourceOverrides: {
+        [confirmed.key]: { download: confirmed.source },
+      },
+    })
+  )[0];
+  assert.equal(
+    result.downloadUrl,
+    "https://api.spiget.org/v2/resources/87610/download",
+  );
+  assert.equal(result.downloadReview.status, "manual");
 });
 
 test("download confirmation does not remember a project page as an artifact URL", async () => {
@@ -899,6 +960,131 @@ test("download confirmation does not remember a project page as an artifact URL"
     provider: "modrinth",
     projectId: "abc",
   });
+});
+
+test("confirmed Modrinth download source resolves the direct artifact instead of the project page", async () => {
+  const checker = createUpdateChecker(
+    {},
+    {
+      discoverPluginProjects: () => [
+        {
+          serverId: "smp",
+          serverName: "SMP",
+          plugin: "Example",
+          kind: "plugin",
+          currentVersion: "1.0.0",
+          provider: "modrinth",
+          projectId: "abc",
+          sourceConfirmed: true,
+          candidates: [
+            {
+              provider: "modrinth",
+              projectId: "abc",
+              label: "Modrinth · Example",
+              url: "https://modrinth.com/plugin/example",
+            },
+          ],
+          url: "https://modrinth.com/plugin/example",
+          gameVersion: "1.21.11",
+        },
+      ],
+      fetch: async () => ({
+        ok: true,
+        json: async () => [
+          {
+            version_number: "1.1.0",
+            version_type: "release",
+            loaders: ["paper"],
+            game_versions: ["1.21.11"],
+            files: [
+              {
+                filename: "Example.jar",
+                url: "https://cdn.modrinth.test/Example.jar",
+                primary: true,
+              },
+            ],
+          },
+        ],
+      }),
+    },
+  );
+  await checker();
+  const confirmed = checker.confirmSource({
+    serverId: "smp",
+    plugin: "Example",
+    provider: "modrinth",
+    projectId: "abc",
+    role: "download",
+  });
+  assert.deepEqual(confirmed.source, {
+    provider: "modrinth",
+    projectId: "abc",
+  });
+  const result = (
+    await checker({
+      sourceOverrides: {
+        [confirmed.key]: { download: confirmed.source },
+      },
+    })
+  )[0];
+  assert.equal(result.downloadUrl, "https://cdn.modrinth.test/Example.jar");
+  assert.equal(result.downloadReview.status, "ready");
+});
+
+test("manual download URL never becomes automatic-ready", async () => {
+  const checker = createUpdateChecker(
+    {},
+    {
+      discoverPluginProjects: () => [
+        {
+          serverId: "smp",
+          serverName: "SMP",
+          plugin: "Example",
+          kind: "plugin",
+          currentVersion: "1.0.0",
+          provider: "modrinth",
+          projectId: "abc",
+          sourceConfirmed: true,
+          candidates: [],
+          url: "https://modrinth.com/plugin/example",
+          gameVersion: "1.21.11",
+        },
+      ],
+      fetch: async () => ({
+        ok: true,
+        json: async () => [
+          {
+            version_number: "1.1.0",
+            version_type: "release",
+            loaders: ["paper"],
+            game_versions: ["1.21.11"],
+            files: [
+              {
+                filename: "Example.jar",
+                url: "https://cdn.modrinth.test/Example.jar",
+                primary: true,
+              },
+            ],
+          },
+        ],
+      }),
+    },
+  );
+  const result = (
+    await checker({
+      sourceOverrides: {
+        ["smp\u0000Example"]: {
+          download: {
+            provider: "modrinth",
+            projectId: "abc",
+            url: "https://example.test/manually-entered.jar",
+          },
+        },
+      },
+    })
+  )[0];
+  assert.equal(result.downloadUrl, "https://example.test/manually-entered.jar");
+  assert.equal(result.downloadReview.status, "manual");
 });
 
 test("automatic Paper inventory reaches Update Center without configured projects", async () => {

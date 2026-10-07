@@ -750,7 +750,7 @@ class UpdatesView extends StatelessWidget {
                     const SizedBox(height: 10),
                     Text(
                       download
-                          ? 'Leave the direct URL blank when the provider can resolve the compatible JAR itself. A project page is not a download artifact.'
+                          ? 'Leave this blank when the provider can resolve the compatible JAR itself. Manually entered URLs remain manual-only and never enable one-click replacement; a project page is not a download artifact.'
                           : 'Used only to check the installed version against the provider.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
@@ -905,7 +905,8 @@ class UpdatesView extends StatelessWidget {
       ),
     );
     if (confirmed != true) return;
-    network.startMaintenance(
+    if (!context.mounted) return;
+    final started = network.startMaintenance(
       update.serverId,
       action: 'update',
       countdownSeconds: 0,
@@ -913,6 +914,16 @@ class UpdatesView extends StatelessWidget {
       backupEngineId: createBackup ? selectedBackupEngineId : null,
       restartWhenEmpty: waitUntilEmpty,
       updatePlugin: update.plugin,
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          started
+              ? 'Update ${update.plugin} requested. Progress is shown on this card.'
+              : 'Could not send the update request.',
+        ),
+      ),
     );
   }
 
@@ -1079,6 +1090,15 @@ class UpdatesView extends StatelessWidget {
     Widget updateCard(PluginUpdate update) {
       final canApply = _targetedApplyAvailable(network, update);
       final maintenanceActive = _maintenanceActive(network, update.serverId);
+      MaintenanceState? updateMaintenance;
+      for (final item in network.management.maintenance) {
+        if (item.serverId == update.serverId &&
+            item.action == 'update' &&
+            item.updatePlugin?.toLowerCase() == update.plugin.toLowerCase()) {
+          updateMaintenance = item;
+          break;
+        }
+      }
       String explanation;
       if (update.status == PluginUpdateStatus.unmanaged) {
         explanation = update.candidates.isNotEmpty
@@ -1098,6 +1118,13 @@ class UpdatesView extends StatelessWidget {
           update.downloadUrl?.trim().isEmpty != false) {
         explanation =
             'A newer version is available. Confirm a direct download source before one-click updating can be enabled.';
+      } else if (update.downloadReview?.status != 'ready' ||
+          (update.downloadProvider != UpdateProvider.modrinth &&
+              update.downloadProvider != UpdateProvider.github)) {
+        final reviewReason = update.downloadReview?.reason.trim() ?? '';
+        explanation = reviewReason.isNotEmpty
+            ? '$reviewReason Update this plugin manually from its trusted source.'
+            : 'A newer version is available, but this source is intentionally manual-only.';
       } else if (!network.management.updateApply.pluginUpdates) {
         explanation =
             'A newer version is available, but automatic plugin apply is not configured on this bridge.';
@@ -1160,6 +1187,56 @@ class UpdatesView extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               Text(explanation),
+              if (updateMaintenance != null &&
+                  (updateMaintenance.active ||
+                      updateMaintenance.stage == 'failed' ||
+                      updateMaintenance.stage == 'completed')) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            updateMaintenance.stage == 'failed'
+                                ? Icons.error_outline
+                                : updateMaintenance.stage == 'completed'
+                                ? Icons.check_circle_outline
+                                : Icons.sync,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _updateMaintenanceStageLabel(
+                                updateMaintenance.stage,
+                              ),
+                              style: Theme.of(context).textTheme.labelLarge,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (updateMaintenance.active) ...[
+                        const SizedBox(height: 8),
+                        const LinearProgressIndicator(),
+                      ],
+                      if (updateMaintenance.message.trim().isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(updateMaintenance.message),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 10),
               Wrap(
                 spacing: 8,
@@ -1209,6 +1286,16 @@ class UpdatesView extends StatelessWidget {
                       ),
                       icon: const Icon(Icons.download_outlined),
                       label: const Text('Configure download'),
+                    )
+                  else if (update.status ==
+                          PluginUpdateStatus.updateAvailable &&
+                      update.kind == 'plugin' &&
+                      !canApply &&
+                      update.downloadUrl?.trim().isNotEmpty == true)
+                    OutlinedButton.icon(
+                      onPressed: () => UrlUtils.openUrl(update.downloadUrl!),
+                      icon: const Icon(Icons.download_outlined),
+                      label: const Text('Download manually'),
                     ),
                   if (update.url?.trim().isNotEmpty == true)
                     TextButton.icon(
@@ -2972,6 +3059,18 @@ int _updatePriority(PluginUpdateStatus status) => switch (status) {
   PluginUpdateStatus.unmanaged => 2,
   PluginUpdateStatus.checking => 3,
   PluginUpdateStatus.current => 4,
+};
+
+String _updateMaintenanceStageLabel(String stage) => switch (stage) {
+  'waiting-empty' => 'Waiting for players to leave',
+  'waiting-backup' => 'Waiting for current backup',
+  'backup' => 'Creating safety backup',
+  'stopping-for-update' => 'Stopping server',
+  'updating' => 'Validating and replacing plugin JAR',
+  'healthcheck' => 'Starting server and checking health',
+  'completed' => 'Update completed',
+  'failed' => 'Update failed',
+  _ => 'Preparing plugin update',
 };
 
 String _updateStatusLabel(PluginUpdateStatus status) => switch (status) {
