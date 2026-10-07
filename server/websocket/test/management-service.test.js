@@ -1458,6 +1458,118 @@ test("update maintenance stops, applies, starts and health-checks the server", a
   }
 });
 
+test("targeted update maintenance applies only the requested plugin", async () => {
+  const dir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "admincraft-maint-update-targeted-"),
+  );
+  let status = "running";
+  const planInputs = [];
+  const applyInputs = [];
+  const multicraft = {
+    async start() {
+      status = "running";
+    },
+    async stop() {
+      status = "stopped";
+    },
+    async restart() {},
+    async status() {
+      return status;
+    },
+    async statusDetails() {
+      return { onlinePlayers: 0 };
+    },
+    async resources() {
+      return { cpuPercent: 1, memoryMb: 1 };
+    },
+    async sendConsole() {},
+    async log() {
+      return [];
+    },
+    async backupStatus() {
+      return { status: "completed" };
+    },
+  };
+  const updates = ["Example", "Other"].map((plugin, index) => ({
+    serverId: "smp",
+    serverName: "SMP",
+    plugin,
+    kind: "plugin",
+    currentVersion: `1.${index}.0`,
+    latestVersion: `1.${index + 1}.0`,
+    status: "updateAvailable",
+    downloadSourceConfirmed: true,
+    downloadUrl: `https://example.test/${plugin}.jar`,
+  }));
+  const updateApplier = {
+    descriptor: () => ({
+      configured: true,
+      pluginUpdates: true,
+      rollback: true,
+    }),
+    plan(_server, input) {
+      planInputs.push(input.map((item) => item.plugin));
+      return {
+        selected: input.map((update) => ({ update })),
+        skipped: [],
+      };
+    },
+    async applyServer(_server, input) {
+      applyInputs.push(input.map((item) => item.plugin));
+      return {
+        applied: input.map((item) => ({
+          plugin: item.plugin,
+          fromVersion: item.currentVersion,
+          toVersion: item.latestVersion,
+        })),
+        skipped: [],
+      };
+    },
+  };
+  try {
+    const service = createManagementService(
+      {
+        serversJson: JSON.stringify([
+          { id: "smp", name: "SMP", multicraftServerId: 7 },
+        ]),
+        statePath: path.join(dir, "state.json"),
+        maintenanceConfigJson: JSON.stringify({
+          global: { healthcheckIntervalSeconds: 1, healthcheckAttempts: 3 },
+        }),
+      },
+      {
+        multicraft,
+        updateChecker: async () => updates,
+        updateApplier,
+      },
+    );
+    await service.handle("updates-check", { serverId: "smp" });
+    assert.ok(service.snapshot().features.includes("update-targeted"));
+    const started = await service.handle("maintenance-start", {
+      serverId: "smp",
+      action: "update",
+      updatePlugin: "Other",
+      countdownSeconds: 0,
+      backup: false,
+    });
+    assert.equal(started.success, true);
+    let maintenance = service.snapshot().maintenance[0];
+    assert.equal(maintenance.updatePlugin, "Other");
+    assert.deepEqual(maintenance.updatePlugins, ["Other"]);
+    assert.deepEqual(planInputs.at(-1), ["Other"]);
+
+    await service.tick();
+    maintenance = service.snapshot().maintenance[0];
+    assert.deepEqual(applyInputs.at(-1), ["Other"]);
+    assert.deepEqual(
+      maintenance.updateApplied.map((item) => item.plugin),
+      ["Other"],
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("failed update maintenance restarts the server after installer rollback", async () => {
   const dir = fs.mkdtempSync(
     path.join(os.tmpdir(), "admincraft-maint-update-fail-"),

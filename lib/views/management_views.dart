@@ -741,6 +741,151 @@ class UpdatesView extends StatelessWidget {
     }
   }
 
+  Future<void> _applyTargetedUpdate(
+    BuildContext context,
+    NetworkController network,
+    PluginUpdate update,
+  ) async {
+    final backupEngines = _managementBackupEnginesFor(
+      network.management,
+      update.serverId,
+      observableOnly: true,
+    );
+    var createBackup = backupEngines.isNotEmpty;
+    var selectedBackupEngineId = backupEngines.isEmpty
+        ? ''
+        : backupEngines.first.id;
+    var players = 0;
+    for (final server in network.snapshot.servers) {
+      if (server.name == update.serverId) {
+        players = server.players;
+        break;
+      }
+    }
+    var waitUntilEmpty = players > 0;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text('Update ${update.plugin}?'),
+          content: SizedBox(
+            width: 460,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${update.serverName} · '
+                    '${update.currentVersion.isEmpty ? 'version unknown' : update.currentVersion}'
+                    '${update.latestVersion == null ? '' : ' → ${update.latestVersion}'}',
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Admincraft will stop this server, validate and replace only this plugin JAR, restart the server, and verify that it becomes healthy again. A rollback copy of the old JAR is kept automatically.',
+                  ),
+                  const SizedBox(height: 8),
+                  if (players > 0)
+                    Text(
+                      '$players player${players == 1 ? '' : 's'} currently online.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Create safety backup first'),
+                    subtitle: Text(
+                      backupEngines.isEmpty
+                          ? 'No backup engine with observable completion is available. The plugin JAR rollback is still kept.'
+                          : 'Recommended before changing plugin files.',
+                    ),
+                    value: createBackup,
+                    onChanged: backupEngines.isEmpty
+                        ? null
+                        : (value) => setState(() => createBackup = value),
+                  ),
+                  if (createBackup && backupEngines.isNotEmpty)
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedBackupEngineId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Safety backup engine',
+                      ),
+                      items: [
+                        for (final engine in backupEngines)
+                          DropdownMenuItem(
+                            value: engine.id,
+                            child: Text(engine.label),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => selectedBackupEngineId = value);
+                        }
+                      },
+                    ),
+                  if (players > 0)
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Wait until server is empty'),
+                      subtitle: const Text(
+                        'Do not interrupt connected players before the update starts.',
+                      ),
+                      value: waitUntilEmpty,
+                      onChanged: (value) =>
+                          setState(() => waitUntilEmpty = value),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.system_update_alt),
+              label: const Text('Update now'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true) return;
+    network.startMaintenance(
+      update.serverId,
+      action: 'update',
+      countdownSeconds: 0,
+      backup: createBackup,
+      backupEngineId: createBackup ? selectedBackupEngineId : null,
+      restartWhenEmpty: waitUntilEmpty,
+      updatePlugin: update.plugin,
+    );
+  }
+
+  DateTime? _lastUpdateCheck(NetworkController network) {
+    DateTime? latest;
+    for (final entry in network.management.activity) {
+      if (entry.title != 'Update check completed') continue;
+      if (latest == null || entry.at.isAfter(latest)) latest = entry.at;
+    }
+    return latest;
+  }
+
+  bool _targetedApplyAvailable(
+    NetworkController network,
+    PluginUpdate update,
+  ) =>
+      network.management.features.contains('update-targeted') &&
+      network.management.updateApply.pluginUpdates &&
+      update.canAutoApply;
+
+  bool _maintenanceActive(NetworkController network, String serverId) => network
+      .management
+      .maintenance
+      .any((item) => item.serverId == serverId && item.active);
+
   @override
   Widget build(BuildContext context) {
     final network = context.watch<NetworkController?>();
@@ -753,82 +898,314 @@ class UpdatesView extends StatelessWidget {
             (a, b) =>
                 _updatePriority(a.status).compareTo(_updatePriority(b.status)),
           );
-    return _ManagementList(
-      title: serverId == null ? 'Network updates' : 'Server updates',
-      count: updates.length,
-      onRefresh: network.refreshManagement,
-      action: FilledButton.icon(
-        onPressed: network.managementAvailable
-            ? () => network.checkUpdates(serverId)
-            : null,
-        icon: const Icon(Icons.refresh),
-        label: const Text('Check now'),
-      ),
-      emptyIcon: Icons.system_update_alt_outlined,
-      emptyTitle: 'No update results',
-      emptyMessage:
-          'Enabled providers will report plugin and platform updates here.',
-      children: [
-        for (final update in updates)
-          Card(
-            child: ListTile(
-              leading: Icon(_updateIcon(update.status)),
-              title: Text(update.plugin),
-              subtitle: Text(
-                '${update.serverName} · ${_updateKindLabel(update.kind)} · '
-                '${update.currentVersion.isEmpty ? 'version unknown' : update.currentVersion}'
-                '${update.latestVersion == null ? '' : ' → ${update.latestVersion}'}'
-                '\nCheck: ${_updateSourceLabel(update)} · ${_updateStatusLabel(update.status)}'
-                '\nDownload: ${_updateDownloadSourceLabel(update)}'
-                '${!update.sourceConfirmed ? (update.candidates.isNotEmpty ? '\nCheck source confirmation required' : '\nNo automatic check-source match; configure manually') : ''}',
-              ),
-              trailing: PopupMenuButton<String>(
-                tooltip: 'Update source options',
-                onSelected: (value) async {
-                  if (value == 'check') {
-                    await _configureSource(
-                      context,
-                      network,
-                      update,
-                      role: 'check',
-                    );
-                  } else if (value == 'download') {
-                    await _configureSource(
-                      context,
-                      network,
-                      update,
-                      role: 'download',
-                    );
-                  } else if (value == 'open-check' && update.url != null) {
-                    await UrlUtils.openUrl(update.url!);
-                  } else if (value == 'open-download' &&
-                      update.downloadUrl != null) {
-                    await UrlUtils.openUrl(update.downloadUrl!);
-                  }
-                },
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: 'check',
-                    child: Text('Configure check source'),
+    final available = updates
+        .where((update) => update.status == PluginUpdateStatus.updateAvailable)
+        .toList();
+    final needsSetup = updates
+        .where(
+          (update) =>
+              update.status == PluginUpdateStatus.unmanaged ||
+              update.status == PluginUpdateStatus.sourceUnavailable,
+        )
+        .toList();
+    final checkingItems = updates
+        .where((update) => update.status == PluginUpdateStatus.checking)
+        .toList();
+    final current = updates
+        .where((update) => update.status == PluginUpdateStatus.current)
+        .toList();
+    final lastCheck = _lastUpdateCheck(network);
+    final checking =
+        network.managementPending &&
+        network.managementPendingAction == 'updates-check';
+
+    Widget sourceMenu(PluginUpdate update) => PopupMenuButton<String>(
+      tooltip: 'Update source options',
+      onSelected: (value) async {
+        if (value == 'check') {
+          await _configureSource(context, network, update, role: 'check');
+        } else if (value == 'download') {
+          await _configureSource(context, network, update, role: 'download');
+        } else if (value == 'open-check' && update.url != null) {
+          await UrlUtils.openUrl(update.url!);
+        } else if (value == 'open-download' && update.downloadUrl != null) {
+          await UrlUtils.openUrl(update.downloadUrl!);
+        }
+      },
+      itemBuilder: (context) => [
+        const PopupMenuItem(
+          value: 'check',
+          child: Text('Configure check source'),
+        ),
+        const PopupMenuItem(
+          value: 'download',
+          child: Text('Configure download source'),
+        ),
+        if (update.url?.trim().isNotEmpty == true)
+          const PopupMenuItem(
+            value: 'open-check',
+            child: Text('Open check source'),
+          ),
+        if (update.downloadUrl?.trim().isNotEmpty == true)
+          const PopupMenuItem(
+            value: 'open-download',
+            child: Text('Open download source'),
+          ),
+      ],
+    );
+
+    Widget updateCard(PluginUpdate update) {
+      final canApply = _targetedApplyAvailable(network, update);
+      final maintenanceActive = _maintenanceActive(network, update.serverId);
+      String explanation;
+      if (update.status == PluginUpdateStatus.unmanaged) {
+        explanation = update.candidates.isNotEmpty
+            ? 'A likely update source was found, but it must be confirmed before this plugin is monitored.'
+            : 'This plugin is detected but is not monitored yet. Configure a source to enable version checks.';
+      } else if (update.status == PluginUpdateStatus.sourceUnavailable) {
+        explanation =
+            'The configured check source could not be reached or did not return a usable version.';
+      } else if (update.status == PluginUpdateStatus.current) {
+        explanation = 'Installed version matches the configured update source.';
+      } else if (update.status == PluginUpdateStatus.checking) {
+        explanation = 'Waiting for the update provider to respond.';
+      } else if (update.kind != 'plugin') {
+        explanation =
+            'A newer platform version is available. Platform replacement is not automated from this page.';
+      } else if (!update.downloadSourceConfirmed ||
+          update.downloadUrl?.trim().isEmpty != false) {
+        explanation =
+            'A newer version is available. Confirm a direct download source before one-click updating can be enabled.';
+      } else if (!network.management.updateApply.pluginUpdates) {
+        explanation =
+            'A newer version is available, but automatic plugin apply is not configured on this bridge.';
+      } else if (!network.management.features.contains('update-targeted')) {
+        explanation =
+            'A newer version is ready, but this bridge does not yet support applying one selected plugin safely.';
+      } else {
+        explanation =
+            'Ready for a controlled update with JAR rollback, restart and health-check.';
+      }
+
+      return Card(
+        margin: const EdgeInsets.only(bottom: 10),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Icon(_updateIcon(update.status)),
                   ),
-                  const PopupMenuItem(
-                    value: 'download',
-                    child: Text('Configure download source'),
-                  ),
-                  if (update.url?.trim().isNotEmpty == true)
-                    const PopupMenuItem(
-                      value: 'open-check',
-                      child: Text('Open check source'),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          update.plugin,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${update.serverName} · ${_updateKindLabel(update.kind)}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
                     ),
-                  if (update.downloadUrl?.trim().isNotEmpty == true)
-                    const PopupMenuItem(
-                      value: 'open-download',
-                      child: Text('Open download source'),
+                  ),
+                  Chip(label: Text(_updateStatusLabel(update.status))),
+                  sourceMenu(update),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${update.currentVersion.isEmpty ? 'Version unknown' : update.currentVersion}'
+                '${update.latestVersion == null ? '' : ' → ${update.latestVersion}'}',
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Check: ${_updateSourceLabel(update)}\n'
+                'Download: ${_updateDownloadSourceLabel(update)}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 6),
+              Text(explanation),
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (canApply)
+                    FilledButton.icon(
+                      onPressed: maintenanceActive
+                          ? null
+                          : () =>
+                                _applyTargetedUpdate(context, network, update),
+                      icon: const Icon(Icons.system_update_alt),
+                      label: Text(
+                        maintenanceActive ? 'Maintenance active' : 'Update now',
+                      ),
+                    )
+                  else if (!update.sourceConfirmed ||
+                      update.status == PluginUpdateStatus.unmanaged ||
+                      update.status == PluginUpdateStatus.sourceUnavailable)
+                    OutlinedButton.icon(
+                      onPressed: () => _configureSource(
+                        context,
+                        network,
+                        update,
+                        role: 'check',
+                      ),
+                      icon: const Icon(Icons.link),
+                      label: const Text('Configure source'),
+                    )
+                  else if (update.status ==
+                          PluginUpdateStatus.updateAvailable &&
+                      update.kind == 'plugin' &&
+                      (!update.downloadSourceConfirmed ||
+                          update.downloadUrl?.trim().isEmpty != false))
+                    OutlinedButton.icon(
+                      onPressed: () => _configureSource(
+                        context,
+                        network,
+                        update,
+                        role: 'download',
+                      ),
+                      icon: const Icon(Icons.download_outlined),
+                      label: const Text('Configure download'),
+                    ),
+                  if (update.url?.trim().isNotEmpty == true)
+                    TextButton.icon(
+                      onPressed: () => UrlUtils.openUrl(update.url!),
+                      icon: const Icon(Icons.open_in_new),
+                      label: const Text('Open source'),
                     ),
                 ],
               ),
-            ),
+            ],
           ),
+        ),
+      );
+    }
+
+    Widget collapsedSection(
+      String title,
+      String subtitle,
+      List<PluginUpdate> items,
+    ) => Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ExpansionTile(
+        initiallyExpanded: false,
+        title: Text('$title (${items.length})'),
+        subtitle: Text(subtitle),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        children: [for (final update in items) updateCard(update)],
+      ),
+    );
+
+    final children = <Widget>[
+      Card(
+        margin: const EdgeInsets.only(bottom: 14),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  Chip(
+                    label: Text(
+                      '${available.length} update${available.length == 1 ? '' : 's'} available',
+                    ),
+                  ),
+                  if (needsSetup.isNotEmpty)
+                    Chip(label: Text('${needsSetup.length} need setup')),
+                  if (current.isNotEmpty)
+                    Chip(label: Text('${current.length} up to date')),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                lastCheck == null
+                    ? 'No completed update check recorded yet.'
+                    : 'Last checked ${_formatDateTime(lastCheck)}.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              if (available.isEmpty && needsSetup.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  'Detected plugins that still need a source are not counted as updates. Configure them once to enable reliable version checks.',
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      if (available.isNotEmpty) ...[
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 2, 4, 8),
+          child: Text(
+            'Updates available',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+        ),
+        for (final update in available) updateCard(update),
+      ],
+      if (checkingItems.isNotEmpty)
+        collapsedSection(
+          'Checking',
+          'Providers that are still being queried.',
+          checkingItems,
+        ),
+      if (needsSetup.isNotEmpty)
+        collapsedSection(
+          'Needs setup',
+          'Detected items that are not reliable update notifications yet.',
+          needsSetup,
+        ),
+      if (current.isNotEmpty)
+        collapsedSection(
+          'Up to date',
+          'Items whose configured source matches the installed version.',
+          current,
+        ),
+    ];
+
+    return Column(
+      children: [
+        ManagementFeedback(network: network),
+        Expanded(
+          child: _ManagementList(
+            title: serverId == null ? 'Network updates' : 'Server updates',
+            count: available.length,
+            onRefresh: network.refreshManagement,
+            action: FilledButton.icon(
+              onPressed: network.managementAvailable && !checking
+                  ? () => network.checkUpdates(serverId)
+                  : null,
+              icon: checking
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+              label: Text(checking ? 'Checking…' : 'Check now'),
+            ),
+            emptyIcon: Icons.system_update_alt_outlined,
+            emptyTitle: 'No update results',
+            emptyMessage:
+                'Enabled providers will report plugin and platform updates here.',
+            children: children,
+          ),
+        ),
       ],
     );
   }

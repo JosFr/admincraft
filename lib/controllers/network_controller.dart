@@ -498,6 +498,10 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         action == 'backup-create' ||
         action == 'backup-verify' ||
         action.startsWith('schedule-') ||
+        action == 'updates-check' ||
+        action == 'updates-source-set' ||
+        action == 'maintenance-start' ||
+        action == 'maintenance-cancel' ||
         action == 'backup-forget' ||
         action == 'backup-delete';
     if (!_connected || !managementAvailable) {
@@ -533,6 +537,14 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
           ? 'Backup requested. Waiting for the server to confirm its status.'
           : action == 'backup-verify'
           ? 'Verifying backup integrity with SHA-256…'
+          : action == 'updates-check'
+          ? 'Checking configured update sources…'
+          : action == 'updates-source-set'
+          ? 'Saving update source and refreshing its status…'
+          : action == 'maintenance-start'
+          ? 'Starting maintenance…'
+          : action == 'maintenance-cancel'
+          ? 'Cancelling maintenance…'
           : 'Request sent. Waiting for the server to confirm the change.';
       final feedbackTimeout = action == 'backup-verify'
           ? const Duration(minutes: 5)
@@ -698,6 +710,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     bool backup = true,
     String? backupEngineId,
     bool restartWhenEmpty = false,
+    String? updatePlugin,
   }) => _manage('maintenance-start', {
     'serverId': serverId,
     'action': action,
@@ -706,6 +719,8 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     if (backupEngineId != null && backupEngineId.isNotEmpty)
       'backupEngineId': backupEngineId,
     'restartWhenEmpty': restartWhenEmpty,
+    if (updatePlugin != null && updatePlugin.trim().isNotEmpty)
+      'updatePlugin': updatePlugin.trim(),
   });
 
   bool cancelMaintenance(String serverId) =>

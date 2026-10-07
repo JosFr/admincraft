@@ -469,7 +469,7 @@ function createManagementService(config = {}, dependencies = {}) {
     return {
       type: "admincraft.management-state",
       observedAt: isoNow(now),
-      features: ["schedule-update", "backup-forget"],
+      features: ["schedule-update", "backup-forget", "update-targeted"],
       storages: storageSnapshots(),
       backupDestinationDefaults: {
         global: [...state.backupDestinationDefaults.global],
@@ -965,6 +965,7 @@ function createManagementService(config = {}, dependencies = {}) {
         backupEngineId: options.backupEngineId,
         restartWhenEmpty: options.restartWhenEmpty,
         action: options.action,
+        updatePlugin: options.updatePlugin,
       });
     } else throw new Error(`Unsupported scheduled action: ${action}`);
     activity(
@@ -1052,6 +1053,7 @@ function createManagementService(config = {}, dependencies = {}) {
       ? requestedAction
       : "restart";
     let updatePlan = null;
+    const requestedUpdatePlugin = String(options.updatePlugin || "").trim();
     if (action === "update") {
       if (
         typeof dependencies.updateApplier?.plan !== "function" ||
@@ -1061,7 +1063,20 @@ function createManagementService(config = {}, dependencies = {}) {
           "Automatic plugin update apply is not configured on this bridge.",
         );
       }
-      updatePlan = dependencies.updateApplier.plan(server, state.updates || []);
+      const updateCandidates = requestedUpdatePlugin
+        ? (state.updates || []).filter(
+            (item) =>
+              item.serverId === server.id &&
+              String(item.plugin || "").toLowerCase() ===
+                requestedUpdatePlugin.toLowerCase(),
+          )
+        : state.updates || [];
+      if (requestedUpdatePlugin && updateCandidates.length !== 1) {
+        throw new Error(
+          `Targeted update could not uniquely resolve plugin: ${requestedUpdatePlugin}.`,
+        );
+      }
+      updatePlan = dependencies.updateApplier.plan(server, updateCandidates);
       if (
         !Array.isArray(updatePlan.selected) ||
         updatePlan.selected.length === 0
@@ -1073,6 +1088,11 @@ function createManagementService(config = {}, dependencies = {}) {
         throw new Error(
           detail ||
             "No applicable plugin updates are available for this server.",
+        );
+      }
+      if (requestedUpdatePlugin && updatePlan.selected.length !== 1) {
+        throw new Error(
+          `Targeted update plan is ambiguous for plugin: ${requestedUpdatePlugin}.`,
         );
       }
     }
@@ -1100,6 +1120,7 @@ function createManagementService(config = {}, dependencies = {}) {
         : [],
       lastWaitingPlayers: null,
       actionStarted: false,
+      updatePlugin: requestedUpdatePlugin || null,
       updatePlugins:
         updatePlan?.selected?.map((item) => item.update.plugin) || [],
       updateApplied: [],
@@ -1296,11 +1317,23 @@ function createManagementService(config = {}, dependencies = {}) {
         await waitStopped(multicraft, server.multicraftServerId, dependencies);
         maintenance.healthcheckSeenOffline = true;
         maintenance.stage = "updating";
-        maintenance.message = "Applying validated plugin updates.";
+        maintenance.message = maintenance.updatePlugin
+          ? `Applying validated plugin update: ${maintenance.updatePlugin}.`
+          : "Applying validated plugin updates.";
         try {
+          const plannedPlugins = new Set(
+            (maintenance.updatePlugins || []).map((plugin) =>
+              String(plugin).toLowerCase(),
+            ),
+          );
+          const plannedUpdates = (state.updates || []).filter(
+            (item) =>
+              item.serverId === server.id &&
+              plannedPlugins.has(String(item.plugin || "").toLowerCase()),
+          );
           const result = await dependencies.updateApplier.applyServer(
             server,
-            state.updates || [],
+            plannedUpdates,
           );
           maintenance.updateApplied = result.applied || [];
         } catch (error) {
