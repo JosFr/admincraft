@@ -614,6 +614,7 @@ class _TabsState extends State<Tabs> {
       _WorkspaceDestination.network => NetworkView(
         onServerAction: _networkServerAction,
         onBackups: () => _go(_WorkspaceDestination.networkBackups),
+        onServers: () => _go(_WorkspaceDestination.servers),
         onActivity: () => _openPage('Activity', const NetworkActivityView()),
         onUpdates: () => _go(_WorkspaceDestination.networkUpdates),
         onAccess: () => _openPage('Network Access', const NetworkAccessView()),

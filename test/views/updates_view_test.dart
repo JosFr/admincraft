@@ -512,16 +512,13 @@ void main() {
       expect(find.text('1 plugin need setup'), findsOneWidget);
       expect(find.text('1 source unavailable'), findsOneWidget);
       expect(find.text('2 downloads need review'), findsOneWidget);
-      await tester.drag(find.byType(ListView), const Offset(0, -900));
-      await tester.pumpAndSettle();
-      final downloadReview = find.text(
-        'Download review (2)',
-        skipOffstage: false,
-      );
-      expect(downloadReview, findsOneWidget);
 
-      await tester.ensureVisible(downloadReview);
+      await tester.tap(find.text('2 downloads need review'));
       await tester.pumpAndSettle();
+      final downloadReview = find.text('Download review (2)');
+      expect(downloadReview, findsOneWidget);
+      expect(tester.getTopLeft(downloadReview).dy, lessThan(500));
+
       await tester.tap(downloadReview);
       await tester.pumpAndSettle();
       expect(find.text('Ready to confirm (1)'), findsOneWidget);

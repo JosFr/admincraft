@@ -12,6 +12,7 @@ class NetworkView extends StatelessWidget {
   final Future<void> Function(String serverName, NetworkQuickAction action)
   onServerAction;
   final VoidCallback onBackups;
+  final VoidCallback onServers;
 
   final VoidCallback onUpdates;
   final VoidCallback onActivity;
@@ -21,6 +22,7 @@ class NetworkView extends StatelessWidget {
     super.key,
     required this.onServerAction,
     required this.onBackups,
+    required this.onServers,
     required this.onActivity,
     required this.onUpdates,
     required this.onAccess,
@@ -71,7 +73,9 @@ class NetworkView extends StatelessWidget {
                     pending: pending,
                     trusted: trusted,
                     denied: denied,
+                    onServers: onServers,
                     onAccess: onAccess,
+                    onActivity: onActivity,
                     connected: network.connected,
                   ),
                   const SizedBox(height: 14),
@@ -171,14 +175,18 @@ class _Summary extends StatelessWidget {
   final int trusted;
   final int denied;
 
+  final VoidCallback onServers;
   final VoidCallback onAccess;
+  final VoidCallback onActivity;
   final bool connected;
   const _Summary({
     required this.snapshot,
     required this.pending,
     required this.trusted,
     required this.denied,
+    required this.onServers,
     required this.onAccess,
+    required this.onActivity,
     required this.connected,
   });
 
@@ -195,12 +203,19 @@ class _Summary extends StatelessWidget {
         'Players',
         '${snapshot.playersOnline}/${snapshot.playerLimit}',
         Icons.people_outline,
+        onServers,
       ),
-      ('Servers', '$online/${snapshot.servers.length}', Icons.dns_outlined),
+      (
+        'Servers',
+        '$online/${snapshot.servers.length}',
+        Icons.dns_outlined,
+        onServers,
+      ),
       (
         'Access',
         '$pending pending · $trusted trusted',
         Icons.admin_panel_settings_outlined,
+        onAccess,
       ),
       (
         'Health',
@@ -210,6 +225,7 @@ class _Summary extends StatelessWidget {
             ? 'Needs attention'
             : 'Feed connected',
         Icons.monitor_heart_outlined,
+        onActivity,
       ),
     ];
     return Column(
@@ -230,7 +246,8 @@ class _Summary extends StatelessWidget {
                     child: Card(
                       margin: EdgeInsets.zero,
                       child: InkWell(
-                        onTap: item.$1 == 'Access' ? onAccess : null,
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: item.$4,
                         child: Padding(
                           padding: const EdgeInsets.all(12),
                           child: Row(
@@ -262,6 +279,12 @@ class _Summary extends StatelessWidget {
                                     ),
                                   ],
                                 ),
+                              ),
+                              const SizedBox(width: 4),
+                              Icon(
+                                Icons.chevron_right,
+                                size: 18,
+                                color: Theme.of(context).colorScheme.outline,
                               ),
                             ],
                           ),

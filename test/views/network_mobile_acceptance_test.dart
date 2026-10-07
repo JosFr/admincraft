@@ -274,20 +274,29 @@ void main() {
     'Home keeps standby servers out of attention and Access reachable',
     (tester) async {
       var accessed = false;
+      var openedServers = 0;
+      var openedActivity = false;
       await pumpScreen(
         tester,
         NetworkView(
           onServerAction: (_, __) async {},
           onBackups: () {},
-          onActivity: () {},
+          onServers: () => openedServers += 1,
+          onActivity: () => openedActivity = true,
           onUpdates: () {},
           onAccess: () => accessed = true,
         ),
       );
       expect(find.text('Skeerekippen'), findsOneWidget);
       expect(find.text('Fraanje-202404-202505'), findsNothing);
+      await tester.tap(find.text('Players'));
+      expect(openedServers, 1);
+      await tester.tap(find.text('Servers'));
+      expect(openedServers, 2);
       await tester.tap(find.text('Access'));
       expect(accessed, isTrue);
+      await tester.tap(find.text('Health'));
+      expect(openedActivity, isTrue);
       expect(tester.takeException(), isNull);
       await capture(tester, 'home');
     },

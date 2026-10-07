@@ -1018,6 +1018,28 @@ class UpdatesView extends StatelessWidget {
     final checking =
         network.managementPending &&
         network.managementPendingAction == 'updates-check';
+    final availableKey = GlobalKey();
+    final needsSetupKey = GlobalKey();
+    final sourceUnavailableKey = GlobalKey();
+    final downloadReviewKey = GlobalKey();
+    final currentKey = GlobalKey();
+
+    Future<void> jumpTo(GlobalKey key) async {
+      final targetContext = key.currentContext;
+      if (targetContext == null) return;
+      await Scrollable.ensureVisible(
+        targetContext,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+        alignment: 0.06,
+      );
+    }
+
+    Widget jumpChip(String label, GlobalKey key) => ActionChip(
+      tooltip: 'Jump to $label',
+      label: Text(label),
+      onPressed: () => jumpTo(key),
+    );
 
     Widget sourceMenu(PluginUpdate update) => PopupMenuButton<String>(
       tooltip: 'Update source options',
@@ -1743,33 +1765,32 @@ class UpdatesView extends StatelessWidget {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
-                  Chip(
-                    label: Text(
+                  if (available.isNotEmpty)
+                    jumpChip(
                       '${available.length} update${available.length == 1 ? '' : 's'} available',
-                    ),
-                  ),
+                      availableKey,
+                    )
+                  else
+                    const Chip(label: Text('0 updates available')),
                   if (needsSetup.isNotEmpty)
-                    Chip(
-                      label: Text(
-                        serverId == null
-                            ? '$needsSetupDisplayCount plugin${needsSetupDisplayCount == 1 ? '' : 's'} need setup'
-                            : '${needsSetup.length} need setup',
-                      ),
+                    jumpChip(
+                      serverId == null
+                          ? '$needsSetupDisplayCount plugin${needsSetupDisplayCount == 1 ? '' : 's'} need setup'
+                          : '${needsSetup.length} need setup',
+                      needsSetupKey,
                     ),
                   if (sourceUnavailable.isNotEmpty)
-                    Chip(
-                      label: Text(
-                        '${sourceUnavailable.length} source${sourceUnavailable.length == 1 ? '' : 's'} unavailable',
-                      ),
+                    jumpChip(
+                      '${sourceUnavailable.length} source${sourceUnavailable.length == 1 ? '' : 's'} unavailable',
+                      sourceUnavailableKey,
                     ),
                   if (downloadReviewItems.isNotEmpty)
-                    Chip(
-                      label: Text(
-                        '$downloadReviewDisplayCount download${downloadReviewDisplayCount == 1 ? '' : 's'} need review',
-                      ),
+                    jumpChip(
+                      '$downloadReviewDisplayCount download${downloadReviewDisplayCount == 1 ? '' : 's'} need review',
+                      downloadReviewKey,
                     ),
                   if (current.isNotEmpty)
-                    Chip(label: Text('${current.length} up to date')),
+                    jumpChip('${current.length} up to date', currentKey),
                 ],
               ),
               const SizedBox(height: 8),
@@ -1789,17 +1810,25 @@ class UpdatesView extends StatelessWidget {
           ),
         ),
       ),
-      if (available.isNotEmpty) ...[
-        Padding(
-          padding: const EdgeInsets.fromLTRB(4, 2, 4, 8),
-          child: Text(
-            'Updates available',
-            style: Theme.of(context).textTheme.titleMedium,
+      if (available.isNotEmpty)
+        KeyedSubtree(
+          key: availableKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 2, 4, 8),
+                child: Text(
+                  'Updates available',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              for (final update in available) updateCard(update),
+            ],
           ),
         ),
-        for (final update in available) updateCard(update),
-      ],
-      if (downloadReviewItems.isNotEmpty) downloadReviewSection(),
+      if (downloadReviewItems.isNotEmpty)
+        KeyedSubtree(key: downloadReviewKey, child: downloadReviewSection()),
       if (checkingItems.isNotEmpty)
         collapsedSection(
           'Checking',
@@ -1807,25 +1836,33 @@ class UpdatesView extends StatelessWidget {
           checkingItems,
         ),
       if (sourceUnavailable.isNotEmpty)
-        collapsedSection(
-          'Source unavailable',
-          'The check source is already configured, but no usable version could be resolved right now. Retry the check instead of reconfiguring the source.',
-          sourceUnavailable,
+        KeyedSubtree(
+          key: sourceUnavailableKey,
+          child: collapsedSection(
+            'Source unavailable',
+            'The check source is already configured, but no usable version could be resolved right now. Retry the check instead of reconfiguring the source.',
+            sourceUnavailable,
+          ),
         ),
       if (needsSetup.isNotEmpty)
-        if (serverId == null)
-          groupedNeedsSetupSection()
-        else
-          collapsedSection(
-            'Needs setup',
-            'Detected items that are not reliable update notifications yet.',
-            needsSetup,
-          ),
+        KeyedSubtree(
+          key: needsSetupKey,
+          child: serverId == null
+              ? groupedNeedsSetupSection()
+              : collapsedSection(
+                  'Needs setup',
+                  'Detected items that are not reliable update notifications yet.',
+                  needsSetup,
+                ),
+        ),
       if (current.isNotEmpty)
-        collapsedSection(
-          'Up to date',
-          'Items whose configured source matches the installed version.',
-          current,
+        KeyedSubtree(
+          key: currentKey,
+          child: collapsedSection(
+            'Up to date',
+            'Items whose configured source matches the installed version.',
+            current,
+          ),
         ),
     ];
 
@@ -1837,6 +1874,7 @@ class UpdatesView extends StatelessWidget {
             title: serverId == null ? 'Network updates' : 'Server updates',
             count: available.length,
             onRefresh: network.refreshManagement,
+            eagerChildren: true,
             action: FilledButton.icon(
               onPressed: network.managementAvailable && !checking
                   ? () => network.checkUpdates(serverId)
@@ -2811,6 +2849,7 @@ class _ManagementList extends StatelessWidget {
   final String emptyTitle;
   final String emptyMessage;
   final List<Widget> children;
+  final bool eagerChildren;
   const _ManagementList({
     required this.title,
     required this.count,
@@ -2820,52 +2859,61 @@ class _ManagementList extends StatelessWidget {
     required this.emptyTitle,
     required this.emptyMessage,
     required this.children,
+    this.eagerChildren = false,
   });
 
-  @override
-  Widget build(BuildContext context) => RefreshIndicator(
-    onRefresh: () async => onRefresh(),
-    child: ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(20),
+  List<Widget> _content(BuildContext context) => [
+    Row(
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                title,
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-            ),
-            if (action != null) action!,
-            const SizedBox(width: 8),
-            Chip(label: Text('$count')),
-          ],
+        Expanded(
+          child: Text(title, style: Theme.of(context).textTheme.headlineMedium),
         ),
-        const SizedBox(height: 12),
-        if (children.isEmpty)
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  Icon(emptyIcon, size: 36),
-                  const SizedBox(height: 10),
-                  Text(
-                    emptyTitle,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(emptyMessage, textAlign: TextAlign.center),
-                ],
-              ),
-            ),
-          )
-        else
-          ...children,
+        if (action != null) action!,
+        const SizedBox(width: 8),
+        Chip(label: Text('$count')),
       ],
     ),
-  );
+    const SizedBox(height: 12),
+    if (children.isEmpty)
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              Icon(emptyIcon, size: 36),
+              const SizedBox(height: 10),
+              Text(emptyTitle, style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 4),
+              Text(emptyMessage, textAlign: TextAlign.center),
+            ],
+          ),
+        ),
+      )
+    else
+      ...children,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final content = _content(context);
+    return RefreshIndicator(
+      onRefresh: () async => onRefresh(),
+      child: eagerChildren
+          ? SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: content,
+              ),
+            )
+          : ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(20),
+              children: content,
+            ),
+    );
+  }
 }
 
 class _ToolTile extends StatelessWidget {
