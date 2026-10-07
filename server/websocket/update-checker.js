@@ -466,6 +466,7 @@ function createUpdateChecker(config = {}, dependencies = {}) {
       "Private",
   };
   const candidateCache = new Map();
+  const candidateRequests = new Map();
   let lastProjects = configuredProjects;
 
   function providerFingerprint(providers) {
@@ -494,13 +495,28 @@ function createUpdateChecker(config = {}, dependencies = {}) {
       if (cached && current - cached.at < 6 * 60 * 60 * 1000) {
         candidates = cached.candidates;
       } else {
-        candidates = await candidateDiscovery(
-          project.plugin,
-          providers,
-          fetchImpl,
-          checkerConfig,
-        );
-        candidateCache.set(cacheKey, { at: current, candidates });
+        let request = candidateRequests.get(cacheKey);
+        if (!request) {
+          request = Promise.resolve(
+            candidateDiscovery(
+              project.plugin,
+              providers,
+              fetchImpl,
+              checkerConfig,
+            ),
+          ).then((result) => {
+            candidateCache.set(cacheKey, { at: Date.now(), candidates: result });
+            return result;
+          });
+          candidateRequests.set(cacheKey, request);
+        }
+        try {
+          candidates = await request;
+        } finally {
+          if (candidateRequests.get(cacheKey) === request) {
+            candidateRequests.delete(cacheKey);
+          }
+        }
       }
       return { ...project, candidates };
     });

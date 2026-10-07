@@ -386,6 +386,61 @@ test("live plugin inventory discovers candidates without UPDATE_PROJECTS_JSON", 
   assert.equal(second[0].status, "updateAvailable");
 });
 
+test("duplicate plugin inventory shares one candidate discovery request", async () => {
+  let discoveries = 0;
+  const projects = ["lobby", "smp", "archive"].map((serverId) => ({
+    serverId,
+    serverName: serverId,
+    plugin: "Plan",
+    kind: "plugin",
+    currentVersion: "5.8 build 3638",
+    provider: null,
+    projectId: "",
+    sourceConfirmed: false,
+    candidates: [],
+    url: null,
+  }));
+  const checker = createUpdateChecker(
+    {
+      servers: projects.map((project, index) => ({
+        id: project.serverId,
+        name: project.serverName,
+        multicraftServerId: index + 1,
+      })),
+    },
+    {
+      discoverPluginProjects: () => projects,
+      discoverCandidates: async () => {
+        discoveries += 1;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return [
+          {
+            provider: "github",
+            projectId: "plan-player-analytics/Plan",
+            label: "GitHub · plan-player-analytics/Plan",
+            url: "https://github.com/plan-player-analytics/Plan",
+            score: 100,
+          },
+        ];
+      },
+    },
+  );
+
+  const results = await checker({ providers: { github: true } });
+  assert.equal(discoveries, 1);
+  assert.equal(results.length, 3);
+  assert.ok(results.every((item) => item.candidates.length === 1));
+  for (const project of projects) {
+    const confirmed = checker.confirmSource({
+      serverId: project.serverId,
+      plugin: "Plan",
+      provider: "github",
+      projectId: "plan-player-analytics/Plan",
+    });
+    assert.equal(confirmed.source.projectId, "plan-player-analytics/Plan");
+  }
+});
+
 test("check and download sources remain independent", async () => {
   const checker = createUpdateChecker(
     {
