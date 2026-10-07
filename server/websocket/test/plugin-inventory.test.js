@@ -7,6 +7,7 @@ const test = require("node:test");
 const {
   discoverPluginProjects,
   pluginJarIdentity,
+  resolveMinecraftVersionFromMulticraft,
   yamlIdentity,
 } = require("../plugin-inventory");
 
@@ -118,4 +119,45 @@ test("plugin inventory falls back to recent compressed server logs", () => {
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("Multicraft version command resolves a missing Minecraft version read-only", async () => {
+  let command = null;
+  let reads = 0;
+  const multicraft = {
+    async log() {
+      reads += 1;
+      if (command) {
+        return [
+          "This server is running Paper version 1.21.11-42-main (Implementing API version 1.21.11-R0.1-SNAPSHOT)",
+        ];
+      }
+      return ["Server thread/INFO: unrelated line"];
+    },
+    async status() { return "running"; },
+    async sendConsole(_id, value) { command = value; },
+  };
+  const version = await resolveMinecraftVersionFromMulticraft(
+    multicraft,
+    { multicraftServerId: 7 },
+    { sleep: async () => {}, attempts: 2, intervalMs: 0 },
+  );
+  assert.equal(command, "version");
+  assert.equal(version, "1.21.11");
+  assert.ok(reads >= 2);
+});
+
+test("Multicraft version resolver does not command a stopped server", async () => {
+  let commanded = false;
+  const version = await resolveMinecraftVersionFromMulticraft(
+    {
+      async log() { return []; },
+      async status() { return "stopped"; },
+      async sendConsole() { commanded = true; },
+    },
+    { multicraftServerId: 7 },
+    { sleep: async () => {} },
+  );
+  assert.equal(version, null);
+  assert.equal(commanded, false);
 });

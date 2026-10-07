@@ -152,8 +152,20 @@ const MODRINTH_SERVER_PLUGIN_LOADERS = new Set([
   "spigot",
 ]);
 
-function compatibleModrinthPluginVersion(version, gameVersion) {
-  if (String(version?.version_type || "").toLowerCase() !== "release") {
+function allowedModrinthVersionTypes(currentVersion) {
+  const value = String(currentVersion || "").toLowerCase();
+  const allowed = new Set(["release"]);
+  if (/(?:^|[-._])beta(?:[-._0-9]|$)/u.test(value)) allowed.add("beta");
+  if (/(?:^|[-._])(?:alpha|snapshot|dev)(?:[-._0-9]|$)/u.test(value)) {
+    allowed.add("beta");
+    allowed.add("alpha");
+  }
+  return allowed;
+}
+
+function compatibleModrinthPluginVersion(version, gameVersion, currentVersion) {
+  const type = String(version?.version_type || "").toLowerCase();
+  if (!allowedModrinthVersionTypes(currentVersion).has(type)) {
     return false;
   }
   const loaders = Array.isArray(version?.loaders)
@@ -298,7 +310,9 @@ async function latestFor(project, fetchImpl, config = {}) {
     if (!Array.isArray(data) || data.length === 0)
       throw new Error("No versions returned.");
     const sorted = data
-      .filter((version) => compatibleModrinthPluginVersion(version, gameVersion))
+      .filter((version) =>
+        compatibleModrinthPluginVersion(version, gameVersion, project.currentVersion),
+      )
       .sort(
         (a, b) =>
           Date.parse(b.date_published || 0) - Date.parse(a.date_published || 0),
@@ -488,6 +502,7 @@ function createUpdateChecker(config = {}, dependencies = {}) {
     ]);
   const candidateDiscovery =
     dependencies.discoverCandidates || discoverCandidates;
+  const resolveGameVersion = dependencies.resolveGameVersion || null;
   const configuredProjects = parseProjects(
     config.projectsJson || process.env.UPDATE_PROJECTS_JSON || "",
   );
@@ -534,6 +549,28 @@ function createUpdateChecker(config = {}, dependencies = {}) {
       const platformVersion = paperVersionByServer.get(project.serverId);
       return platformVersion ? { ...project, gameVersion: platformVersion } : project;
     });
+    if (resolveGameVersion) {
+      const missingServerIds = [
+        ...new Set(
+          projects
+            .filter((project) => project.kind === "plugin" && !project.gameVersion)
+            .map((project) => project.serverId),
+        ),
+      ];
+      const missingServers = missingServerIds
+        .map((serverId) => servers.find((server) => server.id === serverId))
+        .filter(Boolean);
+      const resolved = new Map();
+      await mapLimit(missingServers, 2, async (server) => {
+        const version = String((await resolveGameVersion(server)) || "").trim();
+        if (version) resolved.set(server.id, version);
+      });
+      projects = projects.map((project) =>
+        project.kind === "plugin" && !project.gameVersion && resolved.has(project.serverId)
+          ? { ...project, gameVersion: resolved.get(project.serverId) }
+          : project,
+      );
+    }
     const providerKey = providerFingerprint(providers);
     projects = await mapLimit(projects, 3, async (project) => {
       if (

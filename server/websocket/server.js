@@ -18,6 +18,7 @@ const {
   parseServers,
 } = require("./management-service");
 const { createUpdateChecker } = require("./update-checker");
+const { resolveMinecraftVersionFromMulticraft } = require("./plugin-inventory");
 const { createUpdateApplier } = require("./update-applier");
 const { createPushService } = require("./push-service");
 const { createPlanPerformanceAdapter } = require("./plan-performance");
@@ -236,6 +237,9 @@ try {
         projectsJson: process.env.UPDATE_PROJECTS_JSON,
         builtByBitApiToken: process.env.BUILTBYBIT_API_TOKEN,
         builtByBitApiTokenType: process.env.BUILTBYBIT_API_TOKEN_TYPE,
+      }, {
+        resolveGameVersion: (server) =>
+          resolveMinecraftVersionFromMulticraft(managementMulticraft, server),
       });
     } catch (error) {
       console.warn(`RC4 update checking disabled: ${error.message}`);

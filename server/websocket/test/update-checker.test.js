@@ -714,6 +714,105 @@ test("Paper inventory supplies the Minecraft version for Modrinth plugin filteri
   assert.equal(result[0].status, "updateAvailable");
 });
 
+
+test("missing plugin game version can be resolved once per server", async () => {
+  let resolutions = 0;
+  const checker = createUpdateChecker(
+    {
+      servers: [{ id: "smp", name: "SMP", multicraftServerId: 7 }],
+      projectsJson: JSON.stringify([
+        {
+          serverId: "smp",
+          plugin: "Example",
+          currentVersion: "1.0.0",
+          provider: "modrinth",
+          projectId: "abc",
+        },
+      ]),
+    },
+    {
+      discoverPluginProjects: () => [
+        {
+          serverId: "smp",
+          serverName: "SMP",
+          plugin: "Example",
+          kind: "plugin",
+          currentVersion: "1.0.0",
+          gameVersion: null,
+          provider: null,
+          projectId: "",
+          candidates: [],
+        },
+      ],
+      resolveGameVersion: async () => { resolutions += 1; return "1.21.4"; },
+      fetch: async () => ({
+        ok: true,
+        json: async () => [
+          {
+            version_number: "1.1.0",
+            version_type: "release",
+            loaders: ["paper"],
+            game_versions: ["1.21.4"],
+            date_published: "2026-10-01T00:00:00Z",
+            files: [],
+          },
+        ],
+      }),
+    },
+  );
+  const result = (await checker())[0];
+  assert.equal(resolutions, 1);
+  assert.equal(result.gameVersion, "1.21.4");
+  assert.equal(result.status, "updateAvailable");
+});
+
+test("Modrinth follows beta updates only when the installed plugin is already beta", async () => {
+  async function run(currentVersion) {
+    const checker = createUpdateChecker(
+      {
+        projectsJson: JSON.stringify([
+          {
+            serverId: "smp",
+            plugin: "Dynmap",
+            currentVersion,
+            gameVersion: "1.20.4",
+            provider: "modrinth",
+            projectId: "dynmap",
+          },
+        ]),
+      },
+      {
+        fetch: async () => ({
+          ok: true,
+          json: async () => [
+            {
+              version_number: "3.7-beta-8",
+              version_type: "beta",
+              loaders: ["paper", "spigot"],
+              game_versions: ["1.20.4"],
+              date_published: "2026-10-01T00:00:00Z",
+              files: [],
+            },
+            {
+              version_number: "3.6.1",
+              version_type: "release",
+              loaders: ["paper", "spigot"],
+              game_versions: ["1.20.4"],
+              date_published: "2025-01-01T00:00:00Z",
+              files: [],
+            },
+          ],
+        }),
+      },
+    );
+    return (await checker())[0];
+  }
+  const beta = await run("3.7-beta-4-935");
+  assert.equal(beta.latestVersion, "3.7-beta-8");
+  const stable = await run("3.6.0");
+  assert.equal(stable.latestVersion, "3.6.1");
+});
+
 test("automatic Paper inventory reaches Update Center without configured projects", async () => {
   const root = fs.mkdtempSync(
     path.join(os.tmpdir(), "admincraft-platform-checker-"),

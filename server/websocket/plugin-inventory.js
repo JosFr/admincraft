@@ -233,6 +233,31 @@ function minecraftVersionFromServerLogs(serverRoot) {
   return null;
 }
 
+
+async function resolveMinecraftVersionFromMulticraft(
+  multicraft,
+  server,
+  { sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), attempts = 8, intervalMs = 250 } = {},
+) {
+  if (!multicraft || !server?.multicraftServerId) return null;
+  const id = server.multicraftServerId;
+  const readVersion = async () => {
+    const lines = await multicraft.log(id).catch(() => []);
+    return minecraftVersionFromText(Array.isArray(lines) ? lines.join("\n") : "");
+  };
+  const existing = await readVersion();
+  if (existing) return existing;
+  const status = await multicraft.status(id).catch(() => "stopped");
+  if (status !== "running") return null;
+  await multicraft.sendConsole(id, "version").catch(() => null);
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    await sleep(intervalMs);
+    const version = await readVersion();
+    if (version) return version;
+  }
+  return null;
+}
+
 function discoverPluginProjects({
   servers = [],
   sourceRoot = "/minecraft",
@@ -270,6 +295,8 @@ module.exports = {
   filenameIdentity,
   minecraftVersionFromLog,
   minecraftVersionFromServerLogs,
+  minecraftVersionFromText,
+  resolveMinecraftVersionFromMulticraft,
   pluginDirectoryInventory,
   pluginJarIdentity,
   readZipEntry,
