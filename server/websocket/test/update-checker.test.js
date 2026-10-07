@@ -74,6 +74,21 @@ test("candidate discovery ranks an exact Plan repository above PLand", async () 
   assert.equal(candidates[1].score, 80);
 });
 
+
+test("verified source catalog injects the reviewed AuctionHouse project", async () => {
+  const candidates = await discoverCandidates(
+    "AuctionHouse",
+    { modrinth: true, hangar: false, spigot: false, github: false, builtByBit: false },
+    async () => {
+      throw new Error("provider search unavailable");
+    },
+  );
+  assert.equal(candidates[0].provider, "modrinth");
+  assert.equal(candidates[0].projectId, "scEbl04C");
+  assert.equal(candidates[0].verified, true);
+  assert.equal(candidates[0].score, 120);
+});
+
 test("version comparison handles releases and prereleases", () => {
   assert.equal(compareVersions("1.2.3", "1.2.4"), -1);
   assert.equal(compareVersions("v2.0.0", "2.0.0"), 0);
@@ -494,7 +509,7 @@ test("check and download sources remain independent", async () => {
   assert.equal(results[0].status, "current");
 });
 
-test("GitHub check source provides an inherited direct JAR download", async () => {
+test("GitHub check source does not implicitly confirm a download source", async () => {
   const checker = createUpdateChecker(
     {
       projectsJson: JSON.stringify([
@@ -525,13 +540,13 @@ test("GitHub check source provides an inherited direct JAR download", async () =
     },
   );
   const result = (await checker())[0];
-  assert.equal(result.downloadProvider, "github");
-  assert.equal(result.downloadProjectId, "owner/repo");
-  assert.equal(result.downloadSourceConfirmed, true);
-  assert.match(result.downloadUrl, /Example\.jar$/u);
+  assert.equal(result.downloadProvider, null);
+  assert.equal(result.downloadProjectId, null);
+  assert.equal(result.downloadSourceConfirmed, false);
+  assert.equal(result.downloadUrl, null);
 });
 
-test("Modrinth check source exposes the primary JAR download", async () => {
+test("Modrinth check source does not implicitly confirm the primary JAR", async () => {
   const checker = createUpdateChecker(
     {
       projectsJson: JSON.stringify([
@@ -566,8 +581,9 @@ test("Modrinth check source exposes the primary JAR download", async () => {
   );
   const result = (await checker())[0];
   assert.equal(result.latestVersion, "1.2.0");
-  assert.equal(result.downloadProvider, "modrinth");
-  assert.equal(result.downloadUrl, "https://cdn.test/Example.jar");
+  assert.equal(result.downloadProvider, null);
+  assert.equal(result.downloadSourceConfirmed, false);
+  assert.equal(result.downloadUrl, null);
 });
 
 test("automatic Paper inventory reaches Update Center without configured projects", async () => {

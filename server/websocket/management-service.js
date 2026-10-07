@@ -474,6 +474,7 @@ function createManagementService(config = {}, dependencies = {}) {
         "backup-forget",
         "update-targeted",
         "update-source-group",
+        "update-source-bulk",
       ],
       storages: storageSnapshots(),
       backupDestinationDefaults: {
@@ -2119,6 +2120,61 @@ function createManagementService(config = {}, dependencies = {}) {
           groupScope
             ? `Update source remembered for ${targets.length} server(s).`
             : "Update source remembered.",
+          [snapshot()],
+        );
+      }
+
+      if (action === "updates-source-bulk-set") {
+        if (typeof dependencies.updateChecker?.confirmSource !== "function") {
+          throw new Error("Update source matching is not configured on this bridge.");
+        }
+        const mappings = Array.isArray(payload.mappings) ? payload.mappings : [];
+        if (mappings.length === 0 || mappings.length > 100) {
+          throw new Error("Choose between 1 and 100 update source mappings.");
+        }
+        const seenPlugins = new Set();
+        const confirmations = [];
+        let instanceCount = 0;
+        for (const raw of mappings) {
+          const plugin = String(raw?.plugin || "").trim();
+          if (!plugin) throw new Error("Every source mapping needs a plugin name.");
+          const pluginKey = plugin.toLowerCase();
+          if (seenPlugins.has(pluginKey)) throw new Error(`Duplicate source mapping for ${plugin}.`);
+          seenPlugins.add(pluginKey);
+          const matching = state.updates.filter(
+            (item) => item.kind === "plugin" && String(item.plugin || "").toLowerCase() === pluginKey,
+          );
+          if (matching.length === 0) throw new Error(`No matching plugin instances found for ${plugin}.`);
+          const targets = [...new Set(matching.map((item) => String(item.serverId)))];
+          instanceCount += targets.length;
+          for (const serverId of targets) {
+            confirmations.push(
+              dependencies.updateChecker.confirmSource({
+                ...raw,
+                plugin,
+                serverId,
+                role: "check",
+              }),
+            );
+          }
+        }
+        const nextSourceOverrides = { ...state.updateSourceOverrides };
+        for (const confirmed of confirmations) {
+          const previous = nextSourceOverrides[confirmed.key];
+          const normalized = previous?.provider ? { check: previous } : { ...(previous || {}) };
+          normalized.check = confirmed.source;
+          nextSourceOverrides[confirmed.key] = normalized;
+        }
+        const refreshedUpdates = await dependencies.updateChecker({
+          providers: payload.providers || {},
+          sourceOverrides: nextSourceOverrides,
+        });
+        state.updateSourceOverrides = nextSourceOverrides;
+        state.updates = refreshedUpdates;
+        activity(null, "Update sources confirmed", `${mappings.length} plugin(s) · ${instanceCount} server instance(s)`);
+        persist();
+        return response(
+          `Update sources remembered for ${mappings.length} plugin(s).`,
           [snapshot()],
         );
       }

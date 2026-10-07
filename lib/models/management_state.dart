@@ -621,12 +621,14 @@ class UpdateSourceCandidate {
   final String label;
   final String? url;
   final int score;
+  final bool verified;
   const UpdateSourceCandidate({
     required this.provider,
     required this.projectId,
     required this.label,
     this.url,
     this.score = 0,
+    this.verified = false,
   });
   factory UpdateSourceCandidate.fromJson(Map<String, dynamic> json) {
     final provider = _enumByName(
@@ -640,8 +642,27 @@ class UpdateSourceCandidate {
       label: json['label']?.toString() ?? provider.label,
       url: json['url']?.toString(),
       score: (json['score'] as num?)?.toInt() ?? 0,
+      verified: json['verified'] == true,
     );
   }
+}
+
+class UpdateSourceReview {
+  final String status;
+  final String? label;
+  final String reason;
+  const UpdateSourceReview({
+    required this.status,
+    this.label,
+    required this.reason,
+  });
+
+  factory UpdateSourceReview.fromJson(Map<String, dynamic> json) =>
+      UpdateSourceReview(
+        status: json['status']?.toString() ?? '',
+        label: json['label']?.toString(),
+        reason: json['reason']?.toString() ?? '',
+      );
 }
 
 class PluginUpdate {
@@ -655,6 +676,7 @@ class PluginUpdate {
   final String? projectId;
   final bool sourceConfirmed;
   final List<UpdateSourceCandidate> candidates;
+  final UpdateSourceReview? sourceReview;
   final UpdateProvider? downloadProvider;
   final String? downloadProjectId;
   final bool downloadSourceConfirmed;
@@ -673,6 +695,7 @@ class PluginUpdate {
     required this.projectId,
     this.sourceConfirmed = false,
     this.candidates = const [],
+    this.sourceReview,
     this.downloadProvider,
     this.downloadProjectId,
     this.downloadSourceConfirmed = false,
@@ -717,6 +740,11 @@ class PluginUpdate {
                 .map(UpdateSourceCandidate.fromJson)
                 .toList()
           : const [],
+      sourceReview: json['sourceReview'] is Map<String, dynamic>
+          ? UpdateSourceReview.fromJson(
+              json['sourceReview'] as Map<String, dynamic>,
+            )
+          : null,
       downloadProvider: downloadProvider,
       downloadProjectId: json['downloadProjectId']?.toString(),
       downloadSourceConfirmed: json['downloadSourceConfirmed'] == true,

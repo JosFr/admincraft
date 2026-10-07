@@ -1,6 +1,7 @@
 const { discoverPluginProjects } = require("./plugin-inventory");
 const { discoverPlatformProjects } = require("./platform-inventory");
 const { discoverCandidates } = require("./update-discovery");
+const { sourceReview } = require("./update-source-catalog");
 
 function canonicalProvider(value) {
   const normalized = String(value || "")
@@ -427,6 +428,7 @@ function baseResult(project, source = null, downloadSource = null) {
     projectId: source?.projectId || null,
     sourceConfirmed: source?.sourceConfirmed === true,
     candidates: publicCandidates(project),
+    sourceReview: sourceReview(project.plugin),
     status: "unmanaged",
     url: source?.url || project.url,
     downloadProvider: downloadSource?.provider || null,
@@ -543,7 +545,11 @@ function createUpdateChecker(config = {}, dependencies = {}) {
         sourceOverrides,
         "download",
       );
-      const downloadSource = explicitDownloadSource || source;
+      // A confirmed version-check source is not automatically trusted for downloads.
+      // Download selection is a separate safety decision because one project can
+      // publish multiple platform artifacts or require authenticated delivery.
+      const downloadSource =
+        explicitDownloadSource || (project.kind !== "plugin" ? source : null);
       if (!source) {
         results.push(baseResult(project, null, explicitDownloadSource));
         continue;

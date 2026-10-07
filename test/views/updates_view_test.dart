@@ -22,6 +22,7 @@ class _UpdatesFixture extends NetworkController {
   String? sourceProjectId;
   String? sourceRole;
   bool? sourceAllMatchingServers;
+  List<Map<String, String>>? bulkMappings;
 
   @override
   bool setUpdateSource({
@@ -37,6 +38,12 @@ class _UpdatesFixture extends NetworkController {
     sourceProjectId = projectId;
     sourceRole = role;
     sourceAllMatchingServers = allMatchingServers;
+    return true;
+  }
+
+  @override
+  bool setVerifiedUpdateSourcesBulk(List<Map<String, String>> mappings) {
+    bulkMappings = mappings;
     return true;
   }
 
@@ -176,6 +183,9 @@ void main() {
 
     await tester.tap(find.text('Needs setup (2)'));
     await tester.pumpAndSettle();
+    expect(find.text('Needs choice (2)'), findsOneWidget);
+    await tester.tap(find.text('Needs choice (2)'));
+    await tester.pumpAndSettle();
     expect(find.text('AdmincraftWeather'), findsOneWidget);
     expect(find.text('Citizens'), findsOneWidget);
   });
@@ -263,6 +273,9 @@ void main() {
 
     await tester.tap(find.text('Needs setup (2)'));
     await tester.pumpAndSettle();
+    expect(find.text('Needs choice (2)'), findsOneWidget);
+    await tester.tap(find.text('Needs choice (2)'));
+    await tester.pumpAndSettle();
     expect(find.text('Plan'), findsOneWidget);
     expect(find.text('Citizens'), findsOneWidget);
     expect(find.text('2 servers'), findsOneWidget);
@@ -290,6 +303,108 @@ void main() {
     expect(network.sourceProjectId, 'plan-player-analytics/Plan');
     expect(network.sourceRole, 'check');
     expect(network.sourceAllMatchingServers, true);
+  });
+
+  testWidgets('source review separates verified special and unknown plugins', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 844);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final notifications = NotificationController(preferences);
+    final network = _UpdatesFixture(notifications, preferences: preferences);
+    addTearDown(network.dispose);
+    addTearDown(notifications.dispose);
+    network.debugReceive(
+      jsonEncode({
+        'type': 'admincraft.management-state',
+        'features': ['update-source-group', 'update-source-bulk'],
+        'updates': [
+          {
+            'serverId': 'lobby',
+            'serverName': 'Lobby',
+            'plugin': 'WorldEdit',
+            'kind': 'plugin',
+            'currentVersion': '7.4.5',
+            'status': 'unmanaged',
+            'sourceReview': {
+              'status': 'ready',
+              'label': 'Modrinth · WorldEdit',
+              'reason': 'Verified project identity.',
+            },
+            'candidates': [
+              {
+                'provider': 'modrinth',
+                'projectId': '1u6JkXh5',
+                'label': 'Modrinth · WorldEdit',
+                'score': 120,
+                'verified': true,
+                'url': 'https://modrinth.com/plugin/worldedit',
+              },
+            ],
+          },
+          {
+            'serverId': 'smp',
+            'serverName': 'SMP',
+            'plugin': 'CMI',
+            'kind': 'plugin',
+            'currentVersion': '9.8.9.8',
+            'status': 'unmanaged',
+            'sourceReview': {
+              'status': 'special',
+              'label': 'Spigot 3742',
+              'reason': 'Premium plugin; authenticated download is separate.',
+            },
+          },
+          {
+            'serverId': 'smp',
+            'serverName': 'SMP',
+            'plugin': 'Lobby',
+            'kind': 'plugin',
+            'currentVersion': '1.2.0',
+            'status': 'unmanaged',
+            'sourceReview': {
+              'status': 'unknown',
+              'reason': 'Generic plugin name.',
+            },
+          },
+        ],
+      }),
+    );
+    await tester.pumpWidget(
+      ChangeNotifierProvider<NetworkController>.value(
+        value: network,
+        child: const MaterialApp(home: Scaffold(body: UpdatesView())),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Needs setup (3)'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Ready to confirm (1)'), findsOneWidget);
+    expect(find.text('Special handling (1)'), findsOneWidget);
+    expect(find.text('No reliable source (1)'), findsOneWidget);
+    expect(find.text('Confirm 1 verified sources'), findsOneWidget);
+    expect(find.text('WorldEdit'), findsOneWidget);
+
+    await tester.tap(find.text('Confirm 1 verified sources'));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('No plugin files are downloaded or changed'),
+      findsOneWidget,
+    );
+    expect(find.text('Confirm check sources'), findsOneWidget);
+    await tester.tap(find.text('Confirm check sources'));
+    await tester.pumpAndSettle();
+
+    expect(network.bulkMappings, isNotNull);
+    expect(network.bulkMappings, hasLength(1));
+    expect(network.bulkMappings!.single['plugin'], 'WorldEdit');
+    expect(network.bulkMappings!.single['provider'], 'modrinth');
+    expect(network.bulkMappings!.single['projectId'], '1u6JkXh5');
   });
 
   testWidgets('one-click update targets only the selected plugin', (

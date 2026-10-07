@@ -874,6 +874,105 @@ test("grouped update source setup writes nothing when one target fails validatio
   }
 });
 
+test("bulk verified source setup confirms multiple plugin groups atomically", async () => {
+  const key = (serverId, plugin) => `${serverId}\u0000${plugin}`;
+  const inventory = [
+    ["lobby", "Lobby", "WorldEdit"],
+    ["smp", "SMP", "WorldEdit"],
+    ["smp", "SMP", "Chunky"],
+  ];
+  const checker = async ({ sourceOverrides = {} } = {}) => inventory.map(
+    ([serverId, serverName, plugin]) => {
+      const source = sourceOverrides[key(serverId, plugin)]?.check;
+      return {
+        serverId,
+        serverName,
+        plugin,
+        kind: "plugin",
+        currentVersion: "1.0.0",
+        latestVersion: source ? "1.0.0" : null,
+        provider: source?.provider || null,
+        projectId: source?.projectId || null,
+        sourceConfirmed: Boolean(source),
+        candidates: [],
+        status: source ? "current" : "unmanaged",
+        url: null,
+      };
+    },
+  );
+  checker.confirmSource = ({ serverId, plugin, provider, projectId, role }) => ({
+    key: key(serverId, plugin),
+    role: role || "check",
+    source: { provider, projectId },
+  });
+  const fx = fixture(
+    { updateChecker: checker },
+    {
+      serversJson: JSON.stringify([
+        { id: "lobby", name: "Lobby", multicraftServerId: 7 },
+        { id: "smp", name: "SMP", multicraftServerId: 8 },
+      ]),
+    },
+  );
+  try {
+    await fx.service.handle("updates-check", { providers: {} });
+    const result = await fx.service.handle("updates-source-bulk-set", {
+      mappings: [
+        { plugin: "WorldEdit", provider: "modrinth", projectId: "1u6JkXh5" },
+        { plugin: "Chunky", provider: "modrinth", projectId: "fALzjamp" },
+      ],
+      providers: {},
+    });
+    assert.equal(result.success, true);
+    assert.equal(result.message, "Update sources remembered for 2 plugin(s).");
+    assert.equal(fx.service.snapshot().updates.filter((item) => item.sourceConfirmed).length, 3);
+    const persisted = JSON.parse(fs.readFileSync(fx.statePath, "utf8"));
+    assert.equal(persisted.updateSourceOverrides[key("lobby", "WorldEdit")].check.projectId, "1u6JkXh5");
+    assert.equal(persisted.updateSourceOverrides[key("smp", "WorldEdit")].check.projectId, "1u6JkXh5");
+    assert.equal(persisted.updateSourceOverrides[key("smp", "Chunky")].check.projectId, "fALzjamp");
+    assert.ok(fx.service.snapshot().features.includes("update-source-bulk"));
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("bulk verified source setup writes nothing if one mapping fails", async () => {
+  const key = (serverId, plugin) => `${serverId}\u0000${plugin}`;
+  const checker = async () => ["WorldEdit", "Chunky"].map((plugin) => ({
+    serverId: "smp",
+    serverName: "SMP",
+    plugin,
+    kind: "plugin",
+    currentVersion: "1.0.0",
+    latestVersion: null,
+    sourceConfirmed: false,
+    candidates: [],
+    status: "unmanaged",
+    url: null,
+  }));
+  checker.confirmSource = ({ serverId, plugin, provider, projectId }) => {
+    if (plugin === "Chunky") throw new Error("candidate mismatch");
+    return { key: key(serverId, plugin), source: { provider, projectId } };
+  };
+  const fx = fixture({ updateChecker: checker });
+  try {
+    await fx.service.handle("updates-check", { providers: {} });
+    const result = await fx.service.handle("updates-source-bulk-set", {
+      mappings: [
+        { plugin: "WorldEdit", provider: "modrinth", projectId: "1u6JkXh5" },
+        { plugin: "Chunky", provider: "modrinth", projectId: "fALzjamp" },
+      ],
+      providers: {},
+    });
+    assert.equal(result.success, false);
+    assert.match(result.message, /candidate mismatch/);
+    const persisted = JSON.parse(fs.readFileSync(fx.statePath, "utf8"));
+    assert.deepEqual(persisted.updateSourceOverrides, {});
+  } finally {
+    fx.cleanup();
+  }
+});
+
 test("management activity records backup and schedule lifecycle actions", async () => {
   const fx = fixture();
   try {

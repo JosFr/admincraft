@@ -671,7 +671,9 @@ class UpdatesView extends StatelessWidget {
                             DropdownMenuItem(
                               value: candidate,
                               child: Text(
-                                candidate.score >= 100
+                                candidate.verified
+                                    ? '${candidate.label} · verified source'
+                                    : candidate.score >= 100
                                     ? '${candidate.label} · exact match'
                                     : candidate.label,
                               ),
@@ -1190,6 +1192,14 @@ class UpdatesView extends StatelessWidget {
     Widget groupedSetupCard(List<PluginUpdate> group) {
       final first = group.first;
       final candidates = _groupCandidates(group);
+      UpdateSourceCandidate? verifiedCandidate;
+      for (final candidate in candidates) {
+        if (candidate.verified) {
+          verifiedCandidate = candidate;
+          break;
+        }
+      }
+      final review = first.sourceReview;
       final serverNames = group.map((item) => item.serverName).toSet().toList()
         ..sort();
       final versions =
@@ -1203,7 +1213,13 @@ class UpdatesView extends StatelessWidget {
       final groupSupported = network.management.features.contains(
         'update-source-group',
       );
-      final candidateSummary = candidates.isEmpty
+      final candidateSummary = verifiedCandidate != null
+          ? 'Verified source: ${verifiedCandidate.label}. Download/update permission is reviewed separately.'
+          : review != null && review.status == 'special'
+          ? '${review.label ?? 'Known source'} · ${review.reason}'
+          : review != null && review.status == 'unknown'
+          ? review.reason
+          : candidates.isEmpty
           ? 'No automatic source candidate found.'
           : '${candidates.length} candidate${candidates.length == 1 ? '' : 's'}: '
                 '${candidates.take(3).map((candidate) => candidate.label).join(' · ')}'
@@ -1266,7 +1282,9 @@ class UpdatesView extends StatelessWidget {
                 icon: const Icon(Icons.link),
                 label: Text(
                   groupSupported
-                      ? 'Configure for $serverCount server${serverCount == 1 ? '' : 's'}'
+                      ? verifiedCandidate != null
+                            ? 'Review source for $serverCount server${serverCount == 1 ? '' : 's'}'
+                            : 'Configure for $serverCount server${serverCount == 1 ? '' : 's'}'
                       : 'Bridge update required',
                 ),
               ),
@@ -1276,6 +1294,75 @@ class UpdatesView extends StatelessWidget {
       );
     }
 
+    UpdateSourceCandidate? verifiedCandidateFor(List<PluginUpdate> group) {
+      for (final candidate in _groupCandidates(group)) {
+        if (candidate.verified) return candidate;
+      }
+      return null;
+    }
+
+    Future<void> confirmVerifiedSources(
+      List<List<PluginUpdate>> readyGroups,
+    ) async {
+      final mappings = <Map<String, String>>[];
+      var instanceCount = 0;
+      for (final group in readyGroups) {
+        final candidate = verifiedCandidateFor(group);
+        if (candidate == null) continue;
+        instanceCount += group.map((item) => item.serverId).toSet().length;
+        mappings.add({
+          'plugin': group.first.plugin,
+          'provider': candidate.provider.name,
+          'projectId': candidate.projectId,
+          if (candidate.url?.trim().isNotEmpty == true) 'url': candidate.url!,
+        });
+      }
+      if (mappings.isEmpty) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Confirm ${mappings.length} verified sources?'),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'This will remember version-check sources for $instanceCount plugin installations. No plugin files are downloaded or changed.',
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Download sources remain unconfirmed and will be reviewed separately before Update now can be enabled.',
+                  ),
+                  const SizedBox(height: 12),
+                  for (final mapping in mappings)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        '• ${mapping['plugin']} · ${mapping['provider']} · ${mapping['projectId']}',
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Confirm check sources'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed == true) network.setVerifiedUpdateSourcesBulk(mappings);
+    }
+
     Widget groupedNeedsSetupSection() {
       final groups = needsSetupGroups.values.toList()
         ..sort(
@@ -1283,17 +1370,91 @@ class UpdatesView extends StatelessWidget {
             b.first.plugin.toLowerCase(),
           ),
         );
+      final readyGroups = <List<PluginUpdate>>[];
+      final specialGroups = <List<PluginUpdate>>[];
+      final unknownGroups = <List<PluginUpdate>>[];
+      final choiceGroups = <List<PluginUpdate>>[];
+      for (final group in groups) {
+        final review = group.first.sourceReview;
+        if (verifiedCandidateFor(group) != null) {
+          readyGroups.add(group);
+        } else if (review?.status == 'special') {
+          specialGroups.add(group);
+        } else if (review?.status == 'unknown') {
+          unknownGroups.add(group);
+        } else {
+          choiceGroups.add(group);
+        }
+      }
+
+      Widget bucket(
+        String title,
+        String subtitle,
+        List<List<PluginUpdate>> bucketGroups, {
+        bool expanded = false,
+      }) => ExpansionTile(
+        initiallyExpanded: expanded,
+        tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+        childrenPadding: EdgeInsets.zero,
+        title: Text('$title (${bucketGroups.length})'),
+        subtitle: Text(subtitle),
+        children: [for (final group in bucketGroups) groupedSetupCard(group)],
+      );
+
+      final bulkAvailable = network.management.features.contains(
+        'update-source-bulk',
+      );
       return Card(
         margin: const EdgeInsets.only(bottom: 10),
         child: ExpansionTile(
           initiallyExpanded: false,
           title: Text('Needs setup ($needsSetupDisplayCount)'),
           subtitle: Text(
-            '${groupableNeedsSetup.length} plugin installation${groupableNeedsSetup.length == 1 ? '' : 's'} grouped by name.',
+            '${groupableNeedsSetup.length} plugin installation${groupableNeedsSetup.length == 1 ? '' : 's'} grouped into a source review.',
           ),
           childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
           children: [
-            for (final group in groups) groupedSetupCard(group),
+            if (readyGroups.isNotEmpty) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed: bulkAvailable && !network.managementPending
+                      ? () => confirmVerifiedSources(readyGroups)
+                      : null,
+                  icon: const Icon(Icons.verified_outlined),
+                  label: Text(
+                    bulkAvailable
+                        ? 'Confirm ${readyGroups.length} verified sources'
+                        : 'Bridge update required for bulk confirm',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              bucket(
+                'Ready to confirm',
+                'Project identity has been verified. This confirms checking only, not downloads.',
+                readyGroups,
+                expanded: true,
+              ),
+            ],
+            if (choiceGroups.isNotEmpty)
+              bucket(
+                'Needs choice',
+                'Plausible candidates exist, but Admincraft will not choose between them automatically.',
+                choiceGroups,
+              ),
+            if (specialGroups.isNotEmpty)
+              bucket(
+                'Special handling',
+                'Known projects that need a premium, snapshot, development-build or vendor-specific provider.',
+                specialGroups,
+              ),
+            if (unknownGroups.isNotEmpty)
+              bucket(
+                'No reliable source',
+                'These remain deliberately unmanaged until their exact origin is proven.',
+                unknownGroups,
+              ),
             for (final update in ungroupedNeedsSetup) updateCard(update),
           ],
         ),
