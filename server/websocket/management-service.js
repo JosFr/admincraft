@@ -469,7 +469,12 @@ function createManagementService(config = {}, dependencies = {}) {
     return {
       type: "admincraft.management-state",
       observedAt: isoNow(now),
-      features: ["schedule-update", "backup-forget", "update-targeted"],
+      features: [
+        "schedule-update",
+        "backup-forget",
+        "update-targeted",
+        "update-source-group",
+      ],
       storages: storageSnapshots(),
       backupDestinationDefaults: {
         global: [...state.backupDestinationDefaults.global],
@@ -2069,25 +2074,53 @@ function createManagementService(config = {}, dependencies = {}) {
             "Update source matching is not configured on this bridge.",
           );
         }
-        const confirmed = dependencies.updateChecker.confirmSource(payload);
-        const previous = state.updateSourceOverrides[confirmed.key];
-        const normalized = previous?.provider
-          ? { check: previous }
-          : { ...(previous || {}) };
-        normalized[confirmed.role || "check"] = confirmed.source;
-        state.updateSourceOverrides[confirmed.key] = normalized;
-        state.updates = await dependencies.updateChecker({
+        const plugin = String(payload.plugin || "").trim();
+        const groupScope = payload.scope === "plugin";
+        const matchingUpdates = groupScope
+          ? state.updates.filter(
+              (item) =>
+                item.kind === "plugin" &&
+                String(item.plugin || "").toLowerCase() === plugin.toLowerCase(),
+            )
+          : [];
+        if (groupScope && matchingUpdates.length === 0) {
+          throw new Error("No matching plugin instances found for source setup.");
+        }
+        const targets = groupScope
+          ? [...new Set(matchingUpdates.map((item) => String(item.serverId)))]
+          : [String(payload.serverId || "")];
+        const confirmations = targets.map((serverId) =>
+          dependencies.updateChecker.confirmSource({ ...payload, serverId }),
+        );
+        const nextSourceOverrides = { ...state.updateSourceOverrides };
+        for (const confirmed of confirmations) {
+          const previous = nextSourceOverrides[confirmed.key];
+          const normalized = previous?.provider
+            ? { check: previous }
+            : { ...(previous || {}) };
+          normalized[confirmed.role || "check"] = confirmed.source;
+          nextSourceOverrides[confirmed.key] = normalized;
+        }
+        const refreshedUpdates = await dependencies.updateChecker({
           providers: payload.providers || {},
-          serverId: payload.serverId || null,
-          sourceOverrides: state.updateSourceOverrides,
+          sourceOverrides: nextSourceOverrides,
         });
+        state.updateSourceOverrides = nextSourceOverrides;
+        state.updates = refreshedUpdates;
         activity(
-          serverById(payload.serverId),
+          groupScope ? null : serverById(payload.serverId),
           "Update source confirmed",
-          String(payload.plugin || "Plugin"),
+          groupScope
+            ? `${plugin || "Plugin"} · ${targets.length} server(s)`
+            : plugin || "Plugin",
         );
         persist();
-        return response("Update source remembered.", [snapshot()]);
+        return response(
+          groupScope
+            ? `Update source remembered for ${targets.length} server(s).`
+            : "Update source remembered.",
+          [snapshot()],
+        );
       }
 
       if (action === "updates-check") {

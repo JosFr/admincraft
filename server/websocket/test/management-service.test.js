@@ -747,6 +747,133 @@ test("confirmed update sources are remembered in management state", async () => 
   }
 });
 
+test("grouped update source setup is atomic and preserves network results", async () => {
+  const key = (serverId, plugin) => `${serverId}\u0000${plugin}`;
+  const checker = async ({ sourceOverrides = {} } = {}) => [
+    ["lobby", "Lobby", "Plan"],
+    ["smp", "SMP", "Plan"],
+    ["smp", "SMP", "OtherPlugin"],
+  ].map(([serverId, serverName, plugin]) => {
+    const override = sourceOverrides[key(serverId, plugin)]?.check;
+    return {
+      serverId,
+      serverName,
+      plugin,
+      kind: "plugin",
+      currentVersion: "1.0.0",
+      latestVersion: override ? "1.1.0" : null,
+      provider: override?.provider || null,
+      projectId: override?.projectId || null,
+      sourceConfirmed: Boolean(override),
+      candidates: plugin === "Plan"
+        ? [{ provider: "github", projectId: "plan-player-analytics/Plan", label: "Plan" }]
+        : [],
+      status: override ? "updateAvailable" : "unmanaged",
+      url: null,
+    };
+  });
+  checker.confirmSource = ({ serverId, plugin, provider, projectId, role }) => ({
+    key: key(serverId, plugin),
+    role: role || "check",
+    source: { provider, projectId },
+  });
+  const fx = fixture(
+    { updateChecker: checker },
+    {
+      serversJson: JSON.stringify([
+        { id: "lobby", name: "Lobby", multicraftServerId: 7 },
+        { id: "smp", name: "SMP", multicraftServerId: 8 },
+      ]),
+    },
+  );
+  try {
+    await fx.service.handle("updates-check", { providers: {} });
+    const result = await fx.service.handle("updates-source-set", {
+      serverId: "lobby",
+      plugin: "Plan",
+      provider: "github",
+      projectId: "plan-player-analytics/Plan",
+      scope: "plugin",
+      providers: {},
+    });
+    assert.equal(result.success, true);
+    assert.equal(result.message, "Update source remembered for 2 server(s).");
+    const updates = fx.service.snapshot().updates;
+    assert.equal(updates.length, 3);
+    assert.equal(
+      updates.filter((item) => item.plugin === "Plan" && item.sourceConfirmed).length,
+      2,
+    );
+    assert.equal(
+      updates.find((item) => item.plugin === "OtherPlugin").sourceConfirmed,
+      false,
+    );
+    const persisted = JSON.parse(fs.readFileSync(fx.statePath, "utf8"));
+    assert.equal(
+      persisted.updateSourceOverrides[key("lobby", "Plan")].check.projectId,
+      "plan-player-analytics/Plan",
+    );
+    assert.equal(
+      persisted.updateSourceOverrides[key("smp", "Plan")].check.projectId,
+      "plan-player-analytics/Plan",
+    );
+    assert.ok(fx.service.snapshot().features.includes("update-source-group"));
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("grouped update source setup writes nothing when one target fails validation", async () => {
+  const key = (serverId, plugin) => `${serverId}\u0000${plugin}`;
+  const checker = async ({ sourceOverrides = {} } = {}) => ["lobby", "smp"].map(
+    (serverId) => ({
+      serverId,
+      serverName: serverId.toUpperCase(),
+      plugin: "Plan",
+      kind: "plugin",
+      currentVersion: "1.0.0",
+      latestVersion: null,
+      sourceConfirmed: Boolean(sourceOverrides[key(serverId, "Plan")]),
+      candidates: [],
+      status: "unmanaged",
+      url: null,
+    }),
+  );
+  checker.confirmSource = ({ serverId, plugin, provider, projectId }) => {
+    if (serverId === "smp") throw new Error("candidate mismatch");
+    return {
+      key: key(serverId, plugin),
+      source: { provider, projectId },
+    };
+  };
+  const fx = fixture(
+    { updateChecker: checker },
+    {
+      serversJson: JSON.stringify([
+        { id: "lobby", name: "Lobby", multicraftServerId: 7 },
+        { id: "smp", name: "SMP", multicraftServerId: 8 },
+      ]),
+    },
+  );
+  try {
+    await fx.service.handle("updates-check", { providers: {} });
+    const result = await fx.service.handle("updates-source-set", {
+      serverId: "lobby",
+      plugin: "Plan",
+      provider: "github",
+      projectId: "plan-player-analytics/Plan",
+      scope: "plugin",
+      providers: {},
+    });
+    assert.equal(result.success, false);
+    assert.match(result.message, /candidate mismatch/);
+    const persisted = JSON.parse(fs.readFileSync(fx.statePath, "utf8"));
+    assert.deepEqual(persisted.updateSourceOverrides, {});
+  } finally {
+    fx.cleanup();
+  }
+});
+
 test("management activity records backup and schedule lifecycle actions", async () => {
   const fx = fixture();
   try {

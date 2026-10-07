@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:admincraft/controllers/network_controller.dart';
 import 'package:admincraft/controllers/notification_controller.dart';
+import 'package:admincraft/models/management_state.dart';
 import 'package:admincraft/views/management_views.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -16,6 +17,28 @@ class _UpdatesFixture extends NetworkController {
   bool? startedBackup;
   bool? startedRestartWhenEmpty;
   String? startedUpdatePlugin;
+  String? sourcePlugin;
+  UpdateProvider? sourceProvider;
+  String? sourceProjectId;
+  String? sourceRole;
+  bool? sourceAllMatchingServers;
+
+  @override
+  bool setUpdateSource({
+    required PluginUpdate update,
+    required UpdateProvider provider,
+    required String projectId,
+    String role = 'check',
+    String? url,
+    bool allMatchingServers = false,
+  }) {
+    sourcePlugin = update.plugin;
+    sourceProvider = provider;
+    sourceProjectId = projectId;
+    sourceRole = role;
+    sourceAllMatchingServers = allMatchingServers;
+    return true;
+  }
 
   @override
   bool startMaintenance(
@@ -147,7 +170,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('0 updates available'), findsOneWidget);
-    expect(find.text('2 need setup'), findsOneWidget);
+    expect(find.text('2 plugins need setup'), findsOneWidget);
     expect(find.text('Needs setup (2)'), findsOneWidget);
     expect(find.text('AdmincraftWeather'), findsNothing);
 
@@ -155,6 +178,99 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('AdmincraftWeather'), findsOneWidget);
     expect(find.text('Citizens'), findsOneWidget);
+  });
+
+  testWidgets('needs setup groups matching plugins across servers', (
+    tester,
+  ) async {
+    SharedPreferences.setMockInitialValues({});
+    final preferences = await SharedPreferences.getInstance();
+    final notifications = NotificationController(preferences);
+    final network = _UpdatesFixture(notifications, preferences: preferences);
+    addTearDown(network.dispose);
+    addTearDown(notifications.dispose);
+    network.debugReceive(
+      jsonEncode({
+        'type': 'admincraft.management-state',
+        'features': ['update-source-group'],
+        'updates': [
+          {
+            'serverId': 'lobby',
+            'serverName': 'Lobby',
+            'plugin': 'Plan',
+            'kind': 'plugin',
+            'currentVersion': '5.8 build 3638',
+            'status': 'unmanaged',
+            'candidates': [
+              {
+                'provider': 'github',
+                'projectId': 'plan-player-analytics/Plan',
+                'label': 'GitHub · plan-player-analytics/Plan',
+              },
+            ],
+          },
+          {
+            'serverId': 'smp',
+            'serverName': 'SMP',
+            'plugin': 'Plan',
+            'kind': 'plugin',
+            'currentVersion': '5.8 build 3638',
+            'status': 'unmanaged',
+            'candidates': [
+              {
+                'provider': 'github',
+                'projectId': 'plan-player-analytics/Plan',
+                'label': 'GitHub · plan-player-analytics/Plan',
+              },
+            ],
+          },
+          {
+            'serverId': 'lobby',
+            'serverName': 'Lobby',
+            'plugin': 'Citizens',
+            'kind': 'plugin',
+            'currentVersion': '2.0.43-SNAPSHOT',
+            'status': 'unmanaged',
+          },
+        ],
+      }),
+    );
+    await tester.pumpWidget(
+      ChangeNotifierProvider<NetworkController>.value(
+        value: network,
+        child: const MaterialApp(home: Scaffold(body: UpdatesView())),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('2 plugins need setup'), findsOneWidget);
+    expect(find.text('Needs setup (2)'), findsOneWidget);
+    expect(find.text('Plan'), findsNothing);
+
+    await tester.tap(find.text('Needs setup (2)'));
+    await tester.pumpAndSettle();
+    expect(find.text('Plan'), findsOneWidget);
+    expect(find.text('Citizens'), findsOneWidget);
+    expect(find.text('2 servers'), findsOneWidget);
+    expect(find.text('Configure for 2 servers'), findsOneWidget);
+
+    await tester.ensureVisible(find.text('Configure for 2 servers'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Configure for 2 servers'));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('validated for Plan on 2 servers'),
+      findsOneWidget,
+    );
+    expect(find.text('Remember for 2 servers'), findsOneWidget);
+    await tester.tap(find.text('Remember for 2 servers'));
+    await tester.pumpAndSettle();
+
+    expect(network.sourcePlugin, 'Plan');
+    expect(network.sourceProvider, UpdateProvider.github);
+    expect(network.sourceProjectId, 'plan-player-analytics/Plan');
+    expect(network.sourceRole, 'check');
+    expect(network.sourceAllMatchingServers, true);
   });
 
   testWidgets('one-click update targets only the selected plugin', (

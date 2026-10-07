@@ -590,9 +590,12 @@ class UpdatesView extends StatelessWidget {
     NetworkController network,
     PluginUpdate update, {
     required String role,
+    List<UpdateSourceCandidate>? candidatesOverride,
+    bool allMatchingServers = false,
+    int matchingCount = 1,
   }) async {
     final download = role == 'download';
-    final candidates = update.candidates;
+    final candidates = candidatesOverride ?? update.candidates;
     final existingProvider = download
         ? update.downloadProvider
         : update.provider;
@@ -635,9 +638,19 @@ class UpdatesView extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (allMatchingServers) ...[
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'This source will be validated for ${update.plugin} on $matchingCount servers. Nothing is saved unless every matching instance passes validation.',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     if (candidates.isNotEmpty) ...[
                       DropdownButtonFormField<UpdateSourceCandidate>(
                         initialValue: selectedCandidate,
+                        isExpanded: true,
                         decoration: const InputDecoration(
                           labelText: 'Discovered candidate',
                         ),
@@ -670,6 +683,7 @@ class UpdatesView extends StatelessWidget {
                     ],
                     DropdownButtonFormField<UpdateProvider>(
                       initialValue: selectedProvider,
+                      isExpanded: true,
                       decoration: const InputDecoration(labelText: 'Provider'),
                       items: [
                         for (final provider in UpdateProvider.values)
@@ -717,7 +731,9 @@ class UpdatesView extends StatelessWidget {
               FilledButton(
                 onPressed: () => Navigator.pop(dialogContext, true),
                 child: Text(
-                  download
+                  allMatchingServers
+                      ? 'Remember for $matchingCount servers'
+                      : download
                       ? 'Remember download source'
                       : 'Remember check source',
                 ),
@@ -733,6 +749,7 @@ class UpdatesView extends StatelessWidget {
           projectId: projectController.text.trim(),
           role: role,
           url: urlController.text.trim(),
+          allMatchingServers: allMatchingServers,
         );
       }
     } finally {
@@ -886,6 +903,27 @@ class UpdatesView extends StatelessWidget {
       .maintenance
       .any((item) => item.serverId == serverId && item.active);
 
+  Map<String, List<PluginUpdate>> _needsSetupGroups(List<PluginUpdate> items) {
+    final groups = <String, List<PluginUpdate>>{};
+    for (final item in items) {
+      final key = item.plugin.trim().toLowerCase();
+      groups.putIfAbsent(key, () => <PluginUpdate>[]).add(item);
+    }
+    return groups;
+  }
+
+  List<UpdateSourceCandidate> _groupCandidates(List<PluginUpdate> items) {
+    final candidates = <String, UpdateSourceCandidate>{};
+    for (final item in items) {
+      for (final candidate in item.candidates) {
+        final key = '${candidate.provider.name}\u0000${candidate.projectId}';
+        candidates.putIfAbsent(key, () => candidate);
+      }
+    }
+    return candidates.values.toList()
+      ..sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+  }
+
   @override
   Widget build(BuildContext context) {
     final network = context.watch<NetworkController?>();
@@ -908,6 +946,16 @@ class UpdatesView extends StatelessWidget {
               update.status == PluginUpdateStatus.sourceUnavailable,
         )
         .toList();
+    final groupableNeedsSetup = needsSetup
+        .where((update) => update.kind == 'plugin')
+        .toList();
+    final ungroupedNeedsSetup = needsSetup
+        .where((update) => update.kind != 'plugin')
+        .toList();
+    final needsSetupGroups = _needsSetupGroups(groupableNeedsSetup);
+    final needsSetupDisplayCount = serverId == null
+        ? needsSetupGroups.length + ungroupedNeedsSetup.length
+        : needsSetup.length;
     final checkingItems = updates
         .where((update) => update.status == PluginUpdateStatus.checking)
         .toList();
@@ -1108,6 +1156,119 @@ class UpdatesView extends StatelessWidget {
       ),
     );
 
+    Widget groupedSetupCard(List<PluginUpdate> group) {
+      final first = group.first;
+      final candidates = _groupCandidates(group);
+      final serverNames = group.map((item) => item.serverName).toSet().toList()
+        ..sort();
+      final versions =
+          group
+              .map((item) => item.currentVersion.trim())
+              .where((version) => version.isNotEmpty)
+              .toSet()
+              .toList()
+            ..sort();
+      final serverCount = group.map((item) => item.serverId).toSet().length;
+      final groupSupported = network.management.features.contains(
+        'update-source-group',
+      );
+      final candidateSummary = candidates.isEmpty
+          ? 'No automatic source candidate found.'
+          : '${candidates.length} candidate${candidates.length == 1 ? '' : 's'}: '
+                '${candidates.take(3).map((candidate) => candidate.label).join(' · ')}'
+                '${candidates.length > 3 ? ' · +${candidates.length - 3} more' : ''}';
+      return Card(
+        margin: const EdgeInsets.only(bottom: 10),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: Icon(Icons.link_off_outlined),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      first.plugin,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  Chip(
+                    label: Text(
+                      '$serverCount server${serverCount == 1 ? '' : 's'}',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                serverNames.join(', '),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              if (versions.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Installed: ${versions.join(' · ')}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+              const SizedBox(height: 6),
+              Text(candidateSummary),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: groupSupported
+                    ? () => _configureSource(
+                        context,
+                        network,
+                        first,
+                        role: 'check',
+                        candidatesOverride: candidates,
+                        allMatchingServers: true,
+                        matchingCount: serverCount,
+                      )
+                    : null,
+                icon: const Icon(Icons.link),
+                label: Text(
+                  groupSupported
+                      ? 'Configure for $serverCount server${serverCount == 1 ? '' : 's'}'
+                      : 'Bridge update required',
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    Widget groupedNeedsSetupSection() {
+      final groups = needsSetupGroups.values.toList()
+        ..sort(
+          (a, b) => a.first.plugin.toLowerCase().compareTo(
+            b.first.plugin.toLowerCase(),
+          ),
+        );
+      return Card(
+        margin: const EdgeInsets.only(bottom: 10),
+        child: ExpansionTile(
+          initiallyExpanded: false,
+          title: Text('Needs setup ($needsSetupDisplayCount)'),
+          subtitle: Text(
+            '${groupableNeedsSetup.length} plugin installation${groupableNeedsSetup.length == 1 ? '' : 's'} grouped by name.',
+          ),
+          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          children: [
+            for (final group in groups) groupedSetupCard(group),
+            for (final update in ungroupedNeedsSetup) updateCard(update),
+          ],
+        ),
+      );
+    }
+
     final children = <Widget>[
       Card(
         margin: const EdgeInsets.only(bottom: 14),
@@ -1126,7 +1287,13 @@ class UpdatesView extends StatelessWidget {
                     ),
                   ),
                   if (needsSetup.isNotEmpty)
-                    Chip(label: Text('${needsSetup.length} need setup')),
+                    Chip(
+                      label: Text(
+                        serverId == null
+                            ? '$needsSetupDisplayCount plugin${needsSetupDisplayCount == 1 ? '' : 's'} need setup'
+                            : '${needsSetup.length} need setup',
+                      ),
+                    ),
                   if (current.isNotEmpty)
                     Chip(label: Text('${current.length} up to date')),
                 ],
@@ -1165,11 +1332,14 @@ class UpdatesView extends StatelessWidget {
           checkingItems,
         ),
       if (needsSetup.isNotEmpty)
-        collapsedSection(
-          'Needs setup',
-          'Detected items that are not reliable update notifications yet.',
-          needsSetup,
-        ),
+        if (serverId == null)
+          groupedNeedsSetupSection()
+        else
+          collapsedSection(
+            'Needs setup',
+            'Detected items that are not reliable update notifications yet.',
+            needsSetup,
+          ),
       if (current.isNotEmpty)
         collapsedSection(
           'Up to date',

@@ -743,6 +743,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     required String projectId,
     String role = 'check',
     String? url,
+    bool allMatchingServers = false,
   }) => _manage('updates-source-set', {
     'serverId': update.serverId,
     'plugin': update.plugin,
@@ -750,6 +751,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     'projectId': projectId,
     'role': role,
     if (url != null && url.trim().isNotEmpty) 'url': url.trim(),
+    if (allMatchingServers) 'scope': 'plugin',
     'providers': {
       for (final provider in UpdateProvider.values)
         provider.name: updateProviderEnabled(provider),
