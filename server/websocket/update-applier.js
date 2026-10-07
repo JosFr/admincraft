@@ -34,6 +34,12 @@ function updateEligibility(update) {
   if (update?.downloadSourceConfirmed !== true) {
     return { eligible: false, reason: "Confirm a download source first." };
   }
+  if (update?.downloadReview?.status !== "ready") {
+    return {
+      eligible: false,
+      reason: "The download source is not approved for automatic JAR replacement.",
+    };
+  }
   const downloadUrl = String(update?.downloadUrl || "").trim();
   if (!downloadUrl) {
     return {

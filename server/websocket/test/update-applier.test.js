@@ -51,6 +51,7 @@ test("automatic update eligibility is fail-closed", () => {
       kind: "plugin",
       status: "updateAvailable",
       downloadSourceConfirmed: true,
+      downloadReview: { status: "ready" },
       downloadUrl: "http://example.test/plugin.jar",
     }).eligible,
     false,
@@ -60,9 +61,20 @@ test("automatic update eligibility is fail-closed", () => {
       kind: "plugin",
       status: "updateAvailable",
       downloadSourceConfirmed: true,
+      downloadReview: { status: "ready" },
       downloadUrl: "https://example.test/plugin.jar",
     }).eligible,
     true,
+  );
+  assert.equal(
+    updateEligibility({
+      kind: "plugin",
+      status: "updateAvailable",
+      downloadSourceConfirmed: true,
+      downloadReview: { status: "authenticated" },
+      downloadUrl: "https://example.test/plugin.jar",
+    }).eligible,
+    false,
   );
 });
 
@@ -99,6 +111,7 @@ test("plugin update apply validates and replaces a JAR with rollback copy", asyn
           latestVersion: "1.1.0",
           status: "updateAvailable",
           downloadSourceConfirmed: true,
+          downloadReview: { status: "ready" },
           downloadUrl: "https://example.test/Example.jar",
         },
       ],
@@ -148,6 +161,7 @@ test("a later update failure rolls back earlier plugin replacements", async () =
       latestVersion: "2.0.0",
       status: "updateAvailable",
       downloadSourceConfirmed: true,
+      downloadReview: { status: "ready" },
       downloadUrl: `https://example.test/${plugin}.jar`,
     }));
     await assert.rejects(

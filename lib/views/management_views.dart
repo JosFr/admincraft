@@ -602,7 +602,9 @@ class UpdatesView extends StatelessWidget {
     final existingProject = download
         ? update.downloadProjectId
         : update.projectId;
-    final existingUrl = download ? update.downloadUrl : update.url;
+    final existingUrl = download
+        ? (update.downloadSourceConfirmed ? update.downloadUrl : null)
+        : update.url;
     UpdateSourceCandidate? selectedCandidate;
     if (existingProvider != null && existingProject?.isNotEmpty == true) {
       for (final candidate in candidates) {
@@ -634,7 +636,9 @@ class UpdatesView extends StatelessWidget {
       text: existingProject ?? selectedCandidate?.projectId ?? '',
     );
     final urlController = TextEditingController(
-      text: existingUrl ?? selectedCandidate?.url ?? '',
+      text: download
+          ? (existingUrl ?? '')
+          : (existingUrl ?? selectedCandidate?.url ?? ''),
     );
     try {
       final confirmed = await showDialog<bool>(
@@ -685,7 +689,9 @@ class UpdatesView extends StatelessWidget {
                             selectedCandidate = candidate;
                             selectedProvider = candidate.provider;
                             projectController.text = candidate.projectId;
-                            urlController.text = candidate.url ?? '';
+                            urlController.text = download
+                                ? ''
+                                : (candidate.url ?? '');
                           });
                         },
                       ),
@@ -735,14 +741,16 @@ class UpdatesView extends StatelessWidget {
                     const SizedBox(height: 12),
                     TextField(
                       controller: urlController,
-                      decoration: const InputDecoration(
-                        labelText: 'URL (optional)',
+                      decoration: InputDecoration(
+                        labelText: download
+                            ? 'Direct artifact URL (optional)'
+                            : 'URL (optional)',
                       ),
                     ),
                     const SizedBox(height: 10),
                     Text(
                       download
-                          ? 'Used for opening/downloading the update. It may differ from the version-check source.'
+                          ? 'Leave the direct URL blank when the provider can resolve the compatible JAR itself. A project page is not a download artifact.'
                           : 'Used only to check the installed version against the provider.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
@@ -973,12 +981,23 @@ class UpdatesView extends StatelessWidget {
         .where((update) => update.status == PluginUpdateStatus.updateAvailable)
         .toList();
     final needsSetup = updates
+        .where((update) => update.status == PluginUpdateStatus.unmanaged)
+        .toList();
+    final sourceUnavailable = updates
         .where(
-          (update) =>
-              update.status == PluginUpdateStatus.unmanaged ||
-              update.status == PluginUpdateStatus.sourceUnavailable,
+          (update) => update.status == PluginUpdateStatus.sourceUnavailable,
         )
         .toList();
+    final downloadReviewItems = available
+        .where(
+          (update) =>
+              update.kind == 'plugin' && !update.downloadSourceConfirmed,
+        )
+        .toList();
+    final downloadReviewGroups = _needsSetupGroups(downloadReviewItems);
+    final downloadReviewDisplayCount = serverId == null
+        ? downloadReviewGroups.length
+        : downloadReviewItems.length;
     final groupableNeedsSetup = needsSetup
         .where((update) => update.kind == 'plugin')
         .toList();
@@ -1099,9 +1118,12 @@ class UpdatesView extends StatelessWidget {
                       ],
                     ),
                   ),
-                  Chip(label: Text(_updateStatusLabel(update.status))),
                   sourceMenu(update),
                 ],
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 36, top: 6),
+                child: Chip(label: Text(_updateStatusLabel(update.status))),
               ),
               const SizedBox(height: 8),
               Text(
@@ -1133,8 +1155,7 @@ class UpdatesView extends StatelessWidget {
                       ),
                     )
                   else if (!update.sourceConfirmed ||
-                      update.status == PluginUpdateStatus.unmanaged ||
-                      update.status == PluginUpdateStatus.sourceUnavailable)
+                      update.status == PluginUpdateStatus.unmanaged)
                     OutlinedButton.icon(
                       onPressed: () => _configureSource(
                         context,
@@ -1144,6 +1165,13 @@ class UpdatesView extends StatelessWidget {
                       ),
                       icon: const Icon(Icons.link),
                       label: const Text('Configure source'),
+                    )
+                  else if (update.status ==
+                      PluginUpdateStatus.sourceUnavailable)
+                    OutlinedButton.icon(
+                      onPressed: () => network.checkUpdates(update.serverId),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry check'),
                     )
                   else if (update.status ==
                           PluginUpdateStatus.updateAvailable &&
@@ -1461,6 +1489,248 @@ class UpdatesView extends StatelessWidget {
       );
     }
 
+    Future<void> confirmSafeDownloadSources(
+      List<List<PluginUpdate>> readyGroups,
+    ) async {
+      final mappings = <Map<String, String>>[];
+      var instanceCount = 0;
+      for (final group in readyGroups) {
+        final first = group.first;
+        final provider = first.provider;
+        final projectId = first.projectId?.trim();
+        if (provider == null || projectId == null || projectId.isEmpty) {
+          continue;
+        }
+        instanceCount += group.length;
+        mappings.add({
+          'plugin': first.plugin,
+          'provider': provider.name,
+          'projectId': projectId,
+        });
+      }
+      if (mappings.isEmpty) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Confirm ${mappings.length} download sources?'),
+          content: SizedBox(
+            width: 500,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'This confirms provider-resolved JAR downloads for $instanceCount currently updateable plugin installations. No plugin is downloaded or installed by this action.',
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'The backend has independently classified every listed source as a direct automatic artifact. Premium, authenticated, external and ambiguous downloads are excluded.',
+                  ),
+                  const SizedBox(height: 12),
+                  for (final mapping in mappings)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        '• ${mapping['plugin']} · ${mapping['provider']} · ${mapping['projectId']}',
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Confirm download sources'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed == true) network.setSafeDownloadSourcesBulk(mappings);
+    }
+
+    Widget downloadReviewSection() {
+      final groups = downloadReviewGroups.values.toList()
+        ..sort(
+          (a, b) => a.first.plugin.toLowerCase().compareTo(
+            b.first.plugin.toLowerCase(),
+          ),
+        );
+      final readyGroups = <List<PluginUpdate>>[];
+      final blockedGroups = <List<PluginUpdate>>[];
+      final manualGroups = <List<PluginUpdate>>[];
+      for (final group in groups) {
+        final first = group.first;
+        final sameSource = group.every(
+          (item) =>
+              item.provider == first.provider &&
+              item.projectId == first.projectId,
+        );
+        final allReady = group.every(
+          (item) => item.downloadReview?.status == 'ready',
+        );
+        final anyAuthenticated = group.any(
+          (item) => item.downloadReview?.status == 'authenticated',
+        );
+        if (sameSource && allReady) {
+          readyGroups.add(group);
+        } else if (anyAuthenticated) {
+          blockedGroups.add(group);
+        } else {
+          manualGroups.add(group);
+        }
+      }
+
+      Widget groupCard(List<PluginUpdate> group) {
+        final first = group.first;
+        final review = first.downloadReview;
+        final servers = group.map((item) => item.serverName).toSet().toList()
+          ..sort();
+        final latest = group
+            .map((item) => item.latestVersion)
+            .whereType<String>()
+            .toSet()
+            .toList();
+        final blocked = review?.status == 'authenticated';
+        return Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      review?.status == 'ready'
+                          ? Icons.verified_outlined
+                          : blocked
+                          ? Icons.lock_outline
+                          : Icons.rule_folder_outlined,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        first.plugin,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    Chip(
+                      label: Text(
+                        '${group.length} update${group.length == 1 ? '' : 's'}',
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  servers.join(', '),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                if (latest.isNotEmpty)
+                  Text(
+                    'Target: ${latest.join(' · ')}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                const SizedBox(height: 6),
+                Text(review?.label ?? 'Download source needs review'),
+                const SizedBox(height: 2),
+                Text(
+                  review?.reason ??
+                      'No automatic direct artifact has been proven yet.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                if (review?.status != 'ready' && !blocked) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => _configureSource(
+                      context,
+                      network,
+                      first,
+                      role: 'download',
+                    ),
+                    icon: const Icon(Icons.rule_folder_outlined),
+                    label: const Text('Review manually'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      }
+
+      Widget bucket(
+        String title,
+        String subtitle,
+        List<List<PluginUpdate>> bucketGroups, {
+        bool expanded = false,
+      }) => ExpansionTile(
+        initiallyExpanded: expanded,
+        tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+        childrenPadding: EdgeInsets.zero,
+        title: Text('$title (${bucketGroups.length})'),
+        subtitle: Text(subtitle),
+        children: [for (final group in bucketGroups) groupCard(group)],
+      );
+
+      final bulkAvailable = network.management.features.contains(
+        'update-download-bulk',
+      );
+      return Card(
+        margin: const EdgeInsets.only(bottom: 10),
+        child: ExpansionTile(
+          initiallyExpanded: false,
+          title: Text('Download review ($downloadReviewDisplayCount)'),
+          subtitle: const Text(
+            'Version checking and permission to fetch a plugin JAR are separate trust decisions.',
+          ),
+          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          children: [
+            if (readyGroups.isNotEmpty) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed: bulkAvailable && !network.managementPending
+                      ? () => confirmSafeDownloadSources(readyGroups)
+                      : null,
+                  icon: const Icon(Icons.download_done_outlined),
+                  label: Text(
+                    bulkAvailable
+                        ? 'Confirm ${readyGroups.length} safe download sources'
+                        : 'Bridge update required for safe bulk confirm',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              bucket(
+                'Ready to confirm',
+                'The backend resolved a direct JAR through the checked provider and compatibility rules.',
+                readyGroups,
+                expanded: true,
+              ),
+            ],
+            if (blockedGroups.isNotEmpty)
+              bucket(
+                'Authentication required',
+                'Premium or authenticated downloads remain blocked from the public automatic path.',
+                blockedGroups,
+              ),
+            if (manualGroups.isNotEmpty)
+              bucket(
+                'Manual review',
+                'No direct automatic JAR path was proven; review the download route before enabling updates.',
+                manualGroups,
+              ),
+          ],
+        ),
+      );
+    }
+
     final children = <Widget>[
       Card(
         margin: const EdgeInsets.only(bottom: 14),
@@ -1484,6 +1754,18 @@ class UpdatesView extends StatelessWidget {
                         serverId == null
                             ? '$needsSetupDisplayCount plugin${needsSetupDisplayCount == 1 ? '' : 's'} need setup'
                             : '${needsSetup.length} need setup',
+                      ),
+                    ),
+                  if (sourceUnavailable.isNotEmpty)
+                    Chip(
+                      label: Text(
+                        '${sourceUnavailable.length} source${sourceUnavailable.length == 1 ? '' : 's'} unavailable',
+                      ),
+                    ),
+                  if (downloadReviewItems.isNotEmpty)
+                    Chip(
+                      label: Text(
+                        '$downloadReviewDisplayCount download${downloadReviewDisplayCount == 1 ? '' : 's'} need review',
                       ),
                     ),
                   if (current.isNotEmpty)
@@ -1517,11 +1799,18 @@ class UpdatesView extends StatelessWidget {
         ),
         for (final update in available) updateCard(update),
       ],
+      if (downloadReviewItems.isNotEmpty) downloadReviewSection(),
       if (checkingItems.isNotEmpty)
         collapsedSection(
           'Checking',
           'Providers that are still being queried.',
           checkingItems,
+        ),
+      if (sourceUnavailable.isNotEmpty)
+        collapsedSection(
+          'Source unavailable',
+          'The check source is already configured, but no usable version could be resolved right now. Retry the check instead of reconfiguring the source.',
+          sourceUnavailable,
         ),
       if (needsSetup.isNotEmpty)
         if (serverId == null)

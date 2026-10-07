@@ -681,6 +681,7 @@ class PluginUpdate {
   final String? downloadProjectId;
   final bool downloadSourceConfirmed;
   final String? downloadUrl;
+  final UpdateSourceReview? downloadReview;
   final PluginUpdateStatus status;
   final String? url;
 
@@ -700,6 +701,7 @@ class PluginUpdate {
     this.downloadProjectId,
     this.downloadSourceConfirmed = false,
     this.downloadUrl,
+    this.downloadReview,
     required this.status,
     required this.url,
   });
@@ -749,6 +751,11 @@ class PluginUpdate {
       downloadProjectId: json['downloadProjectId']?.toString(),
       downloadSourceConfirmed: json['downloadSourceConfirmed'] == true,
       downloadUrl: json['downloadUrl']?.toString(),
+      downloadReview: json['downloadReview'] is Map<String, dynamic>
+          ? UpdateSourceReview.fromJson(
+              json['downloadReview'] as Map<String, dynamic>,
+            )
+          : null,
       status: _enumByName(
         PluginUpdateStatus.values,
         json['status'],
@@ -762,6 +769,7 @@ class PluginUpdate {
       kind == 'plugin' &&
       status == PluginUpdateStatus.updateAvailable &&
       downloadSourceConfirmed &&
+      downloadReview?.status == 'ready' &&
       (downloadUrl?.trim().isNotEmpty ?? false);
 }
 

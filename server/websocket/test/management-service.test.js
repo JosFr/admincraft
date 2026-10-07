@@ -973,6 +973,138 @@ test("bulk verified source setup writes nothing if one mapping fails", async () 
   }
 });
 
+test("bulk safe download setup confirms only currently reviewed updateable instances", async () => {
+  const key = (serverId, plugin) => `${serverId}\u0000${plugin}`;
+  const inventory = [
+    ["lobby", "Lobby", "WorldEdit"],
+    ["smp", "SMP", "WorldEdit"],
+    ["smp", "SMP", "ExcellentShop"],
+  ];
+  const checker = async ({ sourceOverrides = {} } = {}) => inventory.map(
+    ([serverId, serverName, plugin]) => {
+      const source = sourceOverrides[key(serverId, plugin)] || {};
+      const check = source.check || {
+        provider: plugin === "WorldEdit" ? "modrinth" : "spigot",
+        projectId: plugin === "WorldEdit" ? "1u6JkXh5" : "50696",
+      };
+      const download = source.download;
+      return {
+        serverId,
+        serverName,
+        plugin,
+        kind: "plugin",
+        currentVersion: "1.0.0",
+        latestVersion: "1.1.0",
+        provider: check.provider,
+        projectId: check.projectId,
+        sourceConfirmed: true,
+        downloadProvider: download?.provider || null,
+        downloadProjectId: download?.projectId || null,
+        downloadSourceConfirmed: Boolean(download),
+        downloadUrl: download ? "https://cdn.test/plugin.jar" : null,
+        downloadReview: plugin === "WorldEdit"
+          ? { status: "ready", label: "Compatible Modrinth JAR", reason: "safe" }
+          : { status: "authenticated", label: "Premium Spigot resource", reason: "licensed" },
+        candidates: [],
+        status: "updateAvailable",
+        url: null,
+      };
+    },
+  );
+  checker.confirmSource = ({ serverId, plugin, provider, projectId, role }) => ({
+    key: key(serverId, plugin),
+    role: role || "check",
+    source: { provider, projectId },
+  });
+  const fx = fixture(
+    { updateChecker: checker },
+    {
+      serversJson: JSON.stringify([
+        { id: "lobby", name: "Lobby", multicraftServerId: 7 },
+        { id: "smp", name: "SMP", multicraftServerId: 8 },
+      ]),
+    },
+  );
+  try {
+    await fx.service.handle("updates-check", { providers: {} });
+    const result = await fx.service.handle("updates-download-bulk-set", {
+      mappings: [
+        { plugin: "WorldEdit", provider: "modrinth", projectId: "1u6JkXh5" },
+      ],
+      providers: {},
+    });
+    assert.equal(result.success, true);
+    assert.equal(result.message, "Download sources remembered for 1 plugin(s).");
+    const worldEdit = fx.service.snapshot().updates.filter((item) => item.plugin === "WorldEdit");
+    assert.ok(worldEdit.every((item) => item.downloadSourceConfirmed));
+    const premium = fx.service.snapshot().updates.find((item) => item.plugin === "ExcellentShop");
+    assert.equal(premium.downloadSourceConfirmed, false);
+    const persisted = JSON.parse(fs.readFileSync(fx.statePath, "utf8"));
+    assert.equal(persisted.updateSourceOverrides[key("lobby", "WorldEdit")].download.projectId, "1u6JkXh5");
+    assert.equal(persisted.updateSourceOverrides[key("smp", "WorldEdit")].download.projectId, "1u6JkXh5");
+    assert.equal(persisted.updateSourceOverrides[key("smp", "ExcellentShop")], undefined);
+    assert.ok(fx.service.snapshot().features.includes("update-download-bulk"));
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("bulk safe download setup is atomic when one plugin is not backend-approved", async () => {
+  const key = (serverId, plugin) => `${serverId}\u0000${plugin}`;
+  const checker = async () => [
+    {
+      serverId: "lobby",
+      serverName: "Lobby",
+      plugin: "WorldEdit",
+      kind: "plugin",
+      currentVersion: "1.0.0",
+      latestVersion: "1.1.0",
+      provider: "modrinth",
+      projectId: "1u6JkXh5",
+      sourceConfirmed: true,
+      downloadSourceConfirmed: false,
+      downloadReview: { status: "ready", label: "safe", reason: "safe" },
+      status: "updateAvailable",
+    },
+    {
+      serverId: "smp",
+      serverName: "SMP",
+      plugin: "ExcellentShop",
+      kind: "plugin",
+      currentVersion: "5.1.6",
+      latestVersion: "5.1.7",
+      provider: "spigot",
+      projectId: "50696",
+      sourceConfirmed: true,
+      downloadSourceConfirmed: false,
+      downloadReview: { status: "authenticated", label: "premium", reason: "licensed" },
+      status: "updateAvailable",
+    },
+  ];
+  checker.confirmSource = ({ serverId, plugin, provider, projectId, role }) => ({
+    key: key(serverId, plugin),
+    role,
+    source: { provider, projectId },
+  });
+  const fx = fixture({ updateChecker: checker });
+  try {
+    await fx.service.handle("updates-check", { providers: {} });
+    const result = await fx.service.handle("updates-download-bulk-set", {
+      mappings: [
+        { plugin: "WorldEdit", provider: "modrinth", projectId: "1u6JkXh5" },
+        { plugin: "ExcellentShop", provider: "spigot", projectId: "50696" },
+      ],
+      providers: {},
+    });
+    assert.equal(result.success, false);
+    assert.match(result.message, /not approved for automatic confirmation/);
+    const persisted = JSON.parse(fs.readFileSync(fx.statePath, "utf8"));
+    assert.deepEqual(persisted.updateSourceOverrides, {});
+  } finally {
+    fx.cleanup();
+  }
+});
+
 test("management activity records backup and schedule lifecycle actions", async () => {
   const fx = fixture();
   try {

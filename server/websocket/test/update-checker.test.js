@@ -547,6 +547,7 @@ test("GitHub check source does not implicitly confirm a download source", async 
   assert.equal(result.downloadProjectId, null);
   assert.equal(result.downloadSourceConfirmed, false);
   assert.equal(result.downloadUrl, null);
+  assert.equal(result.downloadReview.status, "ready");
 });
 
 test("Modrinth check source does not implicitly confirm the primary JAR", async () => {
@@ -591,6 +592,7 @@ test("Modrinth check source does not implicitly confirm the primary JAR", async 
   assert.equal(result.downloadProvider, null);
   assert.equal(result.downloadSourceConfirmed, false);
   assert.equal(result.downloadUrl, null);
+  assert.equal(result.downloadReview.status, "ready");
 });
 
 test("Modrinth chooses a stable compatible Bukkit release", async () => {
@@ -811,6 +813,92 @@ test("Modrinth follows beta updates only when the installed plugin is already be
   assert.equal(beta.latestVersion, "3.7-beta-8");
   const stable = await run("3.6.0");
   assert.equal(stable.latestVersion, "3.6.1");
+});
+
+test("Spigot download review distinguishes free and premium JARs", async () => {
+  async function run(premium) {
+    const checker = createUpdateChecker(
+      {
+        projectsJson: JSON.stringify([
+          {
+            serverId: "smp",
+            plugin: premium ? "PremiumShop" : "FreePlugin",
+            currentVersion: "1.0.0",
+            provider: "spigot",
+            projectId: premium ? "999" : "123",
+          },
+        ]),
+      },
+      {
+        fetch: async (url) => ({
+          ok: true,
+          json: async () =>
+            url.endsWith("/versions/latest")
+              ? { name: "1.1.0" }
+              : {
+                  premium,
+                  external: false,
+                  file: { type: ".jar" },
+                },
+        }),
+      },
+    );
+    return (await checker())[0];
+  }
+
+  const free = await run(false);
+  assert.equal(free.status, "updateAvailable");
+  assert.equal(free.downloadReview.status, "ready");
+  assert.equal(free.downloadSourceConfirmed, false);
+  assert.equal(free.downloadUrl, null);
+
+  const premium = await run(true);
+  assert.equal(premium.status, "updateAvailable");
+  assert.equal(premium.downloadReview.status, "authenticated");
+  assert.equal(premium.downloadUrl, null);
+});
+
+test("download confirmation does not remember a project page as an artifact URL", async () => {
+  const checker = createUpdateChecker(
+    {},
+    {
+      discoverPluginProjects: () => [
+        {
+          serverId: "smp",
+          serverName: "SMP",
+          plugin: "Example",
+          kind: "plugin",
+          currentVersion: "1.0.0",
+          provider: null,
+          projectId: "",
+          sourceConfirmed: false,
+          candidates: [
+            {
+              provider: "modrinth",
+              projectId: "abc",
+              label: "Modrinth · Example",
+              url: "https://modrinth.com/plugin/example",
+            },
+          ],
+          url: null,
+          gameVersion: "1.21.11",
+        },
+      ],
+      fetch: async () => ({ ok: true, json: async () => [] }),
+    },
+  );
+  await checker();
+  const confirmed = checker.confirmSource({
+    serverId: "smp",
+    plugin: "Example",
+    provider: "modrinth",
+    projectId: "abc",
+    role: "download",
+  });
+  assert.deepEqual(confirmed.source, {
+    provider: "modrinth",
+    projectId: "abc",
+  });
 });
 
 test("automatic Paper inventory reaches Update Center without configured projects", async () => {

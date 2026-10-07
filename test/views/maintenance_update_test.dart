@@ -77,6 +77,11 @@ void main() {
                   'downloadProvider': 'github',
                   'downloadProjectId': 'owner/repo',
                   'downloadSourceConfirmed': true,
+                  'downloadReview': {
+                    'status': 'ready',
+                    'label': 'Safe direct JAR',
+                    'reason': 'Backend approved.',
+                  },
                   'downloadUrl': 'https://example.test/ExamplePlugin.jar',
                   'status': 'updateAvailable',
                 },

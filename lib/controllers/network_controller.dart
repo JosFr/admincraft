@@ -501,6 +501,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         action == 'updates-check' ||
         action == 'updates-source-set' ||
         action == 'updates-source-bulk-set' ||
+        action == 'updates-download-bulk-set' ||
         action == 'maintenance-start' ||
         action == 'maintenance-cancel' ||
         action == 'backup-forget' ||
@@ -541,7 +542,8 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
           : action == 'updates-check'
           ? 'Checking configured update sources…'
           : action == 'updates-source-set' ||
-                action == 'updates-source-bulk-set'
+                action == 'updates-source-bulk-set' ||
+                action == 'updates-download-bulk-set'
           ? 'Saving update source and refreshing its status…'
           : action == 'maintenance-start'
           ? 'Starting maintenance…'
@@ -774,6 +776,15 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
 
   bool setVerifiedUpdateSourcesBulk(List<Map<String, String>> mappings) =>
       _manage('updates-source-bulk-set', {
+        'mappings': mappings,
+        'providers': {
+          for (final provider in UpdateProvider.values)
+            provider.name: updateProviderEnabled(provider),
+        },
+      });
+
+  bool setSafeDownloadSourcesBulk(List<Map<String, String>> mappings) =>
+      _manage('updates-download-bulk-set', {
         'mappings': mappings,
         'providers': {
           for (final provider in UpdateProvider.values)

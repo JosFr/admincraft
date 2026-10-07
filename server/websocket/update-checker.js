@@ -337,16 +337,29 @@ async function latestFor(project, fetchImpl, config = {}) {
     };
   }
   if (project.provider === "spigot") {
-    const data = await fetchJson(
-      fetchImpl,
-      `https://api.spiget.org/v2/resources/${encodeURIComponent(project.projectId)}/versions/latest`,
-    );
+    const [versionData, resourceData] = await Promise.all([
+      fetchJson(
+        fetchImpl,
+        `https://api.spiget.org/v2/resources/${encodeURIComponent(project.projectId)}/versions/latest`,
+      ),
+      fetchJson(
+        fetchImpl,
+        `https://api.spiget.org/v2/resources/${encodeURIComponent(project.projectId)}`,
+      ),
+    ]);
+    const premium = resourceData?.premium === true;
+    const external = resourceData?.external === true;
+    const fileType = String(resourceData?.file?.type || "").toLowerCase();
+    const directJar = !premium && !external && fileType === ".jar";
     return {
-      version: data.name,
+      version: versionData.name,
       url:
         project.url ||
         `https://www.spigotmc.org/resources/${project.projectId}/`,
-      downloadUrl: `https://api.spiget.org/v2/resources/${encodeURIComponent(project.projectId)}/download`,
+      downloadUrl: directJar
+        ? `https://api.spiget.org/v2/resources/${encodeURIComponent(project.projectId)}/download`
+        : null,
+      downloadPolicy: { premium, external, directJar },
     };
   }
   if (project.provider === "hangar") {
@@ -392,6 +405,79 @@ async function latestFor(project, fetchImpl, config = {}) {
   }
   throw new Error("Provider requires manual or authenticated checking.");
 }
+
+function downloadReviewFor(project, latest) {
+  if (project.kind !== "plugin") return null;
+  const provider = canonicalProvider(project.provider);
+  const hasDirectArtifact = Boolean(String(latest?.downloadUrl || "").trim());
+  if (provider === "modrinth") {
+    return hasDirectArtifact
+      ? {
+          status: "ready",
+          label: "Compatible Modrinth JAR",
+          reason:
+            "The JAR is resolved from the same loader, channel and Minecraft-compatible release used for version checking.",
+        }
+      : {
+          status: "manual",
+          label: "Modrinth artifact needs review",
+          reason: "No direct JAR artifact was resolved for the compatible release.",
+        };
+  }
+  if (provider === "github") {
+    return hasDirectArtifact
+      ? {
+          status: "ready",
+          label: "GitHub release JAR",
+          reason: "An unambiguous JAR asset was resolved from the selected release.",
+        }
+      : {
+          status: "manual",
+          label: "GitHub asset needs review",
+          reason: "No unambiguous JAR asset could be selected automatically.",
+        };
+  }
+  if (provider === "spigot") {
+    if (latest?.downloadPolicy?.premium === true) {
+      return {
+        status: "authenticated",
+        label: "Premium Spigot resource",
+        reason: "The resource requires an authenticated licensed download and cannot use the public automatic download path.",
+      };
+    }
+    if (latest?.downloadPolicy?.external === true) {
+      return {
+        status: "manual",
+        label: "External Spigot download",
+        reason: "The resource uses an external download location that must be reviewed separately.",
+      };
+    }
+    return hasDirectArtifact
+      ? {
+          status: "ready",
+          label: "Free Spigot JAR",
+          reason: "Spiget reports a non-premium, non-external JAR that can be resolved through the public download endpoint.",
+        }
+      : {
+          status: "manual",
+          label: "Spigot download needs review",
+          reason: "No public direct JAR download was proven for this resource.",
+        };
+  }
+  if (provider === "builtByBit") {
+    return {
+      status: "authenticated",
+      label: "BuiltByBit authenticated download",
+      reason: "Version checks may use the API, but download authorization must be reviewed separately.",
+    };
+  }
+  return {
+    status: "manual",
+    label: "Download source needs review",
+    reason: "Admincraft cannot prove a direct automatic JAR path for this provider yet.",
+  };
+}
+
 function providerEnabled(providers, provider) {
   for (const [key, value] of Object.entries(providers || {})) {
     if (canonicalProvider(key) === provider) return value !== false;
@@ -485,6 +571,7 @@ function baseResult(project, source = null, downloadSource = null) {
     downloadProjectId: downloadSource?.projectId || null,
     downloadSourceConfirmed: downloadSource?.sourceConfirmed === true,
     downloadUrl: downloadSource?.url || null,
+    downloadReview: null,
   };
 }
 
@@ -650,21 +737,32 @@ function createUpdateChecker(config = {}, dependencies = {}) {
         );
         const latestVersion = String(latest.version || "").trim();
         let resolvedDownloadSource = downloadSource;
+        let downloadReview = downloadReviewFor({ ...project, ...source }, latest);
         if (downloadSource) {
           let directUrl = explicitDownloadSource?.url || null;
           const sameSource =
             downloadSource.provider === source.provider &&
             downloadSource.projectId === source.projectId;
           if (!directUrl && sameSource) directUrl = latest.downloadUrl || null;
-          if (!directUrl && !sameSource) {
+          if (!sameSource) {
             try {
               const downloadLatest = await latestFor(
                 { ...project, ...downloadSource },
                 fetchImpl,
                 checkerConfig,
               );
-              directUrl = downloadLatest.downloadUrl || null;
-            } catch (_) {}
+              if (!directUrl) directUrl = downloadLatest.downloadUrl || null;
+              downloadReview = downloadReviewFor(
+                { ...project, ...downloadSource },
+                downloadLatest,
+              );
+            } catch (_) {
+              downloadReview = {
+                status: "manual",
+                label: "Download source unavailable",
+                reason: "The configured download source could not resolve a direct artifact.",
+              };
+            }
           }
           resolvedDownloadSource = { ...downloadSource, url: directUrl };
         }
@@ -674,6 +772,7 @@ function createUpdateChecker(config = {}, dependencies = {}) {
           latestVersion: latestVersion || null,
           status,
           url: latest.url || source.url || project.url,
+          downloadReview,
         });
       } catch (_) {
         results.push({
@@ -713,15 +812,19 @@ function createUpdateChecker(config = {}, dependencies = {}) {
     ) {
       throw new Error("Update source is not one of the discovered candidates.");
     }
+    const explicitUrl = String(url || "").trim();
+    const rememberedUrl =
+      explicitUrl ||
+      (normalizedRole === "check" && candidate?.url
+        ? String(candidate.url)
+        : "");
     return {
       key: projectKey(project.serverId, project.plugin),
       role: normalizedRole,
       source: {
         provider: canonical,
         projectId: targetId,
-        ...(url || candidate?.url
-          ? { url: String(url || candidate?.url) }
-          : {}),
+        ...(rememberedUrl ? { url: rememberedUrl } : {}),
       },
     };
   };

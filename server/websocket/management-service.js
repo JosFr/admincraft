@@ -475,6 +475,7 @@ function createManagementService(config = {}, dependencies = {}) {
         "update-targeted",
         "update-source-group",
         "update-source-bulk",
+        "update-download-bulk",
       ],
       storages: storageSnapshots(),
       backupDestinationDefaults: {
@@ -2175,6 +2176,88 @@ function createManagementService(config = {}, dependencies = {}) {
         persist();
         return response(
           `Update sources remembered for ${mappings.length} plugin(s).`,
+          [snapshot()],
+        );
+      }
+
+      if (action === "updates-download-bulk-set") {
+        if (typeof dependencies.updateChecker?.confirmSource !== "function") {
+          throw new Error("Update source matching is not configured on this bridge.");
+        }
+        const mappings = Array.isArray(payload.mappings) ? payload.mappings : [];
+        if (mappings.length === 0 || mappings.length > 100) {
+          throw new Error("Choose between 1 and 100 download source mappings.");
+        }
+        const seenPlugins = new Set();
+        const confirmations = [];
+        let instanceCount = 0;
+        for (const raw of mappings) {
+          const plugin = String(raw?.plugin || "").trim();
+          const provider = String(raw?.provider || "").trim();
+          const projectId = String(raw?.projectId || "").trim();
+          if (!plugin || !provider || !projectId) {
+            throw new Error("Every download mapping needs a plugin, provider and project ID.");
+          }
+          const pluginKey = plugin.toLowerCase();
+          if (seenPlugins.has(pluginKey)) {
+            throw new Error(`Duplicate download mapping for ${plugin}.`);
+          }
+          seenPlugins.add(pluginKey);
+          const matching = state.updates.filter(
+            (item) =>
+              item.kind === "plugin" &&
+              item.status === "updateAvailable" &&
+              item.downloadSourceConfirmed !== true &&
+              String(item.plugin || "").toLowerCase() === pluginKey,
+          );
+          if (matching.length === 0) {
+            throw new Error(`No unconfirmed updateable plugin instances found for ${plugin}.`);
+          }
+          for (const item of matching) {
+            if (item.downloadReview?.status !== "ready") {
+              throw new Error(`Download source for ${plugin} is not approved for automatic confirmation.`);
+            }
+            if (
+              String(item.provider || "").toLowerCase() !== provider.toLowerCase() ||
+              String(item.projectId || "") !== projectId
+            ) {
+              throw new Error(`Download mapping for ${plugin} does not match the checked source.`);
+            }
+            confirmations.push(
+              dependencies.updateChecker.confirmSource({
+                serverId: String(item.serverId),
+                plugin,
+                provider,
+                projectId,
+                role: "download",
+              }),
+            );
+            instanceCount += 1;
+          }
+        }
+        const nextSourceOverrides = { ...state.updateSourceOverrides };
+        for (const confirmed of confirmations) {
+          const previous = nextSourceOverrides[confirmed.key];
+          const normalized = previous?.provider
+            ? { check: previous }
+            : { ...(previous || {}) };
+          normalized.download = confirmed.source;
+          nextSourceOverrides[confirmed.key] = normalized;
+        }
+        const refreshedUpdates = await dependencies.updateChecker({
+          providers: payload.providers || {},
+          sourceOverrides: nextSourceOverrides,
+        });
+        state.updateSourceOverrides = nextSourceOverrides;
+        state.updates = refreshedUpdates;
+        activity(
+          null,
+          "Download sources confirmed",
+          `${mappings.length} plugin(s) · ${instanceCount} updateable instance(s)`,
+        );
+        persist();
+        return response(
+          `Download sources remembered for ${mappings.length} plugin(s).`,
           [snapshot()],
         );
       }

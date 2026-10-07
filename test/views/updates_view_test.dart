@@ -23,6 +23,7 @@ class _UpdatesFixture extends NetworkController {
   String? sourceRole;
   bool? sourceAllMatchingServers;
   List<Map<String, String>>? bulkMappings;
+  List<Map<String, String>>? downloadBulkMappings;
 
   @override
   bool setUpdateSource({
@@ -44,6 +45,12 @@ class _UpdatesFixture extends NetworkController {
   @override
   bool setVerifiedUpdateSourcesBulk(List<Map<String, String>> mappings) {
     bulkMappings = mappings;
+    return true;
+  }
+
+  @override
+  bool setSafeDownloadSourcesBulk(List<Map<String, String>> mappings) {
+    downloadBulkMappings = mappings;
     return true;
   }
 
@@ -100,6 +107,11 @@ void main() {
             'downloadProvider': 'builtByBit',
             'downloadProjectId': '12345',
             'downloadSourceConfirmed': true,
+            'downloadReview': {
+              'status': 'ready',
+              'label': 'Safe direct JAR',
+              'reason': 'Backend approved.',
+            },
             'downloadUrl': 'https://builtbybit.com/resources/12345/',
             'status': 'updateAvailable',
             'candidates': [
@@ -407,6 +419,135 @@ void main() {
     expect(network.bulkMappings!.single['projectId'], '1u6JkXh5');
   });
 
+  testWidgets(
+    'download review is separate from setup and unavailable sources',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      SharedPreferences.setMockInitialValues({});
+      final preferences = await SharedPreferences.getInstance();
+      final notifications = NotificationController(preferences);
+      final network = _UpdatesFixture(notifications, preferences: preferences);
+      addTearDown(network.dispose);
+      addTearDown(notifications.dispose);
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.management-state',
+          'features': ['update-download-bulk'],
+          'updates': [
+            {
+              'serverId': 'lobby',
+              'serverName': 'Lobby',
+              'plugin': 'WorldEdit',
+              'kind': 'plugin',
+              'currentVersion': '7.4.4',
+              'latestVersion': '7.4.5',
+              'provider': 'modrinth',
+              'projectId': '1u6JkXh5',
+              'sourceConfirmed': true,
+              'downloadSourceConfirmed': false,
+              'downloadReview': {
+                'status': 'ready',
+                'label': 'Compatible Modrinth JAR',
+                'reason': 'Compatible direct artifact.',
+              },
+              'status': 'updateAvailable',
+            },
+            {
+              'serverId': 'smp',
+              'serverName': 'SMP',
+              'plugin': 'ExcellentShop',
+              'kind': 'plugin',
+              'currentVersion': '5.1.6',
+              'latestVersion': '5.1.7',
+              'provider': 'spigot',
+              'projectId': '50696',
+              'sourceConfirmed': true,
+              'downloadSourceConfirmed': false,
+              'downloadReview': {
+                'status': 'authenticated',
+                'label': 'Premium Spigot resource',
+                'reason': 'Licensed download required.',
+              },
+              'status': 'updateAvailable',
+            },
+            {
+              'serverId': 'smp',
+              'serverName': 'SMP',
+              'plugin': 'AFKDummy',
+              'kind': 'plugin',
+              'currentVersion': '1.0.3',
+              'provider': 'modrinth',
+              'projectId': 'PHiV6JLQ',
+              'sourceConfirmed': true,
+              'status': 'sourceUnavailable',
+            },
+            {
+              'serverId': 'smp',
+              'serverName': 'SMP',
+              'plugin': 'CMI',
+              'kind': 'plugin',
+              'currentVersion': '9.8.9.8',
+              'status': 'unmanaged',
+              'sourceReview': {
+                'status': 'special',
+                'label': 'Spigot 3742',
+                'reason': 'Premium plugin.',
+              },
+            },
+          ],
+        }),
+      );
+      await tester.pumpWidget(
+        ChangeNotifierProvider<NetworkController>.value(
+          value: network,
+          child: const MaterialApp(home: Scaffold(body: UpdatesView())),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('2 updates available'), findsOneWidget);
+      expect(find.text('1 plugin need setup'), findsOneWidget);
+      expect(find.text('1 source unavailable'), findsOneWidget);
+      expect(find.text('2 downloads need review'), findsOneWidget);
+      await tester.drag(find.byType(ListView), const Offset(0, -900));
+      await tester.pumpAndSettle();
+      final downloadReview = find.text(
+        'Download review (2)',
+        skipOffstage: false,
+      );
+      expect(downloadReview, findsOneWidget);
+
+      await tester.ensureVisible(downloadReview);
+      await tester.pumpAndSettle();
+      await tester.tap(downloadReview);
+      await tester.pumpAndSettle();
+      expect(find.text('Ready to confirm (1)'), findsOneWidget);
+      expect(find.text('Authentication required (1)'), findsOneWidget);
+      expect(find.text('Confirm 1 safe download sources'), findsOneWidget);
+
+      await tester.tap(find.text('Confirm 1 safe download sources'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining(
+          'No plugin is downloaded or installed by this action',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Confirm download sources'), findsOneWidget);
+      await tester.tap(find.text('Confirm download sources'));
+      await tester.pumpAndSettle();
+
+      expect(network.downloadBulkMappings, isNotNull);
+      expect(network.downloadBulkMappings, hasLength(1));
+      expect(network.downloadBulkMappings!.single['plugin'], 'WorldEdit');
+      expect(network.downloadBulkMappings!.single['provider'], 'modrinth');
+      expect(network.downloadBulkMappings!.single['projectId'], '1u6JkXh5');
+    },
+  );
+
   testWidgets('one-click update targets only the selected plugin', (
     tester,
   ) async {
@@ -459,6 +600,11 @@ void main() {
             'downloadProvider': 'github',
             'downloadProjectId': 'owner/repo',
             'downloadSourceConfirmed': true,
+            'downloadReview': {
+              'status': 'ready',
+              'label': 'Safe direct JAR',
+              'reason': 'Backend approved.',
+            },
             'downloadUrl': 'https://example.test/ExamplePlugin.jar',
             'status': 'updateAvailable',
           },
