@@ -34,6 +34,20 @@ function updateEligibility(update) {
   if (update?.downloadSourceConfirmed !== true) {
     return { eligible: false, reason: "Confirm a download source first." };
   }
+  if (update?.downloadReview?.status !== "ready") {
+    return {
+      eligible: false,
+      reason: "The download source is not approved for automatic JAR replacement.",
+    };
+  }
+  const automaticProviders = new Set(["modrinth", "github"]);
+  const downloadProvider = String(update?.downloadProvider || "").toLowerCase();
+  if (!automaticProviders.has(downloadProvider)) {
+    return {
+      eligible: false,
+      reason: "Automatic replacement is limited to validated Modrinth or GitHub artifacts.",
+    };
+  }
   const downloadUrl = String(update?.downloadUrl || "").trim();
   if (!downloadUrl) {
     return {

@@ -1,3 +1,5 @@
+import 'package:admincraft/controllers/network_controller.dart';
+import 'package:admincraft/views/network_view.dart';
 import 'package:admincraft/controllers/connection_controller.dart';
 import 'package:admincraft/models/connection_status.dart';
 import 'package:admincraft/models/model.dart';
@@ -11,6 +13,7 @@ class ServersView extends StatelessWidget {
   final Future<void> Function() onAdd;
   final VoidCallback onNetwork;
   final VoidCallback onEditSelected;
+  final Future<void> Function(String, NetworkQuickAction)? onServerAction;
 
   const ServersView({
     super.key,
@@ -18,11 +21,13 @@ class ServersView extends StatelessWidget {
     required this.onAdd,
     required this.onNetwork,
     required this.onEditSelected,
+    this.onServerAction,
   });
 
   @override
   Widget build(BuildContext context) {
     final model = context.watch<Model>();
+    final network = context.watch<NetworkController?>();
     final connection = context.watch<ConnectionController>();
 
     return SingleChildScrollView(
@@ -69,12 +74,10 @@ class ServersView extends StatelessWidget {
                       children: [
                         heading,
                         const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(child: network),
-                            const SizedBox(width: 8),
-                            Expanded(child: add),
-                          ],
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [network, add],
                         ),
                       ],
                     );
@@ -90,6 +93,18 @@ class ServersView extends StatelessWidget {
                 },
               ),
               const SizedBox(height: 16),
+              if (network != null && onServerAction != null) ...[
+                NetworkServersCard(
+                  snapshot: network.snapshot,
+                  onAction: onServerAction!,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Saved profiles',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+              ],
               for (final server in model.servers) ...[
                 _ServerTile(
                   server: server,
@@ -194,22 +209,20 @@ class _ServerTile extends StatelessWidget {
                         ],
                       ],
                     ),
-                    Row(
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           server.edition.label,
                           style: theme.textTheme.bodySmall,
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Tooltip(
-                            message: address,
-                            child: Text(
-                              address,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodySmall,
-                            ),
+                        Tooltip(
+                          message: address,
+                          child: Text(
+                            address,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall,
                           ),
                         ),
                       ],

@@ -18,6 +18,7 @@ const {
   parseServers,
 } = require("./management-service");
 const { createUpdateChecker } = require("./update-checker");
+const { resolveMinecraftVersionFromMulticraft } = require("./plugin-inventory");
 const { createUpdateApplier } = require("./update-applier");
 const { createPushService } = require("./push-service");
 const { createPlanPerformanceAdapter } = require("./plan-performance");
@@ -35,6 +36,7 @@ const PORT = Number.parseInt(process.env.PORT || "8080", 10);
 const CERT_PATH = "./certs/server.crt";
 const KEY_PATH = "./certs/server.key";
 const MAX_MESSAGES_PER_SECOND = 5;
+const MAX_MANAGEMENT_COMMAND_LENGTH = 32 * 1024;
 const MC_NAME = process.env.MC_NAME || "minecraft";
 const SERVER_TYPE = (process.env.SERVER_TYPE || "bedrock").toLowerCase();
 const ACCESS_API_URL = (process.env.ACCESS_API_URL || "").trim();
@@ -235,6 +237,9 @@ try {
         projectsJson: process.env.UPDATE_PROJECTS_JSON,
         builtByBitApiToken: process.env.BUILTBYBIT_API_TOKEN,
         builtByBitApiTokenType: process.env.BUILTBYBIT_API_TOKEN_TYPE,
+      }, {
+        resolveGameVersion: (server) =>
+          resolveMinecraftVersionFromMulticraft(managementMulticraft, server),
       });
     } catch (error) {
       console.warn(`RC4 update checking disabled: ${error.message}`);
@@ -561,7 +566,10 @@ function startSession(ws, request, authenticated) {
     }
     messageCount += 1;
 
-    if (!validateMessage(command)) {
+    const commandLimit = command.startsWith("admincraft manage ")
+      ? MAX_MANAGEMENT_COMMAND_LENGTH
+      : undefined;
+    if (!validateMessage(command, commandLimit)) {
       send(ws, "Invalid input.");
       return;
     }

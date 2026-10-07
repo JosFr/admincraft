@@ -4,6 +4,7 @@ import 'package:admincraft/models/model.dart';
 import 'package:admincraft/models/management_state.dart';
 import 'package:admincraft/utils/url_utils.dart';
 import 'package:admincraft/views/widgets/performance_metric_chart.dart';
+import 'package:admincraft/views/widgets/management_feedback.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -88,15 +89,19 @@ class SchedulesView extends StatelessWidget {
 
   Future<void> _createSchedule(
     BuildContext context,
-    NetworkController network,
-  ) async {
+    NetworkController network, {
+    ScheduledAction? existing,
+  }) async {
     final model = context.read<Model>();
     final completeServers = model.servers
         .where((server) => server.isComplete)
         .toList();
     var selectedServer =
-        serverId ?? model.selectedServer.effectiveManagementServerId;
-    if (serverId == null &&
+        existing?.serverId ??
+        serverId ??
+        model.selectedServer.effectiveManagementServerId;
+    if (existing == null &&
+        serverId == null &&
         !completeServers.any(
           (server) => server.effectiveManagementServerId == selectedServer,
         )) {
@@ -104,18 +109,20 @@ class SchedulesView extends StatelessWidget {
           ? ''
           : completeServers.first.effectiveManagementServerId;
     }
-    final scheduleController = TextEditingController();
-    var action = ScheduledActionType.restart;
-    var recurring = true;
+    final scheduleController = TextEditingController(
+      text: existing?.schedule ?? '',
+    );
+    var action = existing?.action ?? ScheduledActionType.restart;
+    var recurring = existing?.recurring ?? true;
     var preset = 'custom';
-    var runAt = DateTime.now().add(const Duration(hours: 1));
+    var runAt = existing?.runAt ?? DateTime.now().add(const Duration(hours: 1));
     var backupEngines = _managementBackupEnginesFor(
       network.management,
       selectedServer,
     );
-    var selectedBackupEngineId = backupEngines.isEmpty
-        ? ''
-        : backupEngines.first.id;
+    var selectedBackupEngineId =
+        existing?.backupEngineId ??
+        (backupEngines.isEmpty ? '' : backupEngines.first.id);
     void refreshBackupEngines() {
       backupEngines = _managementBackupEnginesFor(
         network.management,
@@ -129,19 +136,25 @@ class SchedulesView extends StatelessWidget {
       }
     }
 
-    final created = await showDialog<bool>(
+    final route = DialogRoute<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: const Text('Create scheduled action'),
+          title: Text(
+            existing == null
+                ? 'Create scheduled action'
+                : 'Edit scheduled action',
+          ),
           content: SizedBox(
             width: 440,
             child: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (serverId == null)
+                  if (existing != null) Text(existing.serverName),
+                  if (serverId == null && existing == null)
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: selectedServer.isEmpty
                           ? null
                           : selectedServer,
@@ -165,6 +178,7 @@ class SchedulesView extends StatelessWidget {
                     ),
                   if (serverId == null) const SizedBox(height: 12),
                   DropdownButtonFormField<ScheduledActionType>(
+                    isExpanded: true,
                     initialValue: action,
                     decoration: const InputDecoration(labelText: 'Action'),
                     items: [
@@ -187,6 +201,7 @@ class SchedulesView extends StatelessWidget {
                       action == ScheduledActionType.maintenance) ...[
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: selectedBackupEngineId.isEmpty
                           ? null
                           : selectedBackupEngineId,
@@ -195,14 +210,24 @@ class SchedulesView extends StatelessWidget {
                             ? 'Safety backup engine'
                             : 'Backup engine',
                       ),
-                      items: backupEngines
-                          .map(
-                            (engine) => DropdownMenuItem(
-                              value: engine.id,
-                              child: Text(engine.label),
+                      items: [
+                        if (selectedBackupEngineId.isNotEmpty &&
+                            !backupEngines.any(
+                              (engine) => engine.id == selectedBackupEngineId,
+                            ))
+                          DropdownMenuItem(
+                            value: selectedBackupEngineId,
+                            child: Text(
+                              '$selectedBackupEngineId (unavailable)',
                             ),
-                          )
-                          .toList(),
+                          ),
+                        ...backupEngines.map(
+                          (engine) => DropdownMenuItem(
+                            value: engine.id,
+                            child: Text(engine.label),
+                          ),
+                        ),
+                      ],
                       onChanged: (value) {
                         if (value != null) {
                           setState(() => selectedBackupEngineId = value);
@@ -238,6 +263,7 @@ class SchedulesView extends StatelessWidget {
                   const SizedBox(height: 12),
                   if (recurring) ...[
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: preset,
                       decoration: const InputDecoration(
                         labelText: 'Cron preset',
@@ -342,14 +368,19 @@ class SchedulesView extends StatelessWidget {
                 if (!recurring && !runAt.isAfter(DateTime.now())) return;
                 Navigator.pop(dialogContext, true);
               },
-              child: const Text('Create'),
+              child: Text(existing == null ? 'Create' : 'Save changes'),
             ),
           ],
         ),
       ),
     );
+    final created = await Navigator.of(
+      context,
+      rootNavigator: true,
+    ).push(route);
     if (created == true) {
       network.createSchedule(
+        id: existing?.id,
         serverId: selectedServer,
         action: action.name,
         schedule: recurring ? scheduleController.text.trim() : '',
@@ -361,6 +392,7 @@ class SchedulesView extends StatelessWidget {
             : null,
       );
     }
+    await route.completed;
     scheduleController.dispose();
   }
 
@@ -416,79 +448,133 @@ class SchedulesView extends StatelessWidget {
             .where((job) => serverId == null || job.serverId == serverId)
             .toList()
           ..sort((a, b) => b.startedAt.compareTo(a.startedAt));
-    return _ManagementList(
-      title: serverId == null ? 'Scheduled actions' : 'Server schedules',
-      count: schedules.length,
-      onRefresh: network.refreshManagement,
-      action: FilledButton.icon(
-        onPressed: network.managementAvailable
-            ? () => _createSchedule(context, network)
-            : null,
-        icon: const Icon(Icons.add),
-        label: const Text('New schedule'),
-      ),
-      emptyIcon: Icons.schedule_outlined,
-      emptyTitle: 'No schedules',
-      emptyMessage:
-          'Persistent start, stop, restart, backup and maintenance jobs appear here.',
+    return Column(
       children: [
-        for (final schedule in schedules)
-          Card(
-            child: ListTile(
-              leading: Icon(_scheduleIcon(schedule.action)),
-              title: Text(
-                '${schedule.serverName} · ${_scheduleActionLabel(schedule.action)}',
-              ),
-              subtitle: Text(
-                '${schedule.recurring ? schedule.schedule : 'One-time'}'
-                '${schedule.backupEngineId == null ? '' : '\nEngine: ${_backupEngineLabel(network.management, schedule.backupEngineId)}'}'
-                '${schedule.nextRun == null ? '' : '\nNext: ${_formatDateTime(schedule.nextRun!)}'}'
-                '${schedule.lastResult == null || schedule.lastResult!.trim().isEmpty ? '' : '\nLast: ${schedule.lastResult}'}',
-              ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Switch(
-                    value: schedule.enabled,
-                    onChanged: network.managementAvailable
-                        ? (enabled) =>
-                              network.toggleSchedule(schedule.id, enabled)
-                        : null,
-                  ),
-                  IconButton(
-                    tooltip: 'Delete schedule',
-                    onPressed: network.managementAvailable
-                        ? () => _deleteSchedule(context, network, schedule)
-                        : null,
-                    icon: const Icon(Icons.delete_outline),
-                  ),
-                ],
-              ),
+        ManagementFeedback(network: network),
+        Expanded(
+          child: _ManagementList(
+            title: serverId == null ? 'Scheduled actions' : 'Server schedules',
+            count: schedules.length,
+            onRefresh: network.refreshManagement,
+            action: FilledButton.icon(
+              onPressed: network.managementAvailable
+                  ? () => _createSchedule(context, network)
+                  : null,
+              icon: const Icon(Icons.add),
+              label: const Text('New schedule'),
             ),
+            emptyIcon: Icons.schedule_outlined,
+            emptyTitle: 'No schedules',
+            emptyMessage:
+                'Persistent start, stop, restart, backup and maintenance jobs appear here.',
+            children: [
+              for (final schedule in schedules)
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${schedule.serverName} · ${_scheduleActionLabel(schedule.action)}',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        Text(
+                          schedule.recurring ? schedule.schedule : 'One-time',
+                        ),
+                        if (schedule.backupEngineId != null)
+                          Text(
+                            'Engine: ${_backupEngineLabel(network.management, schedule.backupEngineId)}',
+                          ),
+                        if (schedule.nextRun != null)
+                          Text('Next: ${_formatDateTime(schedule.nextRun!)}'),
+                        if (schedule.lastResult?.isNotEmpty == true)
+                          Text('Last: ${schedule.lastResult}'),
+                        Wrap(
+                          spacing: 8,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Switch(
+                              value: schedule.enabled,
+                              onChanged:
+                                  network.managementAvailable &&
+                                      !network.managementPending
+                                  ? (enabled) => network.toggleSchedule(
+                                      schedule.id,
+                                      enabled,
+                                    )
+                                  : null,
+                            ),
+                            OutlinedButton.icon(
+                              onPressed:
+                                  network.managementAvailable &&
+                                      !network.managementPending &&
+                                      network.management.features.contains(
+                                        'schedule-update',
+                                      )
+                                  ? () => _createSchedule(
+                                      context,
+                                      network,
+                                      existing: schedule,
+                                    )
+                                  : null,
+                              icon: const Icon(Icons.edit_outlined),
+                              label: const Text('Edit schedule'),
+                            ),
+                            OutlinedButton.icon(
+                              onPressed:
+                                  network.managementAvailable &&
+                                      !network.managementPending
+                                  ? () => _deleteSchedule(
+                                      context,
+                                      network,
+                                      schedule,
+                                    )
+                                  : null,
+                              icon: const Icon(Icons.delete_outline),
+                              label: const Text('Delete schedule'),
+                            ),
+                          ],
+                        ),
+                        if (!network.management.features.contains(
+                          'schedule-update',
+                        ))
+                          const Text(
+                            'Editing schedules requires a management bridge update.',
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              if (jobs.isNotEmpty) ...[
+                const SizedBox(height: 18),
+                Text(
+                  'Job history',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 8),
+                for (final job in jobs.take(50))
+                  Card(
+                    child: ListTile(
+                      leading: Icon(
+                        job.success == true
+                            ? Icons.check_circle_outline
+                            : job.success == false
+                            ? Icons.error_outline
+                            : Icons.hourglass_top,
+                      ),
+                      title: Text(
+                        '${job.serverName} · ${_scheduleActionLabel(job.action)}',
+                      ),
+                      subtitle: Text(
+                        '${_formatDateTime(job.startedAt)} · ${job.source}\n${job.message}',
+                      ),
+                    ),
+                  ),
+              ],
+            ],
           ),
-        if (jobs.isNotEmpty) ...[
-          const SizedBox(height: 18),
-          Text('Job history', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          for (final job in jobs.take(50))
-            Card(
-              child: ListTile(
-                leading: Icon(
-                  job.success == true
-                      ? Icons.check_circle_outline
-                      : job.success == false
-                      ? Icons.error_outline
-                      : Icons.hourglass_top,
-                ),
-                title: Text(
-                  '${job.serverName} · ${_scheduleActionLabel(job.action)}',
-                ),
-                subtitle: Text(
-                  '${_formatDateTime(job.startedAt)} · ${job.source}\n${job.message}',
-                ),
-              ),
-            ),
-        ],
+        ),
       ],
     );
   }
@@ -504,16 +590,21 @@ class UpdatesView extends StatelessWidget {
     NetworkController network,
     PluginUpdate update, {
     required String role,
+    List<UpdateSourceCandidate>? candidatesOverride,
+    bool allMatchingServers = false,
+    int matchingCount = 1,
   }) async {
     final download = role == 'download';
-    final candidates = update.candidates;
+    final candidates = candidatesOverride ?? update.candidates;
     final existingProvider = download
         ? update.downloadProvider
         : update.provider;
     final existingProject = download
         ? update.downloadProjectId
         : update.projectId;
-    final existingUrl = download ? update.downloadUrl : update.url;
+    final existingUrl = download
+        ? (update.downloadSourceConfirmed ? update.downloadUrl : null)
+        : update.url;
     UpdateSourceCandidate? selectedCandidate;
     if (existingProvider != null && existingProject?.isNotEmpty == true) {
       for (final candidate in candidates) {
@@ -524,7 +615,19 @@ class UpdatesView extends StatelessWidget {
         }
       }
     }
-    selectedCandidate ??= candidates.isEmpty ? null : candidates.first;
+    if (selectedCandidate == null && candidates.isNotEmpty) {
+      final ranked = [...candidates]
+        ..sort((a, b) {
+          final score = b.score.compareTo(a.score);
+          if (score != 0) return score;
+          return a.label.toLowerCase().compareTo(b.label.toLowerCase());
+        });
+      final best = ranked.first;
+      final secondScore = ranked.length > 1 ? ranked[1].score : -1;
+      if (best.score >= 100 && best.score > secondScore) {
+        selectedCandidate = best;
+      }
+    }
     var selectedProvider =
         existingProvider ??
         selectedCandidate?.provider ??
@@ -533,7 +636,9 @@ class UpdatesView extends StatelessWidget {
       text: existingProject ?? selectedCandidate?.projectId ?? '',
     );
     final urlController = TextEditingController(
-      text: existingUrl ?? selectedCandidate?.url ?? '',
+      text: download
+          ? (existingUrl ?? '')
+          : (existingUrl ?? selectedCandidate?.url ?? ''),
     );
     try {
       final confirmed = await showDialog<bool>(
@@ -549,9 +654,19 @@ class UpdatesView extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    if (allMatchingServers) ...[
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'This source will be validated for ${update.plugin} on $matchingCount servers. Nothing is saved unless every matching instance passes validation.',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                    ],
                     if (candidates.isNotEmpty) ...[
                       DropdownButtonFormField<UpdateSourceCandidate>(
                         initialValue: selectedCandidate,
+                        isExpanded: true,
                         decoration: const InputDecoration(
                           labelText: 'Discovered candidate',
                         ),
@@ -559,7 +674,13 @@ class UpdatesView extends StatelessWidget {
                           for (final candidate in candidates)
                             DropdownMenuItem(
                               value: candidate,
-                              child: Text(candidate.label),
+                              child: Text(
+                                candidate.verified
+                                    ? '${candidate.label} · verified source'
+                                    : candidate.score >= 100
+                                    ? '${candidate.label} · exact match'
+                                    : candidate.label,
+                              ),
                             ),
                         ],
                         onChanged: (candidate) {
@@ -568,10 +689,21 @@ class UpdatesView extends StatelessWidget {
                             selectedCandidate = candidate;
                             selectedProvider = candidate.provider;
                             projectController.text = candidate.projectId;
-                            urlController.text = candidate.url ?? '';
+                            urlController.text = download
+                                ? ''
+                                : (candidate.url ?? '');
                           });
                         },
                       ),
+                      if (selectedCandidate == null) ...[
+                        const SizedBox(height: 8),
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Choose a candidate. Admincraft only preselects a unique exact match.',
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                     ] else ...[
                       const Align(
@@ -584,6 +716,7 @@ class UpdatesView extends StatelessWidget {
                     ],
                     DropdownButtonFormField<UpdateProvider>(
                       initialValue: selectedProvider,
+                      isExpanded: true,
                       decoration: const InputDecoration(labelText: 'Provider'),
                       items: [
                         for (final provider in UpdateProvider.values)
@@ -608,14 +741,16 @@ class UpdatesView extends StatelessWidget {
                     const SizedBox(height: 12),
                     TextField(
                       controller: urlController,
-                      decoration: const InputDecoration(
-                        labelText: 'URL (optional)',
+                      decoration: InputDecoration(
+                        labelText: download
+                            ? 'Direct artifact URL (optional)'
+                            : 'URL (optional)',
                       ),
                     ),
                     const SizedBox(height: 10),
                     Text(
                       download
-                          ? 'Used for opening/downloading the update. It may differ from the version-check source.'
+                          ? 'Leave this blank when the provider can resolve the compatible JAR itself. Manually entered URLs remain manual-only and never enable one-click replacement; a project page is not a download artifact.'
                           : 'Used only to check the installed version against the provider.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
@@ -631,7 +766,9 @@ class UpdatesView extends StatelessWidget {
               FilledButton(
                 onPressed: () => Navigator.pop(dialogContext, true),
                 child: Text(
-                  download
+                  allMatchingServers
+                      ? 'Remember for $matchingCount servers'
+                      : download
                       ? 'Remember download source'
                       : 'Remember check source',
                 ),
@@ -647,12 +784,196 @@ class UpdatesView extends StatelessWidget {
           projectId: projectController.text.trim(),
           role: role,
           url: urlController.text.trim(),
+          allMatchingServers: allMatchingServers,
         );
       }
     } finally {
       projectController.dispose();
       urlController.dispose();
     }
+  }
+
+  Future<void> _applyTargetedUpdate(
+    BuildContext context,
+    NetworkController network,
+    PluginUpdate update,
+  ) async {
+    final backupEngines = _managementBackupEnginesFor(
+      network.management,
+      update.serverId,
+      observableOnly: true,
+    );
+    var createBackup = backupEngines.isNotEmpty;
+    var selectedBackupEngineId = backupEngines.isEmpty
+        ? ''
+        : backupEngines.first.id;
+    var players = 0;
+    for (final server in network.snapshot.servers) {
+      if (server.name == update.serverId) {
+        players = server.players;
+        break;
+      }
+    }
+    var waitUntilEmpty = players > 0;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text('Update ${update.plugin}?'),
+          content: SizedBox(
+            width: 460,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${update.serverName} · '
+                    '${update.currentVersion.isEmpty ? 'version unknown' : update.currentVersion}'
+                    '${update.latestVersion == null ? '' : ' → ${update.latestVersion}'}',
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Admincraft will stop this server, validate and replace only this plugin JAR, restart the server, and verify that it becomes healthy again. A rollback copy of the old JAR is kept automatically.',
+                  ),
+                  const SizedBox(height: 8),
+                  if (players > 0)
+                    Text(
+                      '$players player${players == 1 ? '' : 's'} currently online.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Create safety backup first'),
+                    subtitle: Text(
+                      backupEngines.isEmpty
+                          ? 'No backup engine with observable completion is available. The plugin JAR rollback is still kept.'
+                          : 'Recommended before changing plugin files.',
+                    ),
+                    value: createBackup,
+                    onChanged: backupEngines.isEmpty
+                        ? null
+                        : (value) => setState(() => createBackup = value),
+                  ),
+                  if (createBackup && backupEngines.isNotEmpty)
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedBackupEngineId,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Safety backup engine',
+                      ),
+                      items: [
+                        for (final engine in backupEngines)
+                          DropdownMenuItem(
+                            value: engine.id,
+                            child: Text(engine.label),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        if (value != null) {
+                          setState(() => selectedBackupEngineId = value);
+                        }
+                      },
+                    ),
+                  if (players > 0)
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Wait until server is empty'),
+                      subtitle: const Text(
+                        'Do not interrupt connected players before the update starts.',
+                      ),
+                      value: waitUntilEmpty,
+                      onChanged: (value) =>
+                          setState(() => waitUntilEmpty = value),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton.icon(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              icon: const Icon(Icons.system_update_alt),
+              label: const Text('Update now'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true) return;
+    if (!context.mounted) return;
+    final started = network.startMaintenance(
+      update.serverId,
+      action: 'update',
+      countdownSeconds: 0,
+      backup: createBackup,
+      backupEngineId: createBackup ? selectedBackupEngineId : null,
+      restartWhenEmpty: waitUntilEmpty,
+      updatePlugin: update.plugin,
+    );
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          started
+              ? 'Update ${update.plugin} requested. Progress is shown on this card.'
+              : 'Could not send the update request.',
+        ),
+      ),
+    );
+  }
+
+  DateTime? _lastUpdateCheck(NetworkController network) {
+    DateTime? latest;
+    for (final entry in network.management.activity) {
+      if (entry.title != 'Update check completed') continue;
+      if (latest == null || entry.at.isAfter(latest)) latest = entry.at;
+    }
+    return latest;
+  }
+
+  bool _targetedApplyAvailable(
+    NetworkController network,
+    PluginUpdate update,
+  ) =>
+      network.management.features.contains('update-targeted') &&
+      network.management.updateApply.pluginUpdates &&
+      update.canAutoApply;
+
+  bool _maintenanceActive(NetworkController network, String serverId) => network
+      .management
+      .maintenance
+      .any((item) => item.serverId == serverId && item.active);
+
+  Map<String, List<PluginUpdate>> _needsSetupGroups(List<PluginUpdate> items) {
+    final groups = <String, List<PluginUpdate>>{};
+    for (final item in items) {
+      final key = item.plugin.trim().toLowerCase();
+      groups.putIfAbsent(key, () => <PluginUpdate>[]).add(item);
+    }
+    return groups;
+  }
+
+  List<UpdateSourceCandidate> _groupCandidates(List<PluginUpdate> items) {
+    final candidates = <String, UpdateSourceCandidate>{};
+    for (final item in items) {
+      for (final candidate in item.candidates) {
+        final key = '${candidate.provider.name}\u0000${candidate.projectId}';
+        final previous = candidates[key];
+        if (previous == null || candidate.score > previous.score) {
+          candidates[key] = candidate;
+        }
+      }
+    }
+    return candidates.values.toList()..sort((a, b) {
+      final score = b.score.compareTo(a.score);
+      if (score != 0) return score;
+      return a.label.toLowerCase().compareTo(b.label.toLowerCase());
+    });
   }
 
   @override
@@ -667,82 +988,1000 @@ class UpdatesView extends StatelessWidget {
             (a, b) =>
                 _updatePriority(a.status).compareTo(_updatePriority(b.status)),
           );
-    return _ManagementList(
-      title: serverId == null ? 'Network updates' : 'Server updates',
-      count: updates.length,
-      onRefresh: network.refreshManagement,
-      action: FilledButton.icon(
-        onPressed: network.managementAvailable
-            ? () => network.checkUpdates(serverId)
-            : null,
-        icon: const Icon(Icons.refresh),
-        label: const Text('Check now'),
-      ),
-      emptyIcon: Icons.system_update_alt_outlined,
-      emptyTitle: 'No update results',
-      emptyMessage:
-          'Enabled providers will report plugin and platform updates here.',
-      children: [
-        for (final update in updates)
-          Card(
-            child: ListTile(
-              leading: Icon(_updateIcon(update.status)),
-              title: Text(update.plugin),
-              subtitle: Text(
-                '${update.serverName} · ${_updateKindLabel(update.kind)} · '
-                '${update.currentVersion.isEmpty ? 'version unknown' : update.currentVersion}'
-                '${update.latestVersion == null ? '' : ' → ${update.latestVersion}'}'
-                '\nCheck: ${_updateSourceLabel(update)} · ${_updateStatusLabel(update.status)}'
-                '\nDownload: ${_updateDownloadSourceLabel(update)}'
-                '${!update.sourceConfirmed ? (update.candidates.isNotEmpty ? '\nCheck source confirmation required' : '\nNo automatic check-source match; configure manually') : ''}',
-              ),
-              trailing: PopupMenuButton<String>(
-                tooltip: 'Update source options',
-                onSelected: (value) async {
-                  if (value == 'check') {
-                    await _configureSource(
-                      context,
-                      network,
-                      update,
-                      role: 'check',
-                    );
-                  } else if (value == 'download') {
-                    await _configureSource(
-                      context,
-                      network,
-                      update,
-                      role: 'download',
-                    );
-                  } else if (value == 'open-check' && update.url != null) {
-                    await UrlUtils.openUrl(update.url!);
-                  } else if (value == 'open-download' &&
-                      update.downloadUrl != null) {
-                    await UrlUtils.openUrl(update.downloadUrl!);
-                  }
-                },
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: 'check',
-                    child: Text('Configure check source'),
+    final available = updates
+        .where((update) => update.status == PluginUpdateStatus.updateAvailable)
+        .toList();
+    final needsSetup = updates
+        .where((update) => update.status == PluginUpdateStatus.unmanaged)
+        .toList();
+    final sourceUnavailable = updates
+        .where(
+          (update) => update.status == PluginUpdateStatus.sourceUnavailable,
+        )
+        .toList();
+    final downloadReviewItems = available
+        .where(
+          (update) =>
+              update.kind == 'plugin' && !update.downloadSourceConfirmed,
+        )
+        .toList();
+    final downloadReviewGroups = _needsSetupGroups(downloadReviewItems);
+    final downloadReviewDisplayCount = serverId == null
+        ? downloadReviewGroups.length
+        : downloadReviewItems.length;
+    final groupableNeedsSetup = needsSetup
+        .where((update) => update.kind == 'plugin')
+        .toList();
+    final ungroupedNeedsSetup = needsSetup
+        .where((update) => update.kind != 'plugin')
+        .toList();
+    final needsSetupGroups = _needsSetupGroups(groupableNeedsSetup);
+    final needsSetupDisplayCount = serverId == null
+        ? needsSetupGroups.length + ungroupedNeedsSetup.length
+        : needsSetup.length;
+    final checkingItems = updates
+        .where((update) => update.status == PluginUpdateStatus.checking)
+        .toList();
+    final current = updates
+        .where((update) => update.status == PluginUpdateStatus.current)
+        .toList();
+    final lastCheck = _lastUpdateCheck(network);
+    final checking =
+        network.managementPending &&
+        network.managementPendingAction == 'updates-check';
+    final availableKey = GlobalKey();
+    final needsSetupKey = GlobalKey();
+    final sourceUnavailableKey = GlobalKey();
+    final downloadReviewKey = GlobalKey();
+    final currentKey = GlobalKey();
+
+    Future<void> jumpTo(GlobalKey key) async {
+      final targetContext = key.currentContext;
+      if (targetContext == null) return;
+      await Scrollable.ensureVisible(
+        targetContext,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeOutCubic,
+        alignment: 0.06,
+      );
+    }
+
+    Widget jumpChip(String label, GlobalKey key) => ActionChip(
+      tooltip: 'Jump to $label',
+      label: Text(label),
+      onPressed: () => jumpTo(key),
+    );
+
+    Widget sourceMenu(PluginUpdate update) => PopupMenuButton<String>(
+      tooltip: 'Update source options',
+      onSelected: (value) async {
+        if (value == 'check') {
+          await _configureSource(context, network, update, role: 'check');
+        } else if (value == 'download') {
+          await _configureSource(context, network, update, role: 'download');
+        } else if (value == 'open-check' && update.url != null) {
+          await UrlUtils.openUrl(update.url!);
+        } else if (value == 'open-download' && update.downloadUrl != null) {
+          await UrlUtils.openUrl(update.downloadUrl!);
+        }
+      },
+      itemBuilder: (context) => [
+        const PopupMenuItem(
+          value: 'check',
+          child: Text('Configure check source'),
+        ),
+        const PopupMenuItem(
+          value: 'download',
+          child: Text('Configure download source'),
+        ),
+        if (update.url?.trim().isNotEmpty == true)
+          const PopupMenuItem(
+            value: 'open-check',
+            child: Text('Open check source'),
+          ),
+        if (update.downloadUrl?.trim().isNotEmpty == true)
+          const PopupMenuItem(
+            value: 'open-download',
+            child: Text('Open download source'),
+          ),
+      ],
+    );
+
+    Widget updateCard(PluginUpdate update) {
+      final canApply = _targetedApplyAvailable(network, update);
+      final maintenanceActive = _maintenanceActive(network, update.serverId);
+      MaintenanceState? updateMaintenance;
+      for (final item in network.management.maintenance) {
+        if (item.serverId == update.serverId &&
+            item.action == 'update' &&
+            item.updatePlugin?.toLowerCase() == update.plugin.toLowerCase()) {
+          updateMaintenance = item;
+          break;
+        }
+      }
+      String explanation;
+      if (update.status == PluginUpdateStatus.unmanaged) {
+        explanation = update.candidates.isNotEmpty
+            ? 'A likely update source was found, but it must be confirmed before this plugin is monitored.'
+            : 'This plugin is detected but is not monitored yet. Configure a source to enable version checks.';
+      } else if (update.status == PluginUpdateStatus.sourceUnavailable) {
+        explanation =
+            'The configured check source could not be reached or did not return a usable version.';
+      } else if (update.status == PluginUpdateStatus.current) {
+        explanation = 'Installed version matches the configured update source.';
+      } else if (update.status == PluginUpdateStatus.checking) {
+        explanation = 'Waiting for the update provider to respond.';
+      } else if (update.kind != 'plugin') {
+        explanation =
+            'A newer platform version is available. Platform replacement is not automated from this page.';
+      } else if (!update.downloadSourceConfirmed ||
+          update.downloadUrl?.trim().isEmpty != false) {
+        explanation =
+            'A newer version is available. Confirm a direct download source before one-click updating can be enabled.';
+      } else if (update.downloadReview?.status != 'ready' ||
+          (update.downloadProvider != UpdateProvider.modrinth &&
+              update.downloadProvider != UpdateProvider.github)) {
+        final reviewReason = update.downloadReview?.reason.trim() ?? '';
+        explanation = reviewReason.isNotEmpty
+            ? '$reviewReason Update this plugin manually from its trusted source.'
+            : 'A newer version is available, but this source is intentionally manual-only.';
+      } else if (!network.management.updateApply.pluginUpdates) {
+        explanation =
+            'A newer version is available, but automatic plugin apply is not configured on this bridge.';
+      } else if (!network.management.features.contains('update-targeted')) {
+        explanation =
+            'A newer version is ready, but this bridge does not yet support applying one selected plugin safely.';
+      } else {
+        explanation =
+            'Ready for a controlled update with JAR rollback, restart and health-check.';
+      }
+
+      return Card(
+        margin: const EdgeInsets.only(bottom: 10),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Icon(_updateIcon(update.status)),
                   ),
-                  const PopupMenuItem(
-                    value: 'download',
-                    child: Text('Configure download source'),
-                  ),
-                  if (update.url?.trim().isNotEmpty == true)
-                    const PopupMenuItem(
-                      value: 'open-check',
-                      child: Text('Open check source'),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          update.plugin,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${update.serverName} · ${_updateKindLabel(update.kind)}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
                     ),
-                  if (update.downloadUrl?.trim().isNotEmpty == true)
-                    const PopupMenuItem(
-                      value: 'open-download',
-                      child: Text('Open download source'),
+                  ),
+                  sourceMenu(update),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 36, top: 6),
+                child: Chip(label: Text(_updateStatusLabel(update.status))),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '${update.currentVersion.isEmpty ? 'Version unknown' : update.currentVersion}'
+                '${update.latestVersion == null ? '' : ' → ${update.latestVersion}'}',
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Check: ${_updateSourceLabel(update)}\n'
+                'Download: ${_updateDownloadSourceLabel(update)}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 6),
+              Text(explanation),
+              if (updateMaintenance != null &&
+                  (updateMaintenance.active ||
+                      updateMaintenance.stage == 'failed' ||
+                      updateMaintenance.stage == 'completed')) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            updateMaintenance.stage == 'failed'
+                                ? Icons.error_outline
+                                : updateMaintenance.stage == 'completed'
+                                ? Icons.check_circle_outline
+                                : Icons.sync,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _updateMaintenanceStageLabel(
+                                updateMaintenance.stage,
+                              ),
+                              style: Theme.of(context).textTheme.labelLarge,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (updateMaintenance.active) ...[
+                        const SizedBox(height: 8),
+                        const LinearProgressIndicator(),
+                      ],
+                      if (updateMaintenance.message.trim().isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(updateMaintenance.message),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (canApply)
+                    FilledButton.icon(
+                      onPressed: maintenanceActive
+                          ? null
+                          : () =>
+                                _applyTargetedUpdate(context, network, update),
+                      icon: const Icon(Icons.system_update_alt),
+                      label: Text(
+                        maintenanceActive ? 'Maintenance active' : 'Update now',
+                      ),
+                    )
+                  else if (!update.sourceConfirmed ||
+                      update.status == PluginUpdateStatus.unmanaged)
+                    OutlinedButton.icon(
+                      onPressed: () => _configureSource(
+                        context,
+                        network,
+                        update,
+                        role: 'check',
+                      ),
+                      icon: const Icon(Icons.link),
+                      label: const Text('Configure source'),
+                    )
+                  else if (update.status ==
+                      PluginUpdateStatus.sourceUnavailable)
+                    OutlinedButton.icon(
+                      onPressed: () => network.checkUpdates(update.serverId),
+                      icon: const Icon(Icons.refresh),
+                      label: const Text('Retry check'),
+                    )
+                  else if (update.status ==
+                          PluginUpdateStatus.updateAvailable &&
+                      update.kind == 'plugin' &&
+                      (!update.downloadSourceConfirmed ||
+                          update.downloadUrl?.trim().isEmpty != false))
+                    OutlinedButton.icon(
+                      onPressed: () => _configureSource(
+                        context,
+                        network,
+                        update,
+                        role: 'download',
+                      ),
+                      icon: const Icon(Icons.download_outlined),
+                      label: const Text('Configure download'),
+                    )
+                  else if (update.status ==
+                          PluginUpdateStatus.updateAvailable &&
+                      update.kind == 'plugin' &&
+                      !canApply &&
+                      update.downloadUrl?.trim().isNotEmpty == true)
+                    OutlinedButton.icon(
+                      onPressed: () => UrlUtils.openUrl(update.downloadUrl!),
+                      icon: const Icon(Icons.download_outlined),
+                      label: const Text('Download manually'),
+                    ),
+                  if (update.url?.trim().isNotEmpty == true)
+                    TextButton.icon(
+                      onPressed: () => UrlUtils.openUrl(update.url!),
+                      icon: const Icon(Icons.open_in_new),
+                      label: const Text('Open source'),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    Widget collapsedSection(
+      String title,
+      String subtitle,
+      List<PluginUpdate> items,
+    ) => Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ExpansionTile(
+        initiallyExpanded: false,
+        title: Text('$title (${items.length})'),
+        subtitle: Text(subtitle),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        children: [for (final update in items) updateCard(update)],
+      ),
+    );
+
+    Widget groupedSetupCard(List<PluginUpdate> group) {
+      final first = group.first;
+      final candidates = _groupCandidates(group);
+      UpdateSourceCandidate? verifiedCandidate;
+      for (final candidate in candidates) {
+        if (candidate.verified) {
+          verifiedCandidate = candidate;
+          break;
+        }
+      }
+      final review = first.sourceReview;
+      final serverNames = group.map((item) => item.serverName).toSet().toList()
+        ..sort();
+      final versions =
+          group
+              .map((item) => item.currentVersion.trim())
+              .where((version) => version.isNotEmpty)
+              .toSet()
+              .toList()
+            ..sort();
+      final serverCount = group.map((item) => item.serverId).toSet().length;
+      final groupSupported = network.management.features.contains(
+        'update-source-group',
+      );
+      final candidateSummary = verifiedCandidate != null
+          ? 'Verified source: ${verifiedCandidate.label}. Download/update permission is reviewed separately.'
+          : review != null && review.status == 'special'
+          ? '${review.label ?? 'Known source'} · ${review.reason}'
+          : review != null && review.status == 'unknown'
+          ? review.reason
+          : candidates.isEmpty
+          ? 'No automatic source candidate found.'
+          : '${candidates.length} candidate${candidates.length == 1 ? '' : 's'}: '
+                '${candidates.take(3).map((candidate) => candidate.label).join(' · ')}'
+                '${candidates.length > 3 ? ' · +${candidates.length - 3} more' : ''}';
+      return Card(
+        margin: const EdgeInsets.only(bottom: 10),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: Icon(Icons.link_off_outlined),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      first.plugin,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  Chip(
+                    label: Text(
+                      '$serverCount server${serverCount == 1 ? '' : 's'}',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                serverNames.join(', '),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              if (versions.isNotEmpty) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Installed: ${versions.join(' · ')}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ],
+              const SizedBox(height: 6),
+              Text(candidateSummary),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: groupSupported
+                    ? () => _configureSource(
+                        context,
+                        network,
+                        first,
+                        role: 'check',
+                        candidatesOverride: candidates,
+                        allMatchingServers: true,
+                        matchingCount: serverCount,
+                      )
+                    : null,
+                icon: const Icon(Icons.link),
+                label: Text(
+                  groupSupported
+                      ? verifiedCandidate != null
+                            ? 'Review source for $serverCount server${serverCount == 1 ? '' : 's'}'
+                            : 'Configure for $serverCount server${serverCount == 1 ? '' : 's'}'
+                      : 'Bridge update required',
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    UpdateSourceCandidate? verifiedCandidateFor(List<PluginUpdate> group) {
+      for (final candidate in _groupCandidates(group)) {
+        if (candidate.verified) return candidate;
+      }
+      return null;
+    }
+
+    Future<void> confirmVerifiedSources(
+      List<List<PluginUpdate>> readyGroups,
+    ) async {
+      final mappings = <Map<String, String>>[];
+      var instanceCount = 0;
+      for (final group in readyGroups) {
+        final candidate = verifiedCandidateFor(group);
+        if (candidate == null) continue;
+        instanceCount += group.map((item) => item.serverId).toSet().length;
+        mappings.add({
+          'plugin': group.first.plugin,
+          'provider': candidate.provider.name,
+          'projectId': candidate.projectId,
+          if (candidate.url?.trim().isNotEmpty == true) 'url': candidate.url!,
+        });
+      }
+      if (mappings.isEmpty) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Confirm ${mappings.length} verified sources?'),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'This will remember version-check sources for $instanceCount plugin installations. No plugin files are downloaded or changed.',
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Download sources remain unconfirmed and will be reviewed separately before Update now can be enabled.',
+                  ),
+                  const SizedBox(height: 12),
+                  for (final mapping in mappings)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        '• ${mapping['plugin']} · ${mapping['provider']} · ${mapping['projectId']}',
+                      ),
                     ),
                 ],
               ),
             ),
           ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Confirm check sources'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed == true) network.setVerifiedUpdateSourcesBulk(mappings);
+    }
+
+    Widget groupedNeedsSetupSection() {
+      final groups = needsSetupGroups.values.toList()
+        ..sort(
+          (a, b) => a.first.plugin.toLowerCase().compareTo(
+            b.first.plugin.toLowerCase(),
+          ),
+        );
+      final readyGroups = <List<PluginUpdate>>[];
+      final specialGroups = <List<PluginUpdate>>[];
+      final unknownGroups = <List<PluginUpdate>>[];
+      final choiceGroups = <List<PluginUpdate>>[];
+      for (final group in groups) {
+        final review = group.first.sourceReview;
+        if (verifiedCandidateFor(group) != null) {
+          readyGroups.add(group);
+        } else if (review?.status == 'special') {
+          specialGroups.add(group);
+        } else if (review?.status == 'unknown') {
+          unknownGroups.add(group);
+        } else {
+          choiceGroups.add(group);
+        }
+      }
+
+      Widget bucket(
+        String title,
+        String subtitle,
+        List<List<PluginUpdate>> bucketGroups, {
+        bool expanded = false,
+      }) => ExpansionTile(
+        initiallyExpanded: expanded,
+        tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+        childrenPadding: EdgeInsets.zero,
+        title: Text('$title (${bucketGroups.length})'),
+        subtitle: Text(subtitle),
+        children: [for (final group in bucketGroups) groupedSetupCard(group)],
+      );
+
+      final bulkAvailable = network.management.features.contains(
+        'update-source-bulk',
+      );
+      return Card(
+        margin: const EdgeInsets.only(bottom: 10),
+        child: ExpansionTile(
+          initiallyExpanded: false,
+          title: Text('Needs setup ($needsSetupDisplayCount)'),
+          subtitle: Text(
+            '${groupableNeedsSetup.length} plugin installation${groupableNeedsSetup.length == 1 ? '' : 's'} grouped into a source review.',
+          ),
+          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          children: [
+            if (readyGroups.isNotEmpty) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed: bulkAvailable && !network.managementPending
+                      ? () => confirmVerifiedSources(readyGroups)
+                      : null,
+                  icon: const Icon(Icons.verified_outlined),
+                  label: Text(
+                    bulkAvailable
+                        ? 'Confirm ${readyGroups.length} verified sources'
+                        : 'Bridge update required for bulk confirm',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              bucket(
+                'Ready to confirm',
+                'Project identity has been verified. This confirms checking only, not downloads.',
+                readyGroups,
+                expanded: true,
+              ),
+            ],
+            if (choiceGroups.isNotEmpty)
+              bucket(
+                'Needs choice',
+                'Plausible candidates exist, but Admincraft will not choose between them automatically.',
+                choiceGroups,
+              ),
+            if (specialGroups.isNotEmpty)
+              bucket(
+                'Special handling',
+                'Known projects that need a premium, snapshot, development-build or vendor-specific provider.',
+                specialGroups,
+              ),
+            if (unknownGroups.isNotEmpty)
+              bucket(
+                'No reliable source',
+                'These remain deliberately unmanaged until their exact origin is proven.',
+                unknownGroups,
+              ),
+            for (final update in ungroupedNeedsSetup) updateCard(update),
+          ],
+        ),
+      );
+    }
+
+    Future<void> confirmSafeDownloadSources(
+      List<List<PluginUpdate>> readyGroups,
+    ) async {
+      final mappings = <Map<String, String>>[];
+      var instanceCount = 0;
+      for (final group in readyGroups) {
+        final first = group.first;
+        final provider = first.provider;
+        final projectId = first.projectId?.trim();
+        if (provider == null || projectId == null || projectId.isEmpty) {
+          continue;
+        }
+        instanceCount += group.length;
+        mappings.add({
+          'plugin': first.plugin,
+          'provider': provider.name,
+          'projectId': projectId,
+        });
+      }
+      if (mappings.isEmpty) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text('Confirm ${mappings.length} download sources?'),
+          content: SizedBox(
+            width: 500,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'This confirms provider-resolved JAR downloads for $instanceCount currently updateable plugin installations. No plugin is downloaded or installed by this action.',
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'The backend has independently classified every listed source as a direct automatic artifact. Premium, authenticated, external and ambiguous downloads are excluded.',
+                  ),
+                  const SizedBox(height: 12),
+                  for (final mapping in mappings)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: Text(
+                        '• ${mapping['plugin']} · ${mapping['provider']} · ${mapping['projectId']}',
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Confirm download sources'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed == true) network.setSafeDownloadSourcesBulk(mappings);
+    }
+
+    Widget downloadReviewSection() {
+      final groups = downloadReviewGroups.values.toList()
+        ..sort(
+          (a, b) => a.first.plugin.toLowerCase().compareTo(
+            b.first.plugin.toLowerCase(),
+          ),
+        );
+      final readyGroups = <List<PluginUpdate>>[];
+      final blockedGroups = <List<PluginUpdate>>[];
+      final manualGroups = <List<PluginUpdate>>[];
+      for (final group in groups) {
+        final first = group.first;
+        final sameSource = group.every(
+          (item) =>
+              item.provider == first.provider &&
+              item.projectId == first.projectId,
+        );
+        final allReady = group.every(
+          (item) => item.downloadReview?.status == 'ready',
+        );
+        final anyAuthenticated = group.any(
+          (item) => item.downloadReview?.status == 'authenticated',
+        );
+        if (sameSource && allReady) {
+          readyGroups.add(group);
+        } else if (anyAuthenticated) {
+          blockedGroups.add(group);
+        } else {
+          manualGroups.add(group);
+        }
+      }
+
+      Widget groupCard(List<PluginUpdate> group) {
+        final first = group.first;
+        final review = first.downloadReview;
+        final servers = group.map((item) => item.serverName).toSet().toList()
+          ..sort();
+        final latest = group
+            .map((item) => item.latestVersion)
+            .whereType<String>()
+            .toSet()
+            .toList();
+        final blocked = review?.status == 'authenticated';
+        return Card(
+          margin: const EdgeInsets.only(bottom: 8),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      review?.status == 'ready'
+                          ? Icons.verified_outlined
+                          : blocked
+                          ? Icons.lock_outline
+                          : Icons.rule_folder_outlined,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        first.plugin,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    Chip(
+                      label: Text(
+                        '${group.length} update${group.length == 1 ? '' : 's'}',
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  servers.join(', '),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                if (latest.isNotEmpty)
+                  Text(
+                    'Target: ${latest.join(' · ')}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                const SizedBox(height: 6),
+                Text(review?.label ?? 'Download source needs review'),
+                const SizedBox(height: 2),
+                Text(
+                  review?.reason ??
+                      'No automatic direct artifact has been proven yet.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                if (review?.status != 'ready' && !blocked) ...[
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: () => _configureSource(
+                      context,
+                      network,
+                      first,
+                      role: 'download',
+                    ),
+                    icon: const Icon(Icons.rule_folder_outlined),
+                    label: const Text('Review manually'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      }
+
+      Widget bucket(
+        String title,
+        String subtitle,
+        List<List<PluginUpdate>> bucketGroups, {
+        bool expanded = false,
+      }) => ExpansionTile(
+        initiallyExpanded: expanded,
+        tilePadding: const EdgeInsets.symmetric(horizontal: 4),
+        childrenPadding: EdgeInsets.zero,
+        title: Text('$title (${bucketGroups.length})'),
+        subtitle: Text(subtitle),
+        children: [for (final group in bucketGroups) groupCard(group)],
+      );
+
+      final bulkAvailable = network.management.features.contains(
+        'update-download-bulk',
+      );
+      return Card(
+        margin: const EdgeInsets.only(bottom: 10),
+        child: ExpansionTile(
+          initiallyExpanded: false,
+          title: Text('Download review ($downloadReviewDisplayCount)'),
+          subtitle: const Text(
+            'Version checking and permission to fetch a plugin JAR are separate trust decisions.',
+          ),
+          childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          children: [
+            if (readyGroups.isNotEmpty) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilledButton.icon(
+                  onPressed: bulkAvailable && !network.managementPending
+                      ? () => confirmSafeDownloadSources(readyGroups)
+                      : null,
+                  icon: const Icon(Icons.download_done_outlined),
+                  label: Text(
+                    bulkAvailable
+                        ? 'Confirm ${readyGroups.length} safe download sources'
+                        : 'Bridge update required for safe bulk confirm',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              bucket(
+                'Ready to confirm',
+                'The backend resolved a direct JAR through the checked provider and compatibility rules.',
+                readyGroups,
+                expanded: true,
+              ),
+            ],
+            if (blockedGroups.isNotEmpty)
+              bucket(
+                'Authentication required',
+                'Premium or authenticated downloads remain blocked from the public automatic path.',
+                blockedGroups,
+              ),
+            if (manualGroups.isNotEmpty)
+              bucket(
+                'Manual review',
+                'No direct automatic JAR path was proven; review the download route before enabling updates.',
+                manualGroups,
+              ),
+          ],
+        ),
+      );
+    }
+
+    final children = <Widget>[
+      Card(
+        margin: const EdgeInsets.only(bottom: 14),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  if (available.isNotEmpty)
+                    jumpChip(
+                      '${available.length} update${available.length == 1 ? '' : 's'} available',
+                      availableKey,
+                    )
+                  else
+                    const Chip(label: Text('0 updates available')),
+                  if (needsSetup.isNotEmpty)
+                    jumpChip(
+                      serverId == null
+                          ? '$needsSetupDisplayCount plugin${needsSetupDisplayCount == 1 ? '' : 's'} need setup'
+                          : '${needsSetup.length} need setup',
+                      needsSetupKey,
+                    ),
+                  if (sourceUnavailable.isNotEmpty)
+                    jumpChip(
+                      '${sourceUnavailable.length} source${sourceUnavailable.length == 1 ? '' : 's'} unavailable',
+                      sourceUnavailableKey,
+                    ),
+                  if (downloadReviewItems.isNotEmpty)
+                    jumpChip(
+                      '$downloadReviewDisplayCount download${downloadReviewDisplayCount == 1 ? '' : 's'} need review',
+                      downloadReviewKey,
+                    ),
+                  if (current.isNotEmpty)
+                    jumpChip('${current.length} up to date', currentKey),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                lastCheck == null
+                    ? 'No completed update check recorded yet.'
+                    : 'Last checked ${_formatDateTime(lastCheck)}.',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              if (available.isEmpty && needsSetup.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  'Detected plugins that still need a source are not counted as updates. Configure them once to enable reliable version checks.',
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      if (available.isNotEmpty)
+        KeyedSubtree(
+          key: availableKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 2, 4, 8),
+                child: Text(
+                  'Updates available',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              for (final update in available) updateCard(update),
+            ],
+          ),
+        ),
+      if (downloadReviewItems.isNotEmpty)
+        KeyedSubtree(key: downloadReviewKey, child: downloadReviewSection()),
+      if (checkingItems.isNotEmpty)
+        collapsedSection(
+          'Checking',
+          'Providers that are still being queried.',
+          checkingItems,
+        ),
+      if (sourceUnavailable.isNotEmpty)
+        KeyedSubtree(
+          key: sourceUnavailableKey,
+          child: collapsedSection(
+            'Source unavailable',
+            'The check source is already configured, but no usable version could be resolved right now. Retry the check instead of reconfiguring the source.',
+            sourceUnavailable,
+          ),
+        ),
+      if (needsSetup.isNotEmpty)
+        KeyedSubtree(
+          key: needsSetupKey,
+          child: serverId == null
+              ? groupedNeedsSetupSection()
+              : collapsedSection(
+                  'Needs setup',
+                  'Detected items that are not reliable update notifications yet.',
+                  needsSetup,
+                ),
+        ),
+      if (current.isNotEmpty)
+        KeyedSubtree(
+          key: currentKey,
+          child: collapsedSection(
+            'Up to date',
+            'Items whose configured source matches the installed version.',
+            current,
+          ),
+        ),
+    ];
+
+    return Column(
+      children: [
+        ManagementFeedback(network: network),
+        Expanded(
+          child: _ManagementList(
+            title: serverId == null ? 'Network updates' : 'Server updates',
+            count: available.length,
+            onRefresh: network.refreshManagement,
+            eagerChildren: true,
+            action: FilledButton.icon(
+              onPressed: network.managementAvailable && !checking
+                  ? () => network.checkUpdates(serverId)
+                  : null,
+              icon: checking
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh),
+              label: Text(checking ? 'Checking…' : 'Check now'),
+            ),
+            emptyIcon: Icons.system_update_alt_outlined,
+            emptyTitle: 'No update results',
+            emptyMessage:
+                'Enabled providers will report plugin and platform updates here.',
+            children: children,
+          ),
+        ),
       ],
     );
   }
@@ -1697,6 +2936,7 @@ class _ManagementList extends StatelessWidget {
   final String emptyTitle;
   final String emptyMessage;
   final List<Widget> children;
+  final bool eagerChildren;
   const _ManagementList({
     required this.title,
     required this.count,
@@ -1706,52 +2946,61 @@ class _ManagementList extends StatelessWidget {
     required this.emptyTitle,
     required this.emptyMessage,
     required this.children,
+    this.eagerChildren = false,
   });
 
-  @override
-  Widget build(BuildContext context) => RefreshIndicator(
-    onRefresh: () async => onRefresh(),
-    child: ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(20),
+  List<Widget> _content(BuildContext context) => [
+    Row(
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                title,
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-            ),
-            if (action != null) action!,
-            const SizedBox(width: 8),
-            Chip(label: Text('$count')),
-          ],
+        Expanded(
+          child: Text(title, style: Theme.of(context).textTheme.headlineMedium),
         ),
-        const SizedBox(height: 12),
-        if (children.isEmpty)
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  Icon(emptyIcon, size: 36),
-                  const SizedBox(height: 10),
-                  Text(
-                    emptyTitle,
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(emptyMessage, textAlign: TextAlign.center),
-                ],
-              ),
-            ),
-          )
-        else
-          ...children,
+        if (action != null) action!,
+        const SizedBox(width: 8),
+        Chip(label: Text('$count')),
       ],
     ),
-  );
+    const SizedBox(height: 12),
+    if (children.isEmpty)
+      Card(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            children: [
+              Icon(emptyIcon, size: 36),
+              const SizedBox(height: 10),
+              Text(emptyTitle, style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 4),
+              Text(emptyMessage, textAlign: TextAlign.center),
+            ],
+          ),
+        ),
+      )
+    else
+      ...children,
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final content = _content(context);
+    return RefreshIndicator(
+      onRefresh: () async => onRefresh(),
+      child: eagerChildren
+          ? SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: content,
+              ),
+            )
+          : ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(20),
+              children: content,
+            ),
+    );
+  }
 }
 
 class _ToolTile extends StatelessWidget {
@@ -1797,14 +3046,6 @@ String _scheduleActionLabel(ScheduledActionType action) => switch (action) {
   ScheduledActionType.backup => 'Backup',
   ScheduledActionType.maintenance => 'Maintenance',
 };
-IconData _scheduleIcon(ScheduledActionType action) => switch (action) {
-  ScheduledActionType.start => Icons.play_arrow,
-  ScheduledActionType.stop => Icons.stop,
-  ScheduledActionType.restart => Icons.restart_alt,
-  ScheduledActionType.backup => Icons.inventory_2_outlined,
-  ScheduledActionType.maintenance => Icons.build_circle_outlined,
-};
-
 String _updateKindLabel(String kind) => switch (kind) {
   'paper' => 'Paper platform',
   'velocity' => 'Velocity platform',
@@ -1818,6 +3059,18 @@ int _updatePriority(PluginUpdateStatus status) => switch (status) {
   PluginUpdateStatus.unmanaged => 2,
   PluginUpdateStatus.checking => 3,
   PluginUpdateStatus.current => 4,
+};
+
+String _updateMaintenanceStageLabel(String stage) => switch (stage) {
+  'waiting-empty' => 'Waiting for players to leave',
+  'waiting-backup' => 'Waiting for current backup',
+  'backup' => 'Creating safety backup',
+  'stopping-for-update' => 'Stopping server',
+  'updating' => 'Validating and replacing plugin JAR',
+  'healthcheck' => 'Starting server and checking health',
+  'completed' => 'Update completed',
+  'failed' => 'Update failed',
+  _ => 'Preparing plugin update',
 };
 
 String _updateStatusLabel(PluginUpdateStatus status) => switch (status) {

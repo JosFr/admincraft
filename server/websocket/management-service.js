@@ -436,7 +436,14 @@ function createManagementService(config = {}, dependencies = {}) {
   }
   function backupPublic(backup) {
     const { localPath, destinationLocators, ...publicBackup } = backup;
-    return publicBackup;
+    return {
+      ...publicBackup,
+      capabilities: {
+        ...publicBackup.capabilities,
+        forget: backup.engine !== "native" &&
+          !["queued", "running", "verifying"].includes(backup.status),
+      },
+    };
   }
 
   function storageSnapshots() {
@@ -462,6 +469,14 @@ function createManagementService(config = {}, dependencies = {}) {
     return {
       type: "admincraft.management-state",
       observedAt: isoNow(now),
+      features: [
+        "schedule-update",
+        "backup-forget",
+        "update-targeted",
+        "update-source-group",
+        "update-source-bulk",
+        "update-download-bulk",
+      ],
       storages: storageSnapshots(),
       backupDestinationDefaults: {
         global: [...state.backupDestinationDefaults.global],
@@ -957,6 +972,7 @@ function createManagementService(config = {}, dependencies = {}) {
         backupEngineId: options.backupEngineId,
         restartWhenEmpty: options.restartWhenEmpty,
         action: options.action,
+        updatePlugin: options.updatePlugin,
       });
     } else throw new Error(`Unsupported scheduled action: ${action}`);
     activity(
@@ -1044,6 +1060,7 @@ function createManagementService(config = {}, dependencies = {}) {
       ? requestedAction
       : "restart";
     let updatePlan = null;
+    const requestedUpdatePlugin = String(options.updatePlugin || "").trim();
     if (action === "update") {
       if (
         typeof dependencies.updateApplier?.plan !== "function" ||
@@ -1053,7 +1070,20 @@ function createManagementService(config = {}, dependencies = {}) {
           "Automatic plugin update apply is not configured on this bridge.",
         );
       }
-      updatePlan = dependencies.updateApplier.plan(server, state.updates || []);
+      const updateCandidates = requestedUpdatePlugin
+        ? (state.updates || []).filter(
+            (item) =>
+              item.serverId === server.id &&
+              String(item.plugin || "").toLowerCase() ===
+                requestedUpdatePlugin.toLowerCase(),
+          )
+        : state.updates || [];
+      if (requestedUpdatePlugin && updateCandidates.length !== 1) {
+        throw new Error(
+          `Targeted update could not uniquely resolve plugin: ${requestedUpdatePlugin}.`,
+        );
+      }
+      updatePlan = dependencies.updateApplier.plan(server, updateCandidates);
       if (
         !Array.isArray(updatePlan.selected) ||
         updatePlan.selected.length === 0
@@ -1065,6 +1095,11 @@ function createManagementService(config = {}, dependencies = {}) {
         throw new Error(
           detail ||
             "No applicable plugin updates are available for this server.",
+        );
+      }
+      if (requestedUpdatePlugin && updatePlan.selected.length !== 1) {
+        throw new Error(
+          `Targeted update plan is ambiguous for plugin: ${requestedUpdatePlugin}.`,
         );
       }
     }
@@ -1092,6 +1127,7 @@ function createManagementService(config = {}, dependencies = {}) {
         : [],
       lastWaitingPlayers: null,
       actionStarted: false,
+      updatePlugin: requestedUpdatePlugin || null,
       updatePlugins:
         updatePlan?.selected?.map((item) => item.update.plugin) || [],
       updateApplied: [],
@@ -1288,11 +1324,23 @@ function createManagementService(config = {}, dependencies = {}) {
         await waitStopped(multicraft, server.multicraftServerId, dependencies);
         maintenance.healthcheckSeenOffline = true;
         maintenance.stage = "updating";
-        maintenance.message = "Applying validated plugin updates.";
+        maintenance.message = maintenance.updatePlugin
+          ? `Applying validated plugin update: ${maintenance.updatePlugin}.`
+          : "Applying validated plugin updates.";
         try {
+          const plannedPlugins = new Set(
+            (maintenance.updatePlugins || []).map((plugin) =>
+              String(plugin).toLowerCase(),
+            ),
+          );
+          const plannedUpdates = (state.updates || []).filter(
+            (item) =>
+              item.serverId === server.id &&
+              plannedPlugins.has(String(item.plugin || "").toLowerCase()),
+          );
           const result = await dependencies.updateApplier.applyServer(
             server,
-            state.updates || [],
+            plannedUpdates,
           );
           maintenance.updateApplied = result.applied || [];
         } catch (error) {
@@ -1826,6 +1874,19 @@ function createManagementService(config = {}, dependencies = {}) {
         return response("Backup copied.", [snapshot()]);
       }
 
+      if (action === "backup-forget") {
+        const backup = findBackup(payload);
+        if (backup.engine === "native")
+          throw new Error("Managed backup files must use Delete, not Remove from history.");
+        if (["queued", "running", "verifying"].includes(backup.status))
+          throw new Error("An active backup cannot be removed from history.");
+        state.backups = state.backups.filter((item) => item.id !== backup.id);
+        activity(serverById(backup.serverId), "Backup record removed",
+          backup.id + " — record only; no backup files deleted or commands cancelled.");
+        persist();
+        return response("Backup record removed. No backup files were deleted.", [snapshot()]);
+      }
+
       if (action === "backup-delete") {
         const backup = findBackup(payload);
         await deleteManagedBackup(backup, backup.id);
@@ -1869,7 +1930,12 @@ function createManagementService(config = {}, dependencies = {}) {
         );
       }
 
-      if (action === "schedule-create") {
+      if (action === "schedule-create" || action === "schedule-update") {
+        const existing = action === "schedule-update"
+          ? state.schedules.find((item) => item.id === String(payload.id || ""))
+          : null;
+        if (action === "schedule-update" && !existing)
+          throw new Error("Schedule not found.");
         const server = requireServer(payload);
         const scheduledAction = String(payload.action || "").trim();
         const allowed = ["start", "stop", "restart", "backup", "maintenance"];
@@ -1904,8 +1970,8 @@ function createManagementService(config = {}, dependencies = {}) {
           runAt = parsed.toISOString();
           nextRun = parsed;
         }
-        state.schedules.push({
-          id: id("schedule"),
+        const updated = {
+          id: existing?.id || id("schedule"),
           serverId: server.id,
           serverName: server.name,
           action: scheduledAction,
@@ -1913,19 +1979,21 @@ function createManagementService(config = {}, dependencies = {}) {
           schedule: expression,
           recurring,
           runAt,
-          nextRun: nextRun.toISOString(),
-          enabled: true,
-          lastResult: null,
-        });
+          nextRun: existing?.enabled === false ? null : nextRun.toISOString(),
+          enabled: existing?.enabled ?? true,
+          lastResult: existing?.lastResult ?? null,
+        };
+        if (existing) Object.assign(existing, updated);
+        else state.schedules.push(updated);
         activity(
           server,
-          "Schedule created",
+          existing ? "Schedule updated" : "Schedule created",
           recurring
             ? `${scheduledAction} · ${expression}`
             : `${scheduledAction} · ${runAt}`,
         );
         persist();
-        return response("Schedule created.", [snapshot()]);
+        return response(existing ? "Schedule updated." : "Schedule created.", [snapshot()]);
       }
 
       if (action === "schedule-toggle") {
@@ -2008,25 +2076,190 @@ function createManagementService(config = {}, dependencies = {}) {
             "Update source matching is not configured on this bridge.",
           );
         }
-        const confirmed = dependencies.updateChecker.confirmSource(payload);
-        const previous = state.updateSourceOverrides[confirmed.key];
-        const normalized = previous?.provider
-          ? { check: previous }
-          : { ...(previous || {}) };
-        normalized[confirmed.role || "check"] = confirmed.source;
-        state.updateSourceOverrides[confirmed.key] = normalized;
-        state.updates = await dependencies.updateChecker({
+        const plugin = String(payload.plugin || "").trim();
+        const groupScope = payload.scope === "plugin";
+        const matchingUpdates = groupScope
+          ? state.updates.filter(
+              (item) =>
+                item.kind === "plugin" &&
+                String(item.plugin || "").toLowerCase() === plugin.toLowerCase(),
+            )
+          : [];
+        if (groupScope && matchingUpdates.length === 0) {
+          throw new Error("No matching plugin instances found for source setup.");
+        }
+        const targets = groupScope
+          ? [...new Set(matchingUpdates.map((item) => String(item.serverId)))]
+          : [String(payload.serverId || "")];
+        const confirmations = targets.map((serverId) =>
+          dependencies.updateChecker.confirmSource({ ...payload, serverId }),
+        );
+        const nextSourceOverrides = { ...state.updateSourceOverrides };
+        for (const confirmed of confirmations) {
+          const previous = nextSourceOverrides[confirmed.key];
+          const normalized = previous?.provider
+            ? { check: previous }
+            : { ...(previous || {}) };
+          normalized[confirmed.role || "check"] = confirmed.source;
+          nextSourceOverrides[confirmed.key] = normalized;
+        }
+        const refreshedUpdates = await dependencies.updateChecker({
           providers: payload.providers || {},
-          serverId: payload.serverId || null,
-          sourceOverrides: state.updateSourceOverrides,
+          sourceOverrides: nextSourceOverrides,
         });
+        state.updateSourceOverrides = nextSourceOverrides;
+        state.updates = refreshedUpdates;
         activity(
-          serverById(payload.serverId),
+          groupScope ? null : serverById(payload.serverId),
           "Update source confirmed",
-          String(payload.plugin || "Plugin"),
+          groupScope
+            ? `${plugin || "Plugin"} · ${targets.length} server(s)`
+            : plugin || "Plugin",
         );
         persist();
-        return response("Update source remembered.", [snapshot()]);
+        return response(
+          groupScope
+            ? `Update source remembered for ${targets.length} server(s).`
+            : "Update source remembered.",
+          [snapshot()],
+        );
+      }
+
+      if (action === "updates-source-bulk-set") {
+        if (typeof dependencies.updateChecker?.confirmSource !== "function") {
+          throw new Error("Update source matching is not configured on this bridge.");
+        }
+        const mappings = Array.isArray(payload.mappings) ? payload.mappings : [];
+        if (mappings.length === 0 || mappings.length > 100) {
+          throw new Error("Choose between 1 and 100 update source mappings.");
+        }
+        const seenPlugins = new Set();
+        const confirmations = [];
+        let instanceCount = 0;
+        for (const raw of mappings) {
+          const plugin = String(raw?.plugin || "").trim();
+          if (!plugin) throw new Error("Every source mapping needs a plugin name.");
+          const pluginKey = plugin.toLowerCase();
+          if (seenPlugins.has(pluginKey)) throw new Error(`Duplicate source mapping for ${plugin}.`);
+          seenPlugins.add(pluginKey);
+          const matching = state.updates.filter(
+            (item) => item.kind === "plugin" && String(item.plugin || "").toLowerCase() === pluginKey,
+          );
+          if (matching.length === 0) throw new Error(`No matching plugin instances found for ${plugin}.`);
+          const targets = [...new Set(matching.map((item) => String(item.serverId)))];
+          instanceCount += targets.length;
+          for (const serverId of targets) {
+            confirmations.push(
+              dependencies.updateChecker.confirmSource({
+                ...raw,
+                plugin,
+                serverId,
+                role: "check",
+              }),
+            );
+          }
+        }
+        const nextSourceOverrides = { ...state.updateSourceOverrides };
+        for (const confirmed of confirmations) {
+          const previous = nextSourceOverrides[confirmed.key];
+          const normalized = previous?.provider ? { check: previous } : { ...(previous || {}) };
+          normalized.check = confirmed.source;
+          nextSourceOverrides[confirmed.key] = normalized;
+        }
+        const refreshedUpdates = await dependencies.updateChecker({
+          providers: payload.providers || {},
+          sourceOverrides: nextSourceOverrides,
+        });
+        state.updateSourceOverrides = nextSourceOverrides;
+        state.updates = refreshedUpdates;
+        activity(null, "Update sources confirmed", `${mappings.length} plugin(s) · ${instanceCount} server instance(s)`);
+        persist();
+        return response(
+          `Update sources remembered for ${mappings.length} plugin(s).`,
+          [snapshot()],
+        );
+      }
+
+      if (action === "updates-download-bulk-set") {
+        if (typeof dependencies.updateChecker?.confirmSource !== "function") {
+          throw new Error("Update source matching is not configured on this bridge.");
+        }
+        const mappings = Array.isArray(payload.mappings) ? payload.mappings : [];
+        if (mappings.length === 0 || mappings.length > 100) {
+          throw new Error("Choose between 1 and 100 download source mappings.");
+        }
+        const seenPlugins = new Set();
+        const confirmations = [];
+        let instanceCount = 0;
+        for (const raw of mappings) {
+          const plugin = String(raw?.plugin || "").trim();
+          const provider = String(raw?.provider || "").trim();
+          const projectId = String(raw?.projectId || "").trim();
+          if (!plugin || !provider || !projectId) {
+            throw new Error("Every download mapping needs a plugin, provider and project ID.");
+          }
+          const pluginKey = plugin.toLowerCase();
+          if (seenPlugins.has(pluginKey)) {
+            throw new Error(`Duplicate download mapping for ${plugin}.`);
+          }
+          seenPlugins.add(pluginKey);
+          const matching = state.updates.filter(
+            (item) =>
+              item.kind === "plugin" &&
+              item.status === "updateAvailable" &&
+              item.downloadSourceConfirmed !== true &&
+              String(item.plugin || "").toLowerCase() === pluginKey,
+          );
+          if (matching.length === 0) {
+            throw new Error(`No unconfirmed updateable plugin instances found for ${plugin}.`);
+          }
+          for (const item of matching) {
+            if (item.downloadReview?.status !== "ready") {
+              throw new Error(`Download source for ${plugin} is not approved for automatic confirmation.`);
+            }
+            if (
+              String(item.provider || "").toLowerCase() !== provider.toLowerCase() ||
+              String(item.projectId || "") !== projectId
+            ) {
+              throw new Error(`Download mapping for ${plugin} does not match the checked source.`);
+            }
+            confirmations.push(
+              dependencies.updateChecker.confirmSource({
+                serverId: String(item.serverId),
+                plugin,
+                provider,
+                projectId,
+                role: "download",
+              }),
+            );
+            instanceCount += 1;
+          }
+        }
+        const nextSourceOverrides = { ...state.updateSourceOverrides };
+        for (const confirmed of confirmations) {
+          const previous = nextSourceOverrides[confirmed.key];
+          const normalized = previous?.provider
+            ? { check: previous }
+            : { ...(previous || {}) };
+          normalized.download = confirmed.source;
+          nextSourceOverrides[confirmed.key] = normalized;
+        }
+        const refreshedUpdates = await dependencies.updateChecker({
+          providers: payload.providers || {},
+          sourceOverrides: nextSourceOverrides,
+        });
+        state.updateSourceOverrides = nextSourceOverrides;
+        state.updates = refreshedUpdates;
+        activity(
+          null,
+          "Download sources confirmed",
+          `${mappings.length} plugin(s) · ${instanceCount} updateable instance(s)`,
+        );
+        persist();
+        return response(
+          `Download sources remembered for ${mappings.length} plugin(s).`,
+          [snapshot()],
+        );
       }
 
       if (action === "updates-check") {

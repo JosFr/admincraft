@@ -83,6 +83,9 @@ test("accepts Minecraft syntax without allowing control characters", () => {
   assert.equal(validateMessage("say Olá, miners!"), true);
   assert.equal(validateMessage("say first\nstop"), false);
   assert.equal(validateMessage(""), false);
+  assert.equal(validateMessage("x".repeat(2049)), false);
+  assert.equal(validateMessage("x".repeat(4096), 4096), true);
+  assert.equal(validateMessage("x".repeat(32769), 32768), false);
 });
 
 test("Bedrock commands use argument-safe docker execution", async () => {

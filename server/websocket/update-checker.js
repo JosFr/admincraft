@@ -1,6 +1,7 @@
 const { discoverPluginProjects } = require("./plugin-inventory");
 const { discoverPlatformProjects } = require("./platform-inventory");
 const { discoverCandidates } = require("./update-discovery");
+const { sourceReview } = require("./update-source-catalog");
 
 function canonicalProvider(value) {
   const normalized = String(value || "")
@@ -42,6 +43,7 @@ function mergeProjects(configured, discovered) {
       ...live,
       ...project,
       currentVersion: live?.currentVersion || project.currentVersion,
+      gameVersion: project.gameVersion || live?.gameVersion || null,
       candidates: project.candidates || [],
     });
   }
@@ -74,6 +76,7 @@ function normalizeCandidate(value, index) {
     projectId,
     label: String(value?.label || `${provider}: ${projectId}`).trim(),
     url: value?.url ? String(value.url) : null,
+    score: Number.isFinite(Number(value?.score)) ? Number(value.score) : 0,
   };
 }
 
@@ -113,6 +116,7 @@ function parseProjects(raw = process.env.UPDATE_PROJECTS_JSON || "") {
         plugin,
         kind,
         currentVersion: String(entry.currentVersion || "").trim(),
+        gameVersion: String(entry.gameVersion || "").trim() || null,
         provider,
         projectId,
         sourceConfirmed: Boolean(provider && projectId),
@@ -127,15 +131,53 @@ function parseProjects(raw = process.env.UPDATE_PROJECTS_JSON || "") {
 }
 
 function versionParts(value) {
-  const cleaned = String(value || "")
+  let cleaned = String(value || "")
     .trim()
     .replace(/^v/iu, "");
-  const match = /^(\d+(?:\.\d+)*)(?:[-+](.*))?$/u.exec(cleaned);
+  const buildNotation = /^(\d+(?:\.\d+)*)\s+build\s+#?(\d+)$/iu.exec(cleaned);
+  if (buildNotation) cleaned = `${buildNotation[1]}.${buildNotation[2]}`;
+  const match = /^(\d+(?:\.\d+)*)(?:-([^+]+))?(?:\+(.+))?$/u.exec(cleaned);
   if (!match) return null;
   return {
     numbers: match[1].split(".").map((part) => Number.parseInt(part, 10)),
     prerelease: match[2] || null,
   };
+}
+
+const MODRINTH_SERVER_PLUGIN_LOADERS = new Set([
+  "bukkit",
+  "folia",
+  "paper",
+  "purpur",
+  "spigot",
+]);
+
+function allowedModrinthVersionTypes(currentVersion) {
+  const value = String(currentVersion || "").toLowerCase();
+  const allowed = new Set(["release"]);
+  if (/(?:^|[-._])beta(?:[-._0-9]|$)/u.test(value)) allowed.add("beta");
+  if (/(?:^|[-._])(?:alpha|snapshot|dev)(?:[-._0-9]|$)/u.test(value)) {
+    allowed.add("beta");
+    allowed.add("alpha");
+  }
+  return allowed;
+}
+
+function compatibleModrinthPluginVersion(version, gameVersion, currentVersion) {
+  const type = String(version?.version_type || "").toLowerCase();
+  if (!allowedModrinthVersionTypes(currentVersion).has(type)) {
+    return false;
+  }
+  const loaders = Array.isArray(version?.loaders)
+    ? version.loaders.map((item) => String(item).toLowerCase())
+    : [];
+  if (!loaders.some((loader) => MODRINTH_SERVER_PLUGIN_LOADERS.has(loader))) {
+    return false;
+  }
+  const gameVersions = Array.isArray(version?.game_versions)
+    ? version.game_versions.map(String)
+    : [];
+  return gameVersions.includes(gameVersion);
 }
 
 function compareVersions(left, right) {
@@ -257,16 +299,27 @@ async function latestFor(project, fetchImpl, config = {}) {
     };
   }
   if (project.provider === "modrinth") {
+    const gameVersion = String(project.gameVersion || "").trim();
+    if (!gameVersion) {
+      throw new Error("Minecraft version unavailable for Modrinth compatibility check.");
+    }
     const data = await fetchJson(
       fetchImpl,
       `https://api.modrinth.com/v2/project/${encodeURIComponent(project.projectId)}/version?include_changelog=false`,
     );
     if (!Array.isArray(data) || data.length === 0)
       throw new Error("No versions returned.");
-    const sorted = [...data].sort(
-      (a, b) =>
-        Date.parse(b.date_published || 0) - Date.parse(a.date_published || 0),
-    );
+    const sorted = data
+      .filter((version) =>
+        compatibleModrinthPluginVersion(version, gameVersion, project.currentVersion),
+      )
+      .sort(
+        (a, b) =>
+          Date.parse(b.date_published || 0) - Date.parse(a.date_published || 0),
+      );
+    if (sorted.length === 0) {
+      throw new Error(`No compatible Modrinth release for Minecraft ${gameVersion}.`);
+    }
     const latest = sorted[0];
     const files = Array.isArray(latest.files) ? latest.files : [];
     const artifact =
@@ -284,16 +337,29 @@ async function latestFor(project, fetchImpl, config = {}) {
     };
   }
   if (project.provider === "spigot") {
-    const data = await fetchJson(
-      fetchImpl,
-      `https://api.spiget.org/v2/resources/${encodeURIComponent(project.projectId)}/versions/latest`,
-    );
+    const [versionData, resourceData] = await Promise.all([
+      fetchJson(
+        fetchImpl,
+        `https://api.spiget.org/v2/resources/${encodeURIComponent(project.projectId)}/versions/latest`,
+      ),
+      fetchJson(
+        fetchImpl,
+        `https://api.spiget.org/v2/resources/${encodeURIComponent(project.projectId)}`,
+      ),
+    ]);
+    const premium = resourceData?.premium === true;
+    const external = resourceData?.external === true;
+    const fileType = String(resourceData?.file?.type || "").toLowerCase();
+    const directJar = !premium && !external && fileType === ".jar";
     return {
-      version: data.name,
+      version: versionData.name,
       url:
         project.url ||
         `https://www.spigotmc.org/resources/${project.projectId}/`,
-      downloadUrl: `https://api.spiget.org/v2/resources/${encodeURIComponent(project.projectId)}/download`,
+      downloadUrl: directJar
+        ? `https://api.spiget.org/v2/resources/${encodeURIComponent(project.projectId)}/download`
+        : null,
+      downloadPolicy: { premium, external, directJar },
     };
   }
   if (project.provider === "hangar") {
@@ -339,6 +405,79 @@ async function latestFor(project, fetchImpl, config = {}) {
   }
   throw new Error("Provider requires manual or authenticated checking.");
 }
+
+function downloadReviewFor(project, latest) {
+  if (project.kind !== "plugin") return null;
+  const provider = canonicalProvider(project.provider);
+  const hasDirectArtifact = Boolean(String(latest?.downloadUrl || "").trim());
+  if (provider === "modrinth") {
+    return hasDirectArtifact
+      ? {
+          status: "ready",
+          label: "Compatible Modrinth JAR",
+          reason:
+            "The JAR is resolved from the same loader, channel and Minecraft-compatible release used for version checking.",
+        }
+      : {
+          status: "manual",
+          label: "Modrinth artifact needs review",
+          reason: "No direct JAR artifact was resolved for the compatible release.",
+        };
+  }
+  if (provider === "github") {
+    return hasDirectArtifact
+      ? {
+          status: "ready",
+          label: "GitHub release JAR",
+          reason: "An unambiguous JAR asset was resolved from the selected release.",
+        }
+      : {
+          status: "manual",
+          label: "GitHub asset needs review",
+          reason: "No unambiguous JAR asset could be selected automatically.",
+        };
+  }
+  if (provider === "spigot") {
+    if (latest?.downloadPolicy?.premium === true) {
+      return {
+        status: "authenticated",
+        label: "Premium Spigot resource",
+        reason: "The resource requires an authenticated licensed download and cannot use the public automatic download path.",
+      };
+    }
+    if (latest?.downloadPolicy?.external === true) {
+      return {
+        status: "manual",
+        label: "External Spigot download",
+        reason: "The resource uses an external download location that must be reviewed separately.",
+      };
+    }
+    return hasDirectArtifact
+      ? {
+          status: "manual",
+          label: "Spigot JAR available",
+          reason: "Admincraft can resolve the public JAR, but automatic replacement is intentionally limited to version-bound provider artifacts from Modrinth or GitHub.",
+        }
+      : {
+          status: "manual",
+          label: "Spigot download needs review",
+          reason: "No public direct JAR download was proven for this resource.",
+        };
+  }
+  if (provider === "builtByBit") {
+    return {
+      status: "authenticated",
+      label: "BuiltByBit authenticated download",
+      reason: "Version checks may use the API, but download authorization must be reviewed separately.",
+    };
+  }
+  return {
+    status: "manual",
+    label: "Download source needs review",
+    reason: "Admincraft cannot prove a direct automatic JAR path for this provider yet.",
+  };
+}
+
 function providerEnabled(providers, provider) {
   for (const [key, value] of Object.entries(providers || {})) {
     if (canonicalProvider(key) === provider) return value !== false;
@@ -370,7 +509,9 @@ function sourceFor(project, overrides = {}, role = "check") {
       return {
         provider,
         projectId,
-        url: override.url || candidate?.url || project.url || null,
+        url:
+          override.url ||
+          (role === "check" ? candidate?.url || project.url || null : null),
         sourceConfirmed: true,
       };
     }
@@ -419,17 +560,20 @@ function baseResult(project, source = null, downloadSource = null) {
     plugin: project.plugin,
     kind: project.kind,
     currentVersion: project.currentVersion,
+    gameVersion: project.gameVersion || null,
     latestVersion: null,
     provider: source?.provider || null,
     projectId: source?.projectId || null,
     sourceConfirmed: source?.sourceConfirmed === true,
     candidates: publicCandidates(project),
+    sourceReview: sourceReview(project.plugin),
     status: "unmanaged",
     url: source?.url || project.url,
     downloadProvider: downloadSource?.provider || null,
     downloadProjectId: downloadSource?.projectId || null,
     downloadSourceConfirmed: downloadSource?.sourceConfirmed === true,
     downloadUrl: downloadSource?.url || null,
+    downloadReview: null,
   };
 }
 
@@ -447,6 +591,7 @@ function createUpdateChecker(config = {}, dependencies = {}) {
     ]);
   const candidateDiscovery =
     dependencies.discoverCandidates || discoverCandidates;
+  const resolveGameVersion = dependencies.resolveGameVersion || null;
   const configuredProjects = parseProjects(
     config.projectsJson || process.env.UPDATE_PROJECTS_JSON || "",
   );
@@ -465,6 +610,7 @@ function createUpdateChecker(config = {}, dependencies = {}) {
       "Private",
   };
   const candidateCache = new Map();
+  const candidateRequests = new Map();
   let lastProjects = configuredProjects;
 
   function providerFingerprint(providers) {
@@ -478,6 +624,42 @@ function createUpdateChecker(config = {}, dependencies = {}) {
   async function projectsFor(providers) {
     const discovered = inventoryDiscovery({ servers, sourceRoot });
     let projects = mergeProjects(configuredProjects, discovered);
+    const paperVersionByServer = new Map();
+    for (const project of projects) {
+      if (project.kind !== "paper") continue;
+      const platformVersion =
+        String(project.platformVersion || "").trim() ||
+        platformVersionInfo(project.currentVersion)?.version ||
+        "";
+      if (platformVersion) paperVersionByServer.set(project.serverId, platformVersion);
+    }
+    projects = projects.map((project) => {
+      if (project.kind !== "plugin") return project;
+      const platformVersion = paperVersionByServer.get(project.serverId);
+      return platformVersion ? { ...project, gameVersion: platformVersion } : project;
+    });
+    if (resolveGameVersion) {
+      const missingServerIds = [
+        ...new Set(
+          projects
+            .filter((project) => project.kind === "plugin" && !project.gameVersion)
+            .map((project) => project.serverId),
+        ),
+      ];
+      const missingServers = missingServerIds
+        .map((serverId) => servers.find((server) => server.id === serverId))
+        .filter(Boolean);
+      const resolved = new Map();
+      await mapLimit(missingServers, 2, async (server) => {
+        const version = String((await resolveGameVersion(server)) || "").trim();
+        if (version) resolved.set(server.id, version);
+      });
+      projects = projects.map((project) =>
+        project.kind === "plugin" && !project.gameVersion && resolved.has(project.serverId)
+          ? { ...project, gameVersion: resolved.get(project.serverId) }
+          : project,
+      );
+    }
     const providerKey = providerFingerprint(providers);
     projects = await mapLimit(projects, 3, async (project) => {
       if (
@@ -493,13 +675,28 @@ function createUpdateChecker(config = {}, dependencies = {}) {
       if (cached && current - cached.at < 6 * 60 * 60 * 1000) {
         candidates = cached.candidates;
       } else {
-        candidates = await candidateDiscovery(
-          project.plugin,
-          providers,
-          fetchImpl,
-          checkerConfig,
-        );
-        candidateCache.set(cacheKey, { at: current, candidates });
+        let request = candidateRequests.get(cacheKey);
+        if (!request) {
+          request = Promise.resolve(
+            candidateDiscovery(
+              project.plugin,
+              providers,
+              fetchImpl,
+              checkerConfig,
+            ),
+          ).then((result) => {
+            candidateCache.set(cacheKey, { at: Date.now(), candidates: result });
+            return result;
+          });
+          candidateRequests.set(cacheKey, request);
+        }
+        try {
+          candidates = await request;
+        } finally {
+          if (candidateRequests.get(cacheKey) === request) {
+            candidateRequests.delete(cacheKey);
+          }
+        }
       }
       return { ...project, candidates };
     });
@@ -524,7 +721,11 @@ function createUpdateChecker(config = {}, dependencies = {}) {
         sourceOverrides,
         "download",
       );
-      const downloadSource = explicitDownloadSource || source;
+      // A confirmed version-check source is not automatically trusted for downloads.
+      // Download selection is a separate safety decision because one project can
+      // publish multiple platform artifacts or require authenticated delivery.
+      const downloadSource =
+        explicitDownloadSource || (project.kind !== "plugin" ? source : null);
       if (!source) {
         results.push(baseResult(project, null, explicitDownloadSource));
         continue;
@@ -538,13 +739,15 @@ function createUpdateChecker(config = {}, dependencies = {}) {
         );
         const latestVersion = String(latest.version || "").trim();
         let resolvedDownloadSource = downloadSource;
+        let downloadReview = downloadReviewFor({ ...project, ...source }, latest);
         if (downloadSource) {
-          let directUrl = explicitDownloadSource?.url || null;
+          const configuredUrl = String(explicitDownloadSource?.url || "").trim();
+          let directUrl = null;
           const sameSource =
             downloadSource.provider === source.provider &&
             downloadSource.projectId === source.projectId;
-          if (!directUrl && sameSource) directUrl = latest.downloadUrl || null;
-          if (!directUrl && !sameSource) {
+          if (sameSource) directUrl = latest.downloadUrl || null;
+          if (!sameSource) {
             try {
               const downloadLatest = await latestFor(
                 { ...project, ...downloadSource },
@@ -552,7 +755,25 @@ function createUpdateChecker(config = {}, dependencies = {}) {
                 checkerConfig,
               );
               directUrl = downloadLatest.downloadUrl || null;
-            } catch (_) {}
+              downloadReview = downloadReviewFor(
+                { ...project, ...downloadSource },
+                downloadLatest,
+              );
+            } catch (_) {
+              downloadReview = {
+                status: "manual",
+                label: "Download source unavailable",
+                reason: "The configured download source could not resolve a direct artifact.",
+              };
+            }
+          }
+          if (configuredUrl && configuredUrl !== directUrl) {
+            directUrl = configuredUrl;
+            downloadReview = {
+              status: "manual",
+              label: "Manual download URL",
+              reason: "Manually entered URLs can be reviewed or opened, but never enable automatic JAR replacement.",
+            };
           }
           resolvedDownloadSource = { ...downloadSource, url: directUrl };
         }
@@ -562,6 +783,7 @@ function createUpdateChecker(config = {}, dependencies = {}) {
           latestVersion: latestVersion || null,
           status,
           url: latest.url || source.url || project.url,
+          downloadReview,
         });
       } catch (_) {
         results.push({
@@ -601,15 +823,19 @@ function createUpdateChecker(config = {}, dependencies = {}) {
     ) {
       throw new Error("Update source is not one of the discovered candidates.");
     }
+    const explicitUrl = String(url || "").trim();
+    const rememberedUrl =
+      explicitUrl ||
+      (normalizedRole === "check" && candidate?.url
+        ? String(candidate.url)
+        : "");
     return {
       key: projectKey(project.serverId, project.plugin),
       role: normalizedRole,
       source: {
         provider: canonical,
         projectId: targetId,
-        ...(url || candidate?.url
-          ? { url: String(url || candidate?.url) }
-          : {}),
+        ...(rememberedUrl ? { url: rememberedUrl } : {}),
       },
     };
   };

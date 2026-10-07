@@ -131,6 +131,7 @@ class BackupCapabilities {
   final bool remoteDestination;
   final bool verify;
   final bool copy;
+  final bool forget;
 
   const BackupCapabilities({
     this.create = false,
@@ -142,6 +143,7 @@ class BackupCapabilities {
     this.remoteDestination = false,
     this.verify = false,
     this.copy = false,
+    this.forget = false,
   });
 
   factory BackupCapabilities.fromJson(Object? raw) {
@@ -157,10 +159,12 @@ class BackupCapabilities {
       remoteDestination: enabled('remoteDestination'),
       verify: enabled('verify'),
       copy: enabled('copy'),
+      forget: enabled('forget'),
     );
   }
 
-  bool get hasRecordActions => restore || download || delete || verify || copy;
+  bool get hasRecordActions =>
+      restore || download || delete || verify || copy || forget;
 }
 
 class BackupEngineDescriptor {
@@ -479,6 +483,7 @@ class MaintenanceState {
   final String serverName;
   final String action;
   final String? backupEngineId;
+  final String? updatePlugin;
   final bool active;
   final DateTime? endsAt;
   final String stage;
@@ -489,6 +494,7 @@ class MaintenanceState {
     required this.serverName,
     this.action = 'restart',
     this.backupEngineId,
+    this.updatePlugin,
     required this.active,
     required this.endsAt,
     required this.stage,
@@ -501,6 +507,7 @@ class MaintenanceState {
         serverName: json['serverName']?.toString() ?? 'Server',
         action: json['action']?.toString() ?? 'restart',
         backupEngineId: json['backupEngineId']?.toString(),
+        updatePlugin: json['updatePlugin']?.toString(),
         active: json['active'] == true,
         endsAt: DateTime.tryParse(json['endsAt']?.toString() ?? '')?.toLocal(),
         stage: json['stage']?.toString() ?? 'idle',
@@ -616,11 +623,15 @@ class UpdateSourceCandidate {
   final String projectId;
   final String label;
   final String? url;
+  final int score;
+  final bool verified;
   const UpdateSourceCandidate({
     required this.provider,
     required this.projectId,
     required this.label,
     this.url,
+    this.score = 0,
+    this.verified = false,
   });
   factory UpdateSourceCandidate.fromJson(Map<String, dynamic> json) {
     final provider = _enumByName(
@@ -633,8 +644,28 @@ class UpdateSourceCandidate {
       projectId: json['projectId']?.toString() ?? '',
       label: json['label']?.toString() ?? provider.label,
       url: json['url']?.toString(),
+      score: (json['score'] as num?)?.toInt() ?? 0,
+      verified: json['verified'] == true,
     );
   }
+}
+
+class UpdateSourceReview {
+  final String status;
+  final String? label;
+  final String reason;
+  const UpdateSourceReview({
+    required this.status,
+    this.label,
+    required this.reason,
+  });
+
+  factory UpdateSourceReview.fromJson(Map<String, dynamic> json) =>
+      UpdateSourceReview(
+        status: json['status']?.toString() ?? '',
+        label: json['label']?.toString(),
+        reason: json['reason']?.toString() ?? '',
+      );
 }
 
 class PluginUpdate {
@@ -648,10 +679,12 @@ class PluginUpdate {
   final String? projectId;
   final bool sourceConfirmed;
   final List<UpdateSourceCandidate> candidates;
+  final UpdateSourceReview? sourceReview;
   final UpdateProvider? downloadProvider;
   final String? downloadProjectId;
   final bool downloadSourceConfirmed;
   final String? downloadUrl;
+  final UpdateSourceReview? downloadReview;
   final PluginUpdateStatus status;
   final String? url;
 
@@ -666,10 +699,12 @@ class PluginUpdate {
     required this.projectId,
     this.sourceConfirmed = false,
     this.candidates = const [],
+    this.sourceReview,
     this.downloadProvider,
     this.downloadProjectId,
     this.downloadSourceConfirmed = false,
     this.downloadUrl,
+    this.downloadReview,
     required this.status,
     required this.url,
   });
@@ -710,10 +745,20 @@ class PluginUpdate {
                 .map(UpdateSourceCandidate.fromJson)
                 .toList()
           : const [],
+      sourceReview: json['sourceReview'] is Map<String, dynamic>
+          ? UpdateSourceReview.fromJson(
+              json['sourceReview'] as Map<String, dynamic>,
+            )
+          : null,
       downloadProvider: downloadProvider,
       downloadProjectId: json['downloadProjectId']?.toString(),
       downloadSourceConfirmed: json['downloadSourceConfirmed'] == true,
       downloadUrl: json['downloadUrl']?.toString(),
+      downloadReview: json['downloadReview'] is Map<String, dynamic>
+          ? UpdateSourceReview.fromJson(
+              json['downloadReview'] as Map<String, dynamic>,
+            )
+          : null,
       status: _enumByName(
         PluginUpdateStatus.values,
         json['status'],
@@ -727,6 +772,9 @@ class PluginUpdate {
       kind == 'plugin' &&
       status == PluginUpdateStatus.updateAvailable &&
       downloadSourceConfirmed &&
+      (downloadProvider == UpdateProvider.modrinth ||
+          downloadProvider == UpdateProvider.github) &&
+      downloadReview?.status == 'ready' &&
       (downloadUrl?.trim().isNotEmpty ?? false);
 }
 
@@ -903,6 +951,7 @@ class UpdateApplyCapabilities {
 }
 
 class ManagementSnapshot {
+  final List<String> features;
   final DateTime? observedAt;
   final List<BackupStorageSnapshot> storages;
   final BackupDestinationDefaults backupDestinationDefaults;
@@ -919,6 +968,7 @@ class ManagementSnapshot {
   final PerformanceSource performanceSource;
 
   const ManagementSnapshot({
+    this.features = const [],
     this.observedAt,
     this.storages = const [],
     this.backupDestinationDefaults = const BackupDestinationDefaults(),
@@ -942,6 +992,11 @@ class ManagementSnapshot {
     }
 
     return ManagementSnapshot(
+      features:
+          (json['features'] as List?)
+              ?.map((item) => item.toString())
+              .toList() ??
+          const [],
       observedAt: DateTime.tryParse(
         json['observedAt']?.toString() ?? '',
       )?.toLocal(),

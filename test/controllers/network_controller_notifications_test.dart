@@ -114,6 +114,43 @@ void main() {
     expect(notifications.entries, isEmpty);
   });
 
+  test(
+    'backup verification exposes pending context and success feedback',
+    () async {
+      final (network, notifications) = await fixture();
+      addTearDown(() {
+        ToastUtils.detach(notifications);
+        network.dispose();
+      });
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.hello',
+          'capabilities': ['management'],
+        }),
+      );
+
+      expect(network.verifyBackup('backup-1'), isTrue);
+      expect(network.managementPending, isTrue);
+      expect(network.managementPendingAction, 'backup-verify');
+      expect(network.managementPendingBackupId, 'backup-1');
+      expect(network.managementMessage, contains('SHA-256'));
+
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.management-result',
+          'success': true,
+          'message': 'Backup verified.',
+          'refresh': false,
+        }),
+      );
+
+      expect(network.managementPending, isFalse);
+      expect(network.managementSuccess, isTrue);
+      expect(network.managementMessage, 'Backup verified.');
+      expect(notifications.entries, isEmpty);
+    },
+  );
+
   test('management state promotes only new attention events', () async {
     final (network, notifications) = await fixture();
     addTearDown(() {
@@ -247,4 +284,70 @@ void main() {
     );
     expect(notifications.entries, hasLength(4));
   });
+  testWidgets(
+    'management feedback waits through refresh and accepts late results',
+    (tester) async {
+      final (network, notifications) = await fixture();
+      addTearDown(() {
+        ToastUtils.detach(notifications);
+        network.dispose();
+      });
+      expect(network.testBackupStorage('nextcloud'), isFalse);
+      expect(network.managementSuccess, isFalse);
+      expect(network.managementMessage, contains('not sent'));
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.hello',
+          'capabilities': ['management'],
+        }),
+      );
+      expect(network.testBackupStorage('nextcloud'), isTrue);
+      expect(network.managementPending, isTrue);
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.management-result',
+          'success': true,
+          'message': 'Management snapshot refreshed.',
+        }),
+      );
+      expect(network.managementPending, isTrue);
+      await tester.pump(const Duration(seconds: 46));
+      expect(network.managementPending, isFalse);
+      expect(network.managementSuccess, isNull);
+      expect(network.managementMessage, contains('may still be running'));
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.management-result',
+          'success': true,
+          'message': 'Storage connection successful.',
+          'refresh': false,
+        }),
+      );
+      expect(network.managementSuccess, isTrue);
+      expect(network.managementMessage, 'Storage connection successful.');
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.management-result',
+          'success': true,
+          'message': 'Management snapshot refreshed.',
+        }),
+      );
+      expect(network.managementMessage, 'Storage connection successful.');
+      expect(network.createBackup('lobby'), isTrue);
+      expect(network.managementPending, isTrue);
+      expect(network.managementMessage, contains('Waiting for the server'));
+      network.debugReceive(
+        jsonEncode({
+          'type': 'admincraft.management-result',
+          'success': false,
+          'message': 'Backup destination unavailable.',
+          'refresh': false,
+        }),
+      );
+      expect(network.managementPending, isFalse);
+      expect(network.managementSuccess, isFalse);
+      await tester.pump(const Duration(seconds: 46));
+      expect(network.managementMessage, 'Backup destination unavailable.');
+    },
+  );
 }

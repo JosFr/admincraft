@@ -47,6 +47,12 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   PerformanceSource _performanceSource = const PerformanceSource();
   String? _managementMessage;
   bool? _managementSuccess;
+  bool _managementPending = false;
+  String? _managementPendingAction;
+  String? _managementPendingBackupId;
+  Timer? _managementFeedbackTimer;
+  String? _requestedBackupServerId;
+  Set<String> _backupIdsBeforeRequest = {};
 
   NetworkController(this.notifications, {this.push, this.preferences}) {
     WidgetsBinding.instance.addObserver(this);
@@ -71,6 +77,27 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   PerformanceSource get performanceSource => _performanceSource;
   String? get managementMessage => _managementMessage;
   bool? get managementSuccess => _managementSuccess;
+  bool get managementPending => _managementPending;
+  String? get managementPendingAction => _managementPendingAction;
+  String? get managementPendingBackupId => _managementPendingBackupId;
+
+  void clearManagementFeedback() {
+    if (_managementPending) return;
+    _managementMessage = null;
+    _managementSuccess = null;
+    notifyListeners();
+  }
+
+  void _finishManagementWaiting() {
+    _managementFeedbackTimer?.cancel();
+    _managementFeedbackTimer = null;
+    _managementPending = false;
+    _managementPendingAction = null;
+    _managementPendingBackupId = null;
+    _requestedBackupServerId = null;
+    _backupIdsBeforeRequest = {};
+  }
+
   void start(Model model) {
     if (identical(_model, model)) return;
     _model?.removeListener(_modelChanged);
@@ -204,8 +231,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         _connecting = false;
         _connected = true;
         _error = null;
-        _managementMessage = null;
-        _managementSuccess = null;
+        _finishManagementWaiting();
         notifyListeners();
         _syncPushRegistration();
         if (managementAvailable) refreshManagement();
@@ -242,12 +268,22 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
         notifyListeners();
         return;
       case 'admincraft.management-result':
+        // Legacy bridges do not echo an action ID. Automatic snapshot replies
+        // must not replace the visible result of a user action.
+        if (decoded['success'] == true &&
+            decoded['message'] == 'Management snapshot refreshed.') {
+          return;
+        }
+        final completedAction = _managementPendingAction;
+        _finishManagementWaiting();
         _managementMessage = decoded['message']?.toString();
         _managementSuccess = decoded['success'] == true;
         if (_managementSuccess != true) {
           ToastUtils.showToastError(
             _managementMessage ?? 'Management action failed.',
           );
+        } else if (completedAction == 'backup-verify') {
+          ToastUtils.showToastSuccess(_managementMessage ?? 'Backup verified.');
         }
         notifyListeners();
         if (decoded['refresh'] != false) refreshManagement();
@@ -276,6 +312,18 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     final wasInitialized = _managementSnapshotInitialized;
     _management = next;
     _managementSnapshotInitialized = true;
+    final confirmedBackups = next.backups.where(
+      (backup) =>
+          backup.serverId == _requestedBackupServerId &&
+          !_backupIdsBeforeRequest.contains(backup.id),
+    );
+    if (_requestedBackupServerId != null && confirmedBackups.isNotEmpty) {
+      final backup = confirmedBackups.first;
+      _finishManagementWaiting();
+      _managementMessage =
+          '${backup.serverName} backup: ${backup.status.name}.';
+      _managementSuccess = backup.status != BackupStatus.failed;
+    }
 
     if (wasInitialized) {
       final previousBackups = {
@@ -445,10 +493,75 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
   }
 
   bool _manage(String action, [Map<String, dynamic> payload = const {}]) {
-    if (!_connected || !managementAvailable) return false;
+    final tracksFeedback =
+        action == 'storage-test' ||
+        action == 'backup-create' ||
+        action == 'backup-verify' ||
+        action.startsWith('schedule-') ||
+        action == 'updates-check' ||
+        action == 'updates-source-set' ||
+        action == 'updates-source-bulk-set' ||
+        action == 'updates-download-bulk-set' ||
+        action == 'maintenance-start' ||
+        action == 'maintenance-cancel' ||
+        action == 'backup-forget' ||
+        action == 'backup-delete';
+    if (!_connected || !managementAvailable) {
+      if (tracksFeedback) {
+        _finishManagementWaiting();
+        _managementMessage =
+            'The management bridge is not connected. Request not sent.';
+        _managementSuccess = false;
+        notifyListeners();
+      }
+      return false;
+    }
     final raw = jsonEncode(payload);
     final encoded = base64Url.encode(utf8.encode(raw)).replaceAll('=', '');
     _channel?.sink.add('admincraft manage $action $encoded');
+    if (tracksFeedback) {
+      _finishManagementWaiting();
+      _managementPending = true;
+      _managementPendingAction = action;
+      if (action == 'backup-verify') {
+        _managementPendingBackupId = payload['backupId']?.toString();
+      }
+      if (action == 'backup-create') {
+        _requestedBackupServerId = payload['serverId'] as String?;
+        _backupIdsBeforeRequest = _management.backups
+            .map((backup) => backup.id)
+            .toSet();
+      }
+      _managementSuccess = null;
+      _managementMessage = action == 'storage-test'
+          ? 'Testing storage connection… Waiting for the server.'
+          : action == 'backup-create'
+          ? 'Backup requested. Waiting for the server to confirm its status.'
+          : action == 'backup-verify'
+          ? 'Verifying backup integrity with SHA-256…'
+          : action == 'updates-check'
+          ? 'Checking configured update sources…'
+          : action == 'updates-source-set' ||
+                action == 'updates-source-bulk-set' ||
+                action == 'updates-download-bulk-set'
+          ? 'Saving update source and refreshing its status…'
+          : action == 'maintenance-start'
+          ? 'Starting maintenance…'
+          : action == 'maintenance-cancel'
+          ? 'Cancelling maintenance…'
+          : 'Request sent. Waiting for the server to confirm the change.';
+      final feedbackTimeout = action == 'backup-verify'
+          ? const Duration(minutes: 5)
+          : const Duration(seconds: 45);
+      _managementFeedbackTimer = Timer(feedbackTimeout, () {
+        _finishManagementWaiting();
+        _managementSuccess = null;
+        _managementMessage =
+            'No confirmation received yet. The request may still be running. Refresh the status before trying again.';
+        notifyListeners();
+      });
+      notifyListeners();
+    }
     return true;
   }
 
@@ -463,6 +576,9 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     'engineId': engineId,
     if (destinationIds.isNotEmpty) 'destinationIds': destinationIds,
   });
+
+  bool forgetBackup(String backupId) =>
+      _manage('backup-forget', {'backupId': backupId});
 
   bool deleteBackup(String backupId) =>
       _manage('backup-delete', {'backupId': backupId});
@@ -570,12 +686,14 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
       _manage('engine-delete', {'engineId': engineId});
 
   bool createSchedule({
+    String? id,
     required String serverId,
     required String action,
     String schedule = '',
     DateTime? runAt,
     String? backupEngineId,
-  }) => _manage('schedule-create', {
+  }) => _manage(id == null ? 'schedule-create' : 'schedule-update', {
+    if (id != null) 'id': id,
     'serverId': serverId,
     'action': action,
     if (backupEngineId != null && backupEngineId.isNotEmpty)
@@ -596,6 +714,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     bool backup = true,
     String? backupEngineId,
     bool restartWhenEmpty = false,
+    String? updatePlugin,
   }) => _manage('maintenance-start', {
     'serverId': serverId,
     'action': action,
@@ -604,6 +723,8 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     if (backupEngineId != null && backupEngineId.isNotEmpty)
       'backupEngineId': backupEngineId,
     'restartWhenEmpty': restartWhenEmpty,
+    if (updatePlugin != null && updatePlugin.trim().isNotEmpty)
+      'updatePlugin': updatePlugin.trim(),
   });
 
   bool cancelMaintenance(String serverId) =>
@@ -626,6 +747,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     required String projectId,
     String role = 'check',
     String? url,
+    bool allMatchingServers = false,
   }) => _manage('updates-source-set', {
     'serverId': update.serverId,
     'plugin': update.plugin,
@@ -633,6 +755,7 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     'projectId': projectId,
     'role': role,
     if (url != null && url.trim().isNotEmpty) 'url': url.trim(),
+    if (allMatchingServers) 'scope': 'plugin',
     'providers': {
       for (final provider in UpdateProvider.values)
         provider.name: updateProviderEnabled(provider),
@@ -650,6 +773,24 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     role: role,
     url: candidate.url,
   );
+
+  bool setVerifiedUpdateSourcesBulk(List<Map<String, String>> mappings) =>
+      _manage('updates-source-bulk-set', {
+        'mappings': mappings,
+        'providers': {
+          for (final provider in UpdateProvider.values)
+            provider.name: updateProviderEnabled(provider),
+        },
+      });
+
+  bool setSafeDownloadSourcesBulk(List<Map<String, String>> mappings) =>
+      _manage('updates-download-bulk-set', {
+        'mappings': mappings,
+        'providers': {
+          for (final provider in UpdateProvider.values)
+            provider.name: updateProviderEnabled(provider),
+        },
+      });
 
   void _pushChanged() => _syncPushRegistration();
   void _notificationPreferencesChanged() => _syncPushRegistration();
@@ -698,8 +839,12 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     _bridgeVersion = null;
     _bridgeScope = null;
     _bridgeConnectedAt = null;
-    _managementMessage = null;
-    _managementSuccess = null;
+    if (_managementPending) {
+      _managementMessage =
+          'Connection lost before confirmation. Reconnect and check the status before trying again.';
+      _managementSuccess = false;
+    }
+    _finishManagementWaiting();
     _performance = const [];
     _performanceSource = const PerformanceSource();
     _error = 'Network connection closed.';
@@ -733,8 +878,12 @@ class NetworkController with ChangeNotifier, WidgetsBindingObserver {
     _bridgeVersion = null;
     _bridgeScope = null;
     _bridgeConnectedAt = null;
-    _managementMessage = null;
-    _managementSuccess = null;
+    if (_managementPending) {
+      _managementMessage =
+          'Connection lost before confirmation. Reconnect and check the status before trying again.';
+      _managementSuccess = false;
+    }
+    _finishManagementWaiting();
     _performance = const [];
     _performanceSource = const PerformanceSource();
     _accessSnapshotInitialized = false;

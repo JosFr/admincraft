@@ -747,6 +747,364 @@ test("confirmed update sources are remembered in management state", async () => 
   }
 });
 
+test("grouped update source setup is atomic and preserves network results", async () => {
+  const key = (serverId, plugin) => `${serverId}\u0000${plugin}`;
+  const checker = async ({ sourceOverrides = {} } = {}) => [
+    ["lobby", "Lobby", "Plan"],
+    ["smp", "SMP", "Plan"],
+    ["smp", "SMP", "OtherPlugin"],
+  ].map(([serverId, serverName, plugin]) => {
+    const override = sourceOverrides[key(serverId, plugin)]?.check;
+    return {
+      serverId,
+      serverName,
+      plugin,
+      kind: "plugin",
+      currentVersion: "1.0.0",
+      latestVersion: override ? "1.1.0" : null,
+      provider: override?.provider || null,
+      projectId: override?.projectId || null,
+      sourceConfirmed: Boolean(override),
+      candidates: plugin === "Plan"
+        ? [{ provider: "github", projectId: "plan-player-analytics/Plan", label: "Plan" }]
+        : [],
+      status: override ? "updateAvailable" : "unmanaged",
+      url: null,
+    };
+  });
+  checker.confirmSource = ({ serverId, plugin, provider, projectId, role }) => ({
+    key: key(serverId, plugin),
+    role: role || "check",
+    source: { provider, projectId },
+  });
+  const fx = fixture(
+    { updateChecker: checker },
+    {
+      serversJson: JSON.stringify([
+        { id: "lobby", name: "Lobby", multicraftServerId: 7 },
+        { id: "smp", name: "SMP", multicraftServerId: 8 },
+      ]),
+    },
+  );
+  try {
+    await fx.service.handle("updates-check", { providers: {} });
+    const result = await fx.service.handle("updates-source-set", {
+      serverId: "lobby",
+      plugin: "Plan",
+      provider: "github",
+      projectId: "plan-player-analytics/Plan",
+      scope: "plugin",
+      providers: {},
+    });
+    assert.equal(result.success, true);
+    assert.equal(result.message, "Update source remembered for 2 server(s).");
+    const updates = fx.service.snapshot().updates;
+    assert.equal(updates.length, 3);
+    assert.equal(
+      updates.filter((item) => item.plugin === "Plan" && item.sourceConfirmed).length,
+      2,
+    );
+    assert.equal(
+      updates.find((item) => item.plugin === "OtherPlugin").sourceConfirmed,
+      false,
+    );
+    const persisted = JSON.parse(fs.readFileSync(fx.statePath, "utf8"));
+    assert.equal(
+      persisted.updateSourceOverrides[key("lobby", "Plan")].check.projectId,
+      "plan-player-analytics/Plan",
+    );
+    assert.equal(
+      persisted.updateSourceOverrides[key("smp", "Plan")].check.projectId,
+      "plan-player-analytics/Plan",
+    );
+    assert.ok(fx.service.snapshot().features.includes("update-source-group"));
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("grouped update source setup writes nothing when one target fails validation", async () => {
+  const key = (serverId, plugin) => `${serverId}\u0000${plugin}`;
+  const checker = async ({ sourceOverrides = {} } = {}) => ["lobby", "smp"].map(
+    (serverId) => ({
+      serverId,
+      serverName: serverId.toUpperCase(),
+      plugin: "Plan",
+      kind: "plugin",
+      currentVersion: "1.0.0",
+      latestVersion: null,
+      sourceConfirmed: Boolean(sourceOverrides[key(serverId, "Plan")]),
+      candidates: [],
+      status: "unmanaged",
+      url: null,
+    }),
+  );
+  checker.confirmSource = ({ serverId, plugin, provider, projectId }) => {
+    if (serverId === "smp") throw new Error("candidate mismatch");
+    return {
+      key: key(serverId, plugin),
+      source: { provider, projectId },
+    };
+  };
+  const fx = fixture(
+    { updateChecker: checker },
+    {
+      serversJson: JSON.stringify([
+        { id: "lobby", name: "Lobby", multicraftServerId: 7 },
+        { id: "smp", name: "SMP", multicraftServerId: 8 },
+      ]),
+    },
+  );
+  try {
+    await fx.service.handle("updates-check", { providers: {} });
+    const result = await fx.service.handle("updates-source-set", {
+      serverId: "lobby",
+      plugin: "Plan",
+      provider: "github",
+      projectId: "plan-player-analytics/Plan",
+      scope: "plugin",
+      providers: {},
+    });
+    assert.equal(result.success, false);
+    assert.match(result.message, /candidate mismatch/);
+    const persisted = JSON.parse(fs.readFileSync(fx.statePath, "utf8"));
+    assert.deepEqual(persisted.updateSourceOverrides, {});
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("bulk verified source setup confirms multiple plugin groups atomically", async () => {
+  const key = (serverId, plugin) => `${serverId}\u0000${plugin}`;
+  const inventory = [
+    ["lobby", "Lobby", "WorldEdit"],
+    ["smp", "SMP", "WorldEdit"],
+    ["smp", "SMP", "Chunky"],
+  ];
+  const checker = async ({ sourceOverrides = {} } = {}) => inventory.map(
+    ([serverId, serverName, plugin]) => {
+      const source = sourceOverrides[key(serverId, plugin)]?.check;
+      return {
+        serverId,
+        serverName,
+        plugin,
+        kind: "plugin",
+        currentVersion: "1.0.0",
+        latestVersion: source ? "1.0.0" : null,
+        provider: source?.provider || null,
+        projectId: source?.projectId || null,
+        sourceConfirmed: Boolean(source),
+        candidates: [],
+        status: source ? "current" : "unmanaged",
+        url: null,
+      };
+    },
+  );
+  checker.confirmSource = ({ serverId, plugin, provider, projectId, role }) => ({
+    key: key(serverId, plugin),
+    role: role || "check",
+    source: { provider, projectId },
+  });
+  const fx = fixture(
+    { updateChecker: checker },
+    {
+      serversJson: JSON.stringify([
+        { id: "lobby", name: "Lobby", multicraftServerId: 7 },
+        { id: "smp", name: "SMP", multicraftServerId: 8 },
+      ]),
+    },
+  );
+  try {
+    await fx.service.handle("updates-check", { providers: {} });
+    const result = await fx.service.handle("updates-source-bulk-set", {
+      mappings: [
+        { plugin: "WorldEdit", provider: "modrinth", projectId: "1u6JkXh5" },
+        { plugin: "Chunky", provider: "modrinth", projectId: "fALzjamp" },
+      ],
+      providers: {},
+    });
+    assert.equal(result.success, true);
+    assert.equal(result.message, "Update sources remembered for 2 plugin(s).");
+    assert.equal(fx.service.snapshot().updates.filter((item) => item.sourceConfirmed).length, 3);
+    const persisted = JSON.parse(fs.readFileSync(fx.statePath, "utf8"));
+    assert.equal(persisted.updateSourceOverrides[key("lobby", "WorldEdit")].check.projectId, "1u6JkXh5");
+    assert.equal(persisted.updateSourceOverrides[key("smp", "WorldEdit")].check.projectId, "1u6JkXh5");
+    assert.equal(persisted.updateSourceOverrides[key("smp", "Chunky")].check.projectId, "fALzjamp");
+    assert.ok(fx.service.snapshot().features.includes("update-source-bulk"));
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("bulk verified source setup writes nothing if one mapping fails", async () => {
+  const key = (serverId, plugin) => `${serverId}\u0000${plugin}`;
+  const checker = async () => ["WorldEdit", "Chunky"].map((plugin) => ({
+    serverId: "smp",
+    serverName: "SMP",
+    plugin,
+    kind: "plugin",
+    currentVersion: "1.0.0",
+    latestVersion: null,
+    sourceConfirmed: false,
+    candidates: [],
+    status: "unmanaged",
+    url: null,
+  }));
+  checker.confirmSource = ({ serverId, plugin, provider, projectId }) => {
+    if (plugin === "Chunky") throw new Error("candidate mismatch");
+    return { key: key(serverId, plugin), source: { provider, projectId } };
+  };
+  const fx = fixture({ updateChecker: checker });
+  try {
+    await fx.service.handle("updates-check", { providers: {} });
+    const result = await fx.service.handle("updates-source-bulk-set", {
+      mappings: [
+        { plugin: "WorldEdit", provider: "modrinth", projectId: "1u6JkXh5" },
+        { plugin: "Chunky", provider: "modrinth", projectId: "fALzjamp" },
+      ],
+      providers: {},
+    });
+    assert.equal(result.success, false);
+    assert.match(result.message, /candidate mismatch/);
+    const persisted = JSON.parse(fs.readFileSync(fx.statePath, "utf8"));
+    assert.deepEqual(persisted.updateSourceOverrides, {});
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("bulk safe download setup confirms only currently reviewed updateable instances", async () => {
+  const key = (serverId, plugin) => `${serverId}\u0000${plugin}`;
+  const inventory = [
+    ["lobby", "Lobby", "WorldEdit"],
+    ["smp", "SMP", "WorldEdit"],
+    ["smp", "SMP", "ExcellentShop"],
+  ];
+  const checker = async ({ sourceOverrides = {} } = {}) => inventory.map(
+    ([serverId, serverName, plugin]) => {
+      const source = sourceOverrides[key(serverId, plugin)] || {};
+      const check = source.check || {
+        provider: plugin === "WorldEdit" ? "modrinth" : "spigot",
+        projectId: plugin === "WorldEdit" ? "1u6JkXh5" : "50696",
+      };
+      const download = source.download;
+      return {
+        serverId,
+        serverName,
+        plugin,
+        kind: "plugin",
+        currentVersion: "1.0.0",
+        latestVersion: "1.1.0",
+        provider: check.provider,
+        projectId: check.projectId,
+        sourceConfirmed: true,
+        downloadProvider: download?.provider || null,
+        downloadProjectId: download?.projectId || null,
+        downloadSourceConfirmed: Boolean(download),
+        downloadUrl: download ? "https://cdn.test/plugin.jar" : null,
+        downloadReview: plugin === "WorldEdit"
+          ? { status: "ready", label: "Compatible Modrinth JAR", reason: "safe" }
+          : { status: "authenticated", label: "Premium Spigot resource", reason: "licensed" },
+        candidates: [],
+        status: "updateAvailable",
+        url: null,
+      };
+    },
+  );
+  checker.confirmSource = ({ serverId, plugin, provider, projectId, role }) => ({
+    key: key(serverId, plugin),
+    role: role || "check",
+    source: { provider, projectId },
+  });
+  const fx = fixture(
+    { updateChecker: checker },
+    {
+      serversJson: JSON.stringify([
+        { id: "lobby", name: "Lobby", multicraftServerId: 7 },
+        { id: "smp", name: "SMP", multicraftServerId: 8 },
+      ]),
+    },
+  );
+  try {
+    await fx.service.handle("updates-check", { providers: {} });
+    const result = await fx.service.handle("updates-download-bulk-set", {
+      mappings: [
+        { plugin: "WorldEdit", provider: "modrinth", projectId: "1u6JkXh5" },
+      ],
+      providers: {},
+    });
+    assert.equal(result.success, true);
+    assert.equal(result.message, "Download sources remembered for 1 plugin(s).");
+    const worldEdit = fx.service.snapshot().updates.filter((item) => item.plugin === "WorldEdit");
+    assert.ok(worldEdit.every((item) => item.downloadSourceConfirmed));
+    const premium = fx.service.snapshot().updates.find((item) => item.plugin === "ExcellentShop");
+    assert.equal(premium.downloadSourceConfirmed, false);
+    const persisted = JSON.parse(fs.readFileSync(fx.statePath, "utf8"));
+    assert.equal(persisted.updateSourceOverrides[key("lobby", "WorldEdit")].download.projectId, "1u6JkXh5");
+    assert.equal(persisted.updateSourceOverrides[key("smp", "WorldEdit")].download.projectId, "1u6JkXh5");
+    assert.equal(persisted.updateSourceOverrides[key("smp", "ExcellentShop")], undefined);
+    assert.ok(fx.service.snapshot().features.includes("update-download-bulk"));
+  } finally {
+    fx.cleanup();
+  }
+});
+
+test("bulk safe download setup is atomic when one plugin is not backend-approved", async () => {
+  const key = (serverId, plugin) => `${serverId}\u0000${plugin}`;
+  const checker = async () => [
+    {
+      serverId: "lobby",
+      serverName: "Lobby",
+      plugin: "WorldEdit",
+      kind: "plugin",
+      currentVersion: "1.0.0",
+      latestVersion: "1.1.0",
+      provider: "modrinth",
+      projectId: "1u6JkXh5",
+      sourceConfirmed: true,
+      downloadSourceConfirmed: false,
+      downloadReview: { status: "ready", label: "safe", reason: "safe" },
+      status: "updateAvailable",
+    },
+    {
+      serverId: "smp",
+      serverName: "SMP",
+      plugin: "ExcellentShop",
+      kind: "plugin",
+      currentVersion: "5.1.6",
+      latestVersion: "5.1.7",
+      provider: "spigot",
+      projectId: "50696",
+      sourceConfirmed: true,
+      downloadSourceConfirmed: false,
+      downloadReview: { status: "authenticated", label: "premium", reason: "licensed" },
+      status: "updateAvailable",
+    },
+  ];
+  checker.confirmSource = ({ serverId, plugin, provider, projectId, role }) => ({
+    key: key(serverId, plugin),
+    role,
+    source: { provider, projectId },
+  });
+  const fx = fixture({ updateChecker: checker });
+  try {
+    await fx.service.handle("updates-check", { providers: {} });
+    const result = await fx.service.handle("updates-download-bulk-set", {
+      mappings: [
+        { plugin: "WorldEdit", provider: "modrinth", projectId: "1u6JkXh5" },
+        { plugin: "ExcellentShop", provider: "spigot", projectId: "50696" },
+      ],
+      providers: {},
+    });
+    assert.equal(result.success, false);
+    assert.match(result.message, /not approved for automatic confirmation/);
+    const persisted = JSON.parse(fs.readFileSync(fx.statePath, "utf8"));
+    assert.deepEqual(persisted.updateSourceOverrides, {});
+  } finally {
+    fx.cleanup();
+  }
+});
+
 test("management activity records backup and schedule lifecycle actions", async () => {
   const fx = fixture();
   try {
@@ -1458,6 +1816,118 @@ test("update maintenance stops, applies, starts and health-checks the server", a
   }
 });
 
+test("targeted update maintenance applies only the requested plugin", async () => {
+  const dir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "admincraft-maint-update-targeted-"),
+  );
+  let status = "running";
+  const planInputs = [];
+  const applyInputs = [];
+  const multicraft = {
+    async start() {
+      status = "running";
+    },
+    async stop() {
+      status = "stopped";
+    },
+    async restart() {},
+    async status() {
+      return status;
+    },
+    async statusDetails() {
+      return { onlinePlayers: 0 };
+    },
+    async resources() {
+      return { cpuPercent: 1, memoryMb: 1 };
+    },
+    async sendConsole() {},
+    async log() {
+      return [];
+    },
+    async backupStatus() {
+      return { status: "completed" };
+    },
+  };
+  const updates = ["Example", "Other"].map((plugin, index) => ({
+    serverId: "smp",
+    serverName: "SMP",
+    plugin,
+    kind: "plugin",
+    currentVersion: `1.${index}.0`,
+    latestVersion: `1.${index + 1}.0`,
+    status: "updateAvailable",
+    downloadSourceConfirmed: true,
+    downloadUrl: `https://example.test/${plugin}.jar`,
+  }));
+  const updateApplier = {
+    descriptor: () => ({
+      configured: true,
+      pluginUpdates: true,
+      rollback: true,
+    }),
+    plan(_server, input) {
+      planInputs.push(input.map((item) => item.plugin));
+      return {
+        selected: input.map((update) => ({ update })),
+        skipped: [],
+      };
+    },
+    async applyServer(_server, input) {
+      applyInputs.push(input.map((item) => item.plugin));
+      return {
+        applied: input.map((item) => ({
+          plugin: item.plugin,
+          fromVersion: item.currentVersion,
+          toVersion: item.latestVersion,
+        })),
+        skipped: [],
+      };
+    },
+  };
+  try {
+    const service = createManagementService(
+      {
+        serversJson: JSON.stringify([
+          { id: "smp", name: "SMP", multicraftServerId: 7 },
+        ]),
+        statePath: path.join(dir, "state.json"),
+        maintenanceConfigJson: JSON.stringify({
+          global: { healthcheckIntervalSeconds: 1, healthcheckAttempts: 3 },
+        }),
+      },
+      {
+        multicraft,
+        updateChecker: async () => updates,
+        updateApplier,
+      },
+    );
+    await service.handle("updates-check", { serverId: "smp" });
+    assert.ok(service.snapshot().features.includes("update-targeted"));
+    const started = await service.handle("maintenance-start", {
+      serverId: "smp",
+      action: "update",
+      updatePlugin: "Other",
+      countdownSeconds: 0,
+      backup: false,
+    });
+    assert.equal(started.success, true);
+    let maintenance = service.snapshot().maintenance[0];
+    assert.equal(maintenance.updatePlugin, "Other");
+    assert.deepEqual(maintenance.updatePlugins, ["Other"]);
+    assert.deepEqual(planInputs.at(-1), ["Other"]);
+
+    await service.tick();
+    maintenance = service.snapshot().maintenance[0];
+    assert.deepEqual(applyInputs.at(-1), ["Other"]);
+    assert.deepEqual(
+      maintenance.updateApplied.map((item) => item.plugin),
+      ["Other"],
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("failed update maintenance restarts the server after installer rollback", async () => {
   const dir = fs.mkdtempSync(
     path.join(os.tmpdir(), "admincraft-maint-update-fail-"),
@@ -1645,4 +2115,60 @@ test("custom backup engine can be configured and reset without changing the cata
   } finally {
     fx.cleanup();
   }
+});
+
+test("schedule update preserves identity, disabled state and rejects invalid edits atomically", async () => {
+  const fx = fixture();
+  try {
+    await fx.service.handle("schedule-create", {serverId: "lobby", action: "backup", schedule: "0 4 * * *"});
+    const first = {...fx.service.snapshot().schedules[0]};
+    await fx.service.handle("schedule-toggle", {id: first.id, enabled: false});
+    const changed = await fx.service.handle("schedule-update", {
+      id: first.id, serverId: "lobby", action: "restart", schedule: "0 6 * * *",
+    });
+    assert.equal(changed.success, true);
+    assert.equal(fx.service.snapshot().schedules.length, 1);
+    const updated = {...fx.service.snapshot().schedules[0]};
+    assert.equal(updated.id, first.id);
+    assert.equal(updated.enabled, false);
+    assert.equal(updated.nextRun, null);
+    assert.equal(updated.schedule, "0 6 * * *");
+    assert.equal(updated.action, "restart");
+    const invalid = await fx.service.handle("schedule-update", {
+      id: first.id, serverId: "lobby", action: "restart", schedule: "invalid",
+    });
+    assert.equal(invalid.success, false);
+    assert.deepEqual(fx.service.snapshot().schedules[0], updated);
+    const deleted = await fx.service.handle("schedule-delete", {id: first.id});
+    assert.equal(deleted.success, true);
+    assert.equal(fx.service.snapshot().schedules.length, 0);
+  } finally { fx.cleanup(); }
+});
+
+test("forget removes an unobservable plugin record without deleting files or issuing commands", async () => {
+  const fx = fixture({}, {
+    enginesJson: JSON.stringify([{
+      id: "plugin-lobby", type: "plugin", serverId: "lobby",
+      label: "WebDavBackup", command: "webdavbackup backup",
+    }]),
+  });
+  try {
+    await fx.service.handle("backup-create", {serverId: "lobby", engineId: "plugin-lobby"});
+    const backup = fx.service.snapshot().backups[0];
+    assert.equal(backup.status, "unknown");
+    assert.equal(backup.capabilities.forget, true);
+    const beforeCalls = [...fx.calls];
+    const result = await fx.service.handle("backup-forget", {backupId: backup.id});
+    assert.equal(result.success, true);
+    assert.equal(fx.service.snapshot().backups.length, 0);
+    assert.deepEqual(fx.calls, beforeCalls);
+    assert.equal(fs.existsSync(fx.backupFile), true);
+    assert.equal(JSON.parse(fs.readFileSync(fx.statePath)).backups.length, 0);
+    await fx.service.handle("backup-create", {serverId: "lobby"});
+    const running = fx.service.snapshot().backups[0];
+    assert.equal(running.capabilities.forget, false);
+    const rejected = await fx.service.handle("backup-forget", {backupId: running.id});
+    assert.equal(rejected.success, false);
+    assert.equal(fx.service.snapshot().backups.length, 1);
+  } finally { fx.cleanup(); }
 });

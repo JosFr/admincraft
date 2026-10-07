@@ -248,4 +248,15 @@ void main() {
     expect(update.candidates.single.provider, UpdateProvider.paperMC);
     expect(update.candidates.single.projectId, 'velocity');
   });
+  test('parses update candidate relevance scores', () {
+    final candidate = UpdateSourceCandidate.fromJson({
+      'provider': 'github',
+      'projectId': 'plan-player-analytics/Plan',
+      'label': 'GitHub · plan-player-analytics/Plan',
+      'score': 100,
+    });
+
+    expect(candidate.provider, UpdateProvider.github);
+    expect(candidate.score, 100);
+  });
 }

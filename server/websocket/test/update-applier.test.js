@@ -51,6 +51,8 @@ test("automatic update eligibility is fail-closed", () => {
       kind: "plugin",
       status: "updateAvailable",
       downloadSourceConfirmed: true,
+      downloadProvider: "modrinth",
+      downloadReview: { status: "ready" },
       downloadUrl: "http://example.test/plugin.jar",
     }).eligible,
     false,
@@ -60,9 +62,33 @@ test("automatic update eligibility is fail-closed", () => {
       kind: "plugin",
       status: "updateAvailable",
       downloadSourceConfirmed: true,
+      downloadProvider: "modrinth",
+      downloadReview: { status: "ready" },
       downloadUrl: "https://example.test/plugin.jar",
     }).eligible,
     true,
+  );
+  assert.equal(
+    updateEligibility({
+      kind: "plugin",
+      status: "updateAvailable",
+      downloadSourceConfirmed: true,
+      downloadProvider: "modrinth",
+      downloadReview: { status: "authenticated" },
+      downloadUrl: "https://example.test/plugin.jar",
+    }).eligible,
+    false,
+  );
+  assert.equal(
+    updateEligibility({
+      kind: "plugin",
+      status: "updateAvailable",
+      downloadSourceConfirmed: true,
+      downloadProvider: "spigot",
+      downloadReview: { status: "ready" },
+      downloadUrl: "https://api.spiget.org/v2/resources/123/download",
+    }).eligible,
+    false,
   );
 });
 
@@ -99,6 +125,8 @@ test("plugin update apply validates and replaces a JAR with rollback copy", asyn
           latestVersion: "1.1.0",
           status: "updateAvailable",
           downloadSourceConfirmed: true,
+          downloadProvider: "modrinth",
+          downloadReview: { status: "ready" },
           downloadUrl: "https://example.test/Example.jar",
         },
       ],
@@ -148,6 +176,8 @@ test("a later update failure rolls back earlier plugin replacements", async () =
       latestVersion: "2.0.0",
       status: "updateAvailable",
       downloadSourceConfirmed: true,
+      downloadProvider: "modrinth",
+      downloadReview: { status: "ready" },
       downloadUrl: `https://example.test/${plugin}.jar`,
     }));
     await assert.rejects(

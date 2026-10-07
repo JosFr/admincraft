@@ -2,10 +2,12 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const zlib = require("node:zlib");
 const test = require("node:test");
 const {
   discoverPluginProjects,
   pluginJarIdentity,
+  resolveMinecraftVersionFromMulticraft,
   yamlIdentity,
 } = require("../plugin-inventory");
 
@@ -57,6 +59,12 @@ test("plugin JAR metadata drives automatic project inventory", () => {
   try {
     const plugins = path.join(root, "server9", "plugins");
     fs.mkdirSync(plugins, { recursive: true });
+    const logs = path.join(root, "server9", "logs");
+    fs.mkdirSync(logs, { recursive: true });
+    fs.writeFileSync(
+      path.join(logs, "latest.log"),
+      "[Server thread/INFO]: Starting minecraft server version 1.21.4\n",
+    );
     const jar = path.join(plugins, "renamed-file.jar");
     writeStoredZip(jar, "plugin.yml", "name: RealPlugin\nversion: 4.5.6\n");
     assert.deepEqual(pluginJarIdentity(jar), {
@@ -74,7 +82,82 @@ test("plugin JAR metadata drives automatic project inventory", () => {
     assert.equal(projects[0].serverId, "new-server");
     assert.equal(projects[0].plugin, "RealPlugin");
     assert.equal(projects[0].currentVersion, "4.5.6");
+    assert.equal(projects[0].gameVersion, "1.21.4");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("plugin inventory falls back to recent compressed server logs", () => {
+  const root = fs.mkdtempSync(
+    path.join(os.tmpdir(), "admincraft-plugin-archived-log-"),
+  );
+  try {
+    const plugins = path.join(root, "server9", "plugins");
+    const logs = path.join(root, "server9", "logs");
+    fs.mkdirSync(plugins, { recursive: true });
+    fs.mkdirSync(logs, { recursive: true });
+    writeStoredZip(
+      path.join(plugins, "example.jar"),
+      "plugin.yml",
+      "name: Example\nversion: 1.0.0\n",
+    );
+    fs.writeFileSync(
+      path.join(logs, "2026-10-06-1.log.gz"),
+      zlib.gzipSync(
+        "[Server thread/INFO]: Starting minecraft server version 1.21.11\n",
+      ),
+    );
+    const projects = discoverPluginProjects({
+      servers: [
+        { id: "new-server", name: "New server", multicraftServerId: 9 },
+      ],
+      sourceRoot: root,
+    });
+    assert.equal(projects.length, 1);
+    assert.equal(projects[0].gameVersion, "1.21.11");
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("Multicraft version command resolves a missing Minecraft version read-only", async () => {
+  let command = null;
+  let reads = 0;
+  const multicraft = {
+    async log() {
+      reads += 1;
+      if (command) {
+        return [
+          "This server is running Paper version 1.21.11-42-main (Implementing API version 1.21.11-R0.1-SNAPSHOT)",
+        ];
+      }
+      return ["Server thread/INFO: unrelated line"];
+    },
+    async status() { return "running"; },
+    async sendConsole(_id, value) { command = value; },
+  };
+  const version = await resolveMinecraftVersionFromMulticraft(
+    multicraft,
+    { multicraftServerId: 7 },
+    { sleep: async () => {}, attempts: 2, intervalMs: 0 },
+  );
+  assert.equal(command, "version");
+  assert.equal(version, "1.21.11");
+  assert.ok(reads >= 2);
+});
+
+test("Multicraft version resolver does not command a stopped server", async () => {
+  let commanded = false;
+  const version = await resolveMinecraftVersionFromMulticraft(
+    {
+      async log() { return []; },
+      async status() { return "stopped"; },
+      async sendConsole() { commanded = true; },
+    },
+    { multicraftServerId: 7 },
+    { sleep: async () => {} },
+  );
+  assert.equal(version, null);
+  assert.equal(commanded, false);
 });

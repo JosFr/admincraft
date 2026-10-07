@@ -140,6 +140,14 @@ test("bridge advertises management and serves a snapshot", async () => {
     assert.equal(state.performanceSource.type, "hybrid");
     assert.equal(state.performanceSource.canonical, false);
     assert.deepEqual(state.performanceSource.planServerIds, ["lobby"]);
+
+    const largePayload = Buffer.from(
+      JSON.stringify({ padding: "x".repeat(3000) }),
+    ).toString("base64url");
+    const largeResultPromise = nextFrame(ws, "admincraft.management-result");
+    ws.send(`admincraft manage snapshot ${largePayload}`);
+    const largeResult = await largeResultPromise;
+    assert.equal(largeResult.success, true);
   } finally {
     ws?.close();
     child.kill();

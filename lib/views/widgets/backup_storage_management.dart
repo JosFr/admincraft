@@ -235,9 +235,16 @@ Future<void> showBackupStorageEditor(
                           Expanded(
                             child: TextFormField(
                               controller: minimumFree,
+                              validator: (value) =>
+                                  value == null ||
+                                      value.trim().isEmpty ||
+                                      _gibToBytes(value) != null
+                                  ? null
+                                  : 'Enter a non-negative number.',
                               keyboardType: TextInputType.number,
                               decoration: const InputDecoration(
                                 labelText: 'Keep free (GiB)',
+                                helperText: 'Leave blank for no minimum.',
                               ),
                             ),
                           ),
@@ -245,9 +252,17 @@ Future<void> showBackupStorageEditor(
                           Expanded(
                             child: TextFormField(
                               controller: softLimit,
+                              validator: (value) =>
+                                  value == null ||
+                                      value.trim().isEmpty ||
+                                      _gibToBytes(value) != null
+                                  ? null
+                                  : 'Enter a non-negative number.',
                               keyboardType: TextInputType.number,
                               decoration: const InputDecoration(
                                 labelText: 'Backup soft limit (GiB)',
+                                helperText:
+                                    'Leave blank for no limit. 0 blocks backups.',
                               ),
                             ),
                           ),

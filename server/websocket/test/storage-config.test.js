@@ -91,3 +91,28 @@ test("managed IDs cannot shadow externally managed storage", () => {
     /conflicts with external/u,
   );
 });
+
+test("storage limit edits distinguish omitted fields from explicitly cleared fields", () => {
+  const storage = normalizeManagedStorage({
+    id: "cloud", type: "nextcloud", url: "https://cloud.example.test",
+    softLimitBytes: 4096, minimumFreeBytes: 1024,
+  });
+  const unchanged = normalizeManagedStorage({ name: "Renamed" }, storage);
+  assert.equal(unchanged.softLimitBytes, 4096);
+  assert.equal(unchanged.minimumFreeBytes, 1024);
+  const cleared = normalizeManagedStorage({
+    softLimitBytes: null, minimumFreeBytes: null,
+  }, storage);
+  assert.equal(cleared.softLimitBytes, null);
+  assert.equal(cleared.minimumFreeBytes, null);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "admincraft-limits-"));
+  try {
+    const file = path.join(dir, "storages.json");
+    saveManagedStorages(file, [cleared]);
+    const reloaded = loadManagedStorages(file)[0];
+    assert.equal(reloaded.softLimitBytes, null);
+    assert.equal(reloaded.minimumFreeBytes, null);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

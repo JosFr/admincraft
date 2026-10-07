@@ -9,6 +9,7 @@ const {
   createUpdateChecker,
   parseProjects,
 } = require("../update-checker");
+const { discoverCandidates } = require("../update-discovery");
 
 function writeStoredZip(file, name, body) {
   const nameBytes = Buffer.from(name);
@@ -40,10 +41,67 @@ function writeStoredZip(file, name, body) {
   );
 }
 
-test("version comparison handles releases and prereleases", () => {
+
+test("candidate discovery ranks an exact Plan repository above PLand", async () => {
+  const candidates = await discoverCandidates(
+    "Plan",
+    { modrinth: false, hangar: false, spigot: false, builtByBit: false, github: true },
+    async (url) => {
+      assert.match(String(url), /api\.github\.com\/search\/repositories/u);
+      return {
+        ok: true,
+        json: async () => ({
+          items: [
+            {
+              name: "PLand",
+              full_name: "IceBlockMC/PLand",
+              html_url: "https://github.com/IceBlockMC/PLand",
+            },
+            {
+              name: "Plan",
+              full_name: "plan-player-analytics/Plan",
+              html_url: "https://github.com/plan-player-analytics/Plan",
+            },
+          ],
+        }),
+      };
+    },
+  );
+
+  assert.equal(candidates[0].projectId, "plan-player-analytics/Plan");
+  assert.equal(candidates[0].score, 100);
+  assert.equal(candidates[1].projectId, "IceBlockMC/PLand");
+  assert.equal(candidates[1].score, 80);
+});
+
+
+test("verified source catalog injects the reviewed AuctionHouse project", async () => {
+  const candidates = await discoverCandidates(
+    "AuctionHouse",
+    { modrinth: true, hangar: false, spigot: false, github: false, builtByBit: false },
+    async () => {
+      throw new Error("provider search unavailable");
+    },
+  );
+  assert.equal(candidates[0].provider, "modrinth");
+  assert.equal(candidates[0].projectId, "scEbl04C");
+  assert.equal(candidates[0].verified, true);
+  assert.equal(candidates[0].score, 120);
+});
+
+test("version comparison handles releases, prereleases and build metadata", () => {
   assert.equal(compareVersions("1.2.3", "1.2.4"), -1);
   assert.equal(compareVersions("v2.0.0", "2.0.0"), 0);
   assert.equal(compareVersions("2.0.0-rc1", "2.0.0"), -1);
+  assert.equal(compareVersions("7.0.9+5934e49", "7.0.9"), 0);
+  assert.equal(compareVersions("7.4.5+7590-b8dc4c1", "7.4.5"), 0);
+  assert.equal(compareVersions("2.14.0+spigot", "2.14.0+fabric"), 0);
+});
+
+test("version comparison treats Plan build notation as the release tag", () => {
+  assert.equal(compareVersions("5.8 build 3638", "5.8.3638"), 0);
+  assert.equal(compareVersions("5.8 build #3638", "5.8.3638"), 0);
+  assert.equal(compareVersions("5.8 build 3637", "5.8.3638"), -1);
 });
 
 test("provider names match the Flutter contract", () => {
@@ -352,6 +410,61 @@ test("live plugin inventory discovers candidates without UPDATE_PROJECTS_JSON", 
   assert.equal(second[0].status, "updateAvailable");
 });
 
+test("duplicate plugin inventory shares one candidate discovery request", async () => {
+  let discoveries = 0;
+  const projects = ["lobby", "smp", "archive"].map((serverId) => ({
+    serverId,
+    serverName: serverId,
+    plugin: "Plan",
+    kind: "plugin",
+    currentVersion: "5.8 build 3638",
+    provider: null,
+    projectId: "",
+    sourceConfirmed: false,
+    candidates: [],
+    url: null,
+  }));
+  const checker = createUpdateChecker(
+    {
+      servers: projects.map((project, index) => ({
+        id: project.serverId,
+        name: project.serverName,
+        multicraftServerId: index + 1,
+      })),
+    },
+    {
+      discoverPluginProjects: () => projects,
+      discoverCandidates: async () => {
+        discoveries += 1;
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return [
+          {
+            provider: "github",
+            projectId: "plan-player-analytics/Plan",
+            label: "GitHub · plan-player-analytics/Plan",
+            url: "https://github.com/plan-player-analytics/Plan",
+            score: 100,
+          },
+        ];
+      },
+    },
+  );
+
+  const results = await checker({ providers: { github: true } });
+  assert.equal(discoveries, 1);
+  assert.equal(results.length, 3);
+  assert.ok(results.every((item) => item.candidates.length === 1));
+  for (const project of projects) {
+    const confirmed = checker.confirmSource({
+      serverId: project.serverId,
+      plugin: "Plan",
+      provider: "github",
+      projectId: "plan-player-analytics/Plan",
+    });
+    assert.equal(confirmed.source.projectId, "plan-player-analytics/Plan");
+  }
+});
+
 test("check and download sources remain independent", async () => {
   const checker = createUpdateChecker(
     {
@@ -399,7 +512,7 @@ test("check and download sources remain independent", async () => {
   assert.equal(results[0].status, "current");
 });
 
-test("GitHub check source provides an inherited direct JAR download", async () => {
+test("GitHub check source does not implicitly confirm a download source", async () => {
   const checker = createUpdateChecker(
     {
       projectsJson: JSON.stringify([
@@ -430,13 +543,14 @@ test("GitHub check source provides an inherited direct JAR download", async () =
     },
   );
   const result = (await checker())[0];
-  assert.equal(result.downloadProvider, "github");
-  assert.equal(result.downloadProjectId, "owner/repo");
-  assert.equal(result.downloadSourceConfirmed, true);
-  assert.match(result.downloadUrl, /Example\.jar$/u);
+  assert.equal(result.downloadProvider, null);
+  assert.equal(result.downloadProjectId, null);
+  assert.equal(result.downloadSourceConfirmed, false);
+  assert.equal(result.downloadUrl, null);
+  assert.equal(result.downloadReview.status, "ready");
 });
 
-test("Modrinth check source exposes the primary JAR download", async () => {
+test("Modrinth check source does not implicitly confirm the primary JAR", async () => {
   const checker = createUpdateChecker(
     {
       projectsJson: JSON.stringify([
@@ -444,6 +558,7 @@ test("Modrinth check source exposes the primary JAR download", async () => {
           serverId: "smp",
           plugin: "Example",
           currentVersion: "1.0.0",
+          gameVersion: "1.21.4",
           provider: "modrinth",
           projectId: "abc",
         },
@@ -455,6 +570,9 @@ test("Modrinth check source exposes the primary JAR download", async () => {
         json: async () => [
           {
             version_number: "1.2.0",
+            version_type: "release",
+            loaders: ["paper"],
+            game_versions: ["1.21.4"],
             date_published: "2026-08-31T12:00:00Z",
             files: [
               { filename: "sources.jar", url: "https://cdn.test/sources.jar" },
@@ -471,8 +589,502 @@ test("Modrinth check source exposes the primary JAR download", async () => {
   );
   const result = (await checker())[0];
   assert.equal(result.latestVersion, "1.2.0");
-  assert.equal(result.downloadProvider, "modrinth");
-  assert.equal(result.downloadUrl, "https://cdn.test/Example.jar");
+  assert.equal(result.downloadProvider, null);
+  assert.equal(result.downloadSourceConfirmed, false);
+  assert.equal(result.downloadUrl, null);
+  assert.equal(result.downloadReview.status, "ready");
+});
+
+test("Modrinth chooses a stable compatible Bukkit release", async () => {
+  const checker = createUpdateChecker(
+    {
+      projectsJson: JSON.stringify([
+        {
+          serverId: "smp",
+          plugin: "Example",
+          currentVersion: "1.0.0",
+          gameVersion: "1.21.4",
+          provider: "modrinth",
+          projectId: "abc",
+        },
+      ]),
+    },
+    {
+      fetch: async () => ({
+        ok: true,
+        json: async () => [
+          {
+            version_number: "2.2.0+fabric",
+            version_type: "release",
+            loaders: ["fabric"],
+            game_versions: ["1.21.4"],
+            date_published: "2026-09-04T12:00:00Z",
+            files: [],
+          },
+          {
+            version_number: "2.1.0-beta",
+            version_type: "beta",
+            loaders: ["paper", "spigot"],
+            game_versions: ["1.21.4"],
+            date_published: "2026-09-03T12:00:00Z",
+            files: [],
+          },
+          {
+            version_number: "2.0.0",
+            version_type: "release",
+            loaders: ["paper", "spigot"],
+            game_versions: ["1.21.5"],
+            date_published: "2026-09-02T12:00:00Z",
+            files: [],
+          },
+          {
+            version_number: "1.8.0",
+            version_type: "release",
+            loaders: ["bukkit", "paper"],
+            game_versions: ["1.21.4"],
+            date_published: "2026-09-01T12:00:00Z",
+            files: [],
+          },
+        ],
+      }),
+    },
+  );
+  const result = (await checker())[0];
+  assert.equal(result.gameVersion, "1.21.4");
+  assert.equal(result.latestVersion, "1.8.0");
+  assert.equal(result.status, "updateAvailable");
+});
+
+test("Paper inventory supplies the Minecraft version for Modrinth plugin filtering", async () => {
+  const checker = createUpdateChecker(
+    {
+      servers: [
+        { id: "smp", name: "SMP", multicraftServerId: 7 },
+      ],
+    },
+    {
+      discoverUpdateProjects: () => [
+        {
+          serverId: "smp",
+          serverName: "SMP",
+          plugin: "Example",
+          kind: "plugin",
+          currentVersion: "1.0.0",
+          gameVersion: null,
+          provider: "modrinth",
+          projectId: "abc",
+          sourceConfirmed: true,
+          candidates: [],
+          url: "https://modrinth.com/plugin/example",
+        },
+        {
+          serverId: "smp",
+          serverName: "SMP",
+          plugin: "Paper",
+          kind: "paper",
+          currentVersion: "1.21.4+build.123",
+          platformVersion: "1.21.4",
+          provider: "paperMC",
+          projectId: "paper",
+          sourceConfirmed: true,
+          candidates: [],
+          url: null,
+        },
+      ],
+      fetch: async () => ({
+        ok: true,
+        json: async () => [
+          {
+            version_number: "1.8.0",
+            version_type: "release",
+            loaders: ["paper"],
+            game_versions: ["1.21.4"],
+            date_published: "2026-09-01T12:00:00Z",
+            files: [],
+          },
+        ],
+      }),
+    },
+  );
+  const result = await checker({
+    providers: { modrinth: true, paperMC: false },
+  });
+  assert.equal(result.length, 1);
+  assert.equal(result[0].plugin, "Example");
+  assert.equal(result[0].gameVersion, "1.21.4");
+  assert.equal(result[0].latestVersion, "1.8.0");
+  assert.equal(result[0].status, "updateAvailable");
+});
+
+
+test("missing plugin game version can be resolved once per server", async () => {
+  let resolutions = 0;
+  const checker = createUpdateChecker(
+    {
+      servers: [{ id: "smp", name: "SMP", multicraftServerId: 7 }],
+      projectsJson: JSON.stringify([
+        {
+          serverId: "smp",
+          plugin: "Example",
+          currentVersion: "1.0.0",
+          provider: "modrinth",
+          projectId: "abc",
+        },
+      ]),
+    },
+    {
+      discoverPluginProjects: () => [
+        {
+          serverId: "smp",
+          serverName: "SMP",
+          plugin: "Example",
+          kind: "plugin",
+          currentVersion: "1.0.0",
+          gameVersion: null,
+          provider: null,
+          projectId: "",
+          candidates: [],
+        },
+      ],
+      resolveGameVersion: async () => { resolutions += 1; return "1.21.4"; },
+      fetch: async () => ({
+        ok: true,
+        json: async () => [
+          {
+            version_number: "1.1.0",
+            version_type: "release",
+            loaders: ["paper"],
+            game_versions: ["1.21.4"],
+            date_published: "2026-10-01T00:00:00Z",
+            files: [],
+          },
+        ],
+      }),
+    },
+  );
+  const result = (await checker())[0];
+  assert.equal(resolutions, 1);
+  assert.equal(result.gameVersion, "1.21.4");
+  assert.equal(result.status, "updateAvailable");
+});
+
+test("Modrinth follows beta updates only when the installed plugin is already beta", async () => {
+  async function run(currentVersion) {
+    const checker = createUpdateChecker(
+      {
+        projectsJson: JSON.stringify([
+          {
+            serverId: "smp",
+            plugin: "Dynmap",
+            currentVersion,
+            gameVersion: "1.20.4",
+            provider: "modrinth",
+            projectId: "dynmap",
+          },
+        ]),
+      },
+      {
+        fetch: async () => ({
+          ok: true,
+          json: async () => [
+            {
+              version_number: "3.7-beta-8",
+              version_type: "beta",
+              loaders: ["paper", "spigot"],
+              game_versions: ["1.20.4"],
+              date_published: "2026-10-01T00:00:00Z",
+              files: [],
+            },
+            {
+              version_number: "3.6.1",
+              version_type: "release",
+              loaders: ["paper", "spigot"],
+              game_versions: ["1.20.4"],
+              date_published: "2025-01-01T00:00:00Z",
+              files: [],
+            },
+          ],
+        }),
+      },
+    );
+    return (await checker())[0];
+  }
+  const beta = await run("3.7-beta-4-935");
+  assert.equal(beta.latestVersion, "3.7-beta-8");
+  const stable = await run("3.6.0");
+  assert.equal(stable.latestVersion, "3.6.1");
+});
+
+test("Spigot download review keeps free JARs manual and premium JARs authenticated", async () => {
+  async function run(premium) {
+    const checker = createUpdateChecker(
+      {
+        projectsJson: JSON.stringify([
+          {
+            serverId: "smp",
+            plugin: premium ? "PremiumShop" : "FreePlugin",
+            currentVersion: "1.0.0",
+            provider: "spigot",
+            projectId: premium ? "999" : "123",
+          },
+        ]),
+      },
+      {
+        fetch: async (url) => ({
+          ok: true,
+          json: async () =>
+            url.endsWith("/versions/latest")
+              ? { name: "1.1.0" }
+              : {
+                  premium,
+                  external: false,
+                  file: { type: ".jar" },
+                },
+        }),
+      },
+    );
+    return (await checker())[0];
+  }
+
+  const free = await run(false);
+  assert.equal(free.status, "updateAvailable");
+  assert.equal(free.downloadReview.status, "manual");
+  assert.equal(free.downloadSourceConfirmed, false);
+  assert.equal(free.downloadUrl, null);
+
+  const premium = await run(true);
+  assert.equal(premium.status, "updateAvailable");
+  assert.equal(premium.downloadReview.status, "authenticated");
+  assert.equal(premium.downloadUrl, null);
+});
+
+test("confirmed Spigot download source resolves Spiget artifact and stays manual-only", async () => {
+  const checker = createUpdateChecker(
+    {
+      projectsJson: JSON.stringify([
+        {
+          serverId: "skeerekippen",
+          plugin: "CMILib",
+          currentVersion: "1.5.9.7",
+          provider: "spigot",
+          projectId: "87610",
+          candidates: [
+            {
+              provider: "spigot",
+              projectId: "87610",
+              label: "Spigot · CMILib",
+              url: "https://www.spigotmc.org/resources/87610/",
+            },
+          ],
+        },
+      ]),
+    },
+    {
+      fetch: async (url) => ({
+        ok: true,
+        json: async () =>
+          url.endsWith("/versions/latest")
+            ? { name: "1.6.0.1" }
+            : {
+                premium: false,
+                external: false,
+                file: { type: ".jar" },
+              },
+      }),
+    },
+  );
+  await checker();
+  const confirmed = checker.confirmSource({
+    serverId: "skeerekippen",
+    plugin: "CMILib",
+    provider: "spigot",
+    projectId: "87610",
+    role: "download",
+  });
+  assert.deepEqual(confirmed.source, {
+    provider: "spigot",
+    projectId: "87610",
+  });
+  const result = (
+    await checker({
+      sourceOverrides: {
+        [confirmed.key]: { download: confirmed.source },
+      },
+    })
+  )[0];
+  assert.equal(
+    result.downloadUrl,
+    "https://api.spiget.org/v2/resources/87610/download",
+  );
+  assert.equal(result.downloadReview.status, "manual");
+});
+
+test("download confirmation does not remember a project page as an artifact URL", async () => {
+  const checker = createUpdateChecker(
+    {},
+    {
+      discoverPluginProjects: () => [
+        {
+          serverId: "smp",
+          serverName: "SMP",
+          plugin: "Example",
+          kind: "plugin",
+          currentVersion: "1.0.0",
+          provider: null,
+          projectId: "",
+          sourceConfirmed: false,
+          candidates: [
+            {
+              provider: "modrinth",
+              projectId: "abc",
+              label: "Modrinth · Example",
+              url: "https://modrinth.com/plugin/example",
+            },
+          ],
+          url: null,
+          gameVersion: "1.21.11",
+        },
+      ],
+      fetch: async () => ({ ok: true, json: async () => [] }),
+    },
+  );
+  await checker();
+  const confirmed = checker.confirmSource({
+    serverId: "smp",
+    plugin: "Example",
+    provider: "modrinth",
+    projectId: "abc",
+    role: "download",
+  });
+  assert.deepEqual(confirmed.source, {
+    provider: "modrinth",
+    projectId: "abc",
+  });
+});
+
+test("confirmed Modrinth download source resolves the direct artifact instead of the project page", async () => {
+  const checker = createUpdateChecker(
+    {},
+    {
+      discoverPluginProjects: () => [
+        {
+          serverId: "smp",
+          serverName: "SMP",
+          plugin: "Example",
+          kind: "plugin",
+          currentVersion: "1.0.0",
+          provider: "modrinth",
+          projectId: "abc",
+          sourceConfirmed: true,
+          candidates: [
+            {
+              provider: "modrinth",
+              projectId: "abc",
+              label: "Modrinth · Example",
+              url: "https://modrinth.com/plugin/example",
+            },
+          ],
+          url: "https://modrinth.com/plugin/example",
+          gameVersion: "1.21.11",
+        },
+      ],
+      fetch: async () => ({
+        ok: true,
+        json: async () => [
+          {
+            version_number: "1.1.0",
+            version_type: "release",
+            loaders: ["paper"],
+            game_versions: ["1.21.11"],
+            files: [
+              {
+                filename: "Example.jar",
+                url: "https://cdn.modrinth.test/Example.jar",
+                primary: true,
+              },
+            ],
+          },
+        ],
+      }),
+    },
+  );
+  await checker();
+  const confirmed = checker.confirmSource({
+    serverId: "smp",
+    plugin: "Example",
+    provider: "modrinth",
+    projectId: "abc",
+    role: "download",
+  });
+  assert.deepEqual(confirmed.source, {
+    provider: "modrinth",
+    projectId: "abc",
+  });
+  const result = (
+    await checker({
+      sourceOverrides: {
+        [confirmed.key]: { download: confirmed.source },
+      },
+    })
+  )[0];
+  assert.equal(result.downloadUrl, "https://cdn.modrinth.test/Example.jar");
+  assert.equal(result.downloadReview.status, "ready");
+});
+
+test("manual download URL never becomes automatic-ready", async () => {
+  const checker = createUpdateChecker(
+    {},
+    {
+      discoverPluginProjects: () => [
+        {
+          serverId: "smp",
+          serverName: "SMP",
+          plugin: "Example",
+          kind: "plugin",
+          currentVersion: "1.0.0",
+          provider: "modrinth",
+          projectId: "abc",
+          sourceConfirmed: true,
+          candidates: [],
+          url: "https://modrinth.com/plugin/example",
+          gameVersion: "1.21.11",
+        },
+      ],
+      fetch: async () => ({
+        ok: true,
+        json: async () => [
+          {
+            version_number: "1.1.0",
+            version_type: "release",
+            loaders: ["paper"],
+            game_versions: ["1.21.11"],
+            files: [
+              {
+                filename: "Example.jar",
+                url: "https://cdn.modrinth.test/Example.jar",
+                primary: true,
+              },
+            ],
+          },
+        ],
+      }),
+    },
+  );
+  const result = (
+    await checker({
+      sourceOverrides: {
+        ["smp\u0000Example"]: {
+          download: {
+            provider: "modrinth",
+            projectId: "abc",
+            url: "https://example.test/manually-entered.jar",
+          },
+        },
+      },
+    })
+  )[0];
+  assert.equal(result.downloadUrl, "https://example.test/manually-entered.jar");
+  assert.equal(result.downloadReview.status, "manual");
 });
 
 test("automatic Paper inventory reaches Update Center without configured projects", async () => {

@@ -1,3 +1,5 @@
+const { verifiedCandidate } = require("./update-source-catalog");
+
 function normalizedName(value) {
   return String(value || "")
     .toLowerCase()
@@ -136,14 +138,14 @@ async function discoverCandidates(plugin, providers, fetchImpl, config = {}) {
     jobs.push(searchBuiltByBit(plugin, fetchImpl, config));
   }
   const settled = await Promise.allSettled(jobs);
-  return uniqueCandidates(
-    settled.flatMap((result) =>
-      result.status === "fulfilled" ? result.value : [],
-    ),
-  )
+  const discovered = settled.flatMap((result) =>
+    result.status === "fulfilled" ? result.value : [],
+  );
+  const verified = verifiedCandidate(plugin);
+  if (verified && enabled(verified.provider)) discovered.unshift(verified);
+  return uniqueCandidates(discovered)
     .sort((a, b) => b.score - a.score)
-    .slice(0, 12)
-    .map(({ score, ...candidate }) => candidate);
+    .slice(0, 12);
 }
 
 module.exports = {
