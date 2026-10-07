@@ -43,6 +43,7 @@ function mergeProjects(configured, discovered) {
       ...live,
       ...project,
       currentVersion: live?.currentVersion || project.currentVersion,
+      gameVersion: project.gameVersion || live?.gameVersion || null,
       candidates: project.candidates || [],
     });
   }
@@ -115,6 +116,7 @@ function parseProjects(raw = process.env.UPDATE_PROJECTS_JSON || "") {
         plugin,
         kind,
         currentVersion: String(entry.currentVersion || "").trim(),
+        gameVersion: String(entry.gameVersion || "").trim() || null,
         provider,
         projectId,
         sourceConfirmed: Boolean(provider && projectId),
@@ -140,6 +142,30 @@ function versionParts(value) {
     numbers: match[1].split(".").map((part) => Number.parseInt(part, 10)),
     prerelease: match[2] || null,
   };
+}
+
+const MODRINTH_SERVER_PLUGIN_LOADERS = new Set([
+  "bukkit",
+  "folia",
+  "paper",
+  "purpur",
+  "spigot",
+]);
+
+function compatibleModrinthPluginVersion(version, gameVersion) {
+  if (String(version?.version_type || "").toLowerCase() !== "release") {
+    return false;
+  }
+  const loaders = Array.isArray(version?.loaders)
+    ? version.loaders.map((item) => String(item).toLowerCase())
+    : [];
+  if (!loaders.some((loader) => MODRINTH_SERVER_PLUGIN_LOADERS.has(loader))) {
+    return false;
+  }
+  const gameVersions = Array.isArray(version?.game_versions)
+    ? version.game_versions.map(String)
+    : [];
+  return gameVersions.includes(gameVersion);
 }
 
 function compareVersions(left, right) {
@@ -261,16 +287,25 @@ async function latestFor(project, fetchImpl, config = {}) {
     };
   }
   if (project.provider === "modrinth") {
+    const gameVersion = String(project.gameVersion || "").trim();
+    if (!gameVersion) {
+      throw new Error("Minecraft version unavailable for Modrinth compatibility check.");
+    }
     const data = await fetchJson(
       fetchImpl,
       `https://api.modrinth.com/v2/project/${encodeURIComponent(project.projectId)}/version?include_changelog=false`,
     );
     if (!Array.isArray(data) || data.length === 0)
       throw new Error("No versions returned.");
-    const sorted = [...data].sort(
-      (a, b) =>
-        Date.parse(b.date_published || 0) - Date.parse(a.date_published || 0),
-    );
+    const sorted = data
+      .filter((version) => compatibleModrinthPluginVersion(version, gameVersion))
+      .sort(
+        (a, b) =>
+          Date.parse(b.date_published || 0) - Date.parse(a.date_published || 0),
+      );
+    if (sorted.length === 0) {
+      throw new Error(`No compatible Modrinth release for Minecraft ${gameVersion}.`);
+    }
     const latest = sorted[0];
     const files = Array.isArray(latest.files) ? latest.files : [];
     const artifact =
@@ -423,6 +458,7 @@ function baseResult(project, source = null, downloadSource = null) {
     plugin: project.plugin,
     kind: project.kind,
     currentVersion: project.currentVersion,
+    gameVersion: project.gameVersion || null,
     latestVersion: null,
     provider: source?.provider || null,
     projectId: source?.projectId || null,

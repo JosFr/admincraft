@@ -554,6 +554,7 @@ test("Modrinth check source does not implicitly confirm the primary JAR", async 
           serverId: "smp",
           plugin: "Example",
           currentVersion: "1.0.0",
+          gameVersion: "1.21.4",
           provider: "modrinth",
           projectId: "abc",
         },
@@ -565,6 +566,9 @@ test("Modrinth check source does not implicitly confirm the primary JAR", async 
         json: async () => [
           {
             version_number: "1.2.0",
+            version_type: "release",
+            loaders: ["paper"],
+            game_versions: ["1.21.4"],
             date_published: "2026-08-31T12:00:00Z",
             files: [
               { filename: "sources.jar", url: "https://cdn.test/sources.jar" },
@@ -584,6 +588,66 @@ test("Modrinth check source does not implicitly confirm the primary JAR", async 
   assert.equal(result.downloadProvider, null);
   assert.equal(result.downloadSourceConfirmed, false);
   assert.equal(result.downloadUrl, null);
+});
+
+test("Modrinth chooses a stable compatible Bukkit release", async () => {
+  const checker = createUpdateChecker(
+    {
+      projectsJson: JSON.stringify([
+        {
+          serverId: "smp",
+          plugin: "Example",
+          currentVersion: "1.0.0",
+          gameVersion: "1.21.4",
+          provider: "modrinth",
+          projectId: "abc",
+        },
+      ]),
+    },
+    {
+      fetch: async () => ({
+        ok: true,
+        json: async () => [
+          {
+            version_number: "2.2.0+fabric",
+            version_type: "release",
+            loaders: ["fabric"],
+            game_versions: ["1.21.4"],
+            date_published: "2026-09-04T12:00:00Z",
+            files: [],
+          },
+          {
+            version_number: "2.1.0-beta",
+            version_type: "beta",
+            loaders: ["paper", "spigot"],
+            game_versions: ["1.21.4"],
+            date_published: "2026-09-03T12:00:00Z",
+            files: [],
+          },
+          {
+            version_number: "2.0.0",
+            version_type: "release",
+            loaders: ["paper", "spigot"],
+            game_versions: ["1.21.5"],
+            date_published: "2026-09-02T12:00:00Z",
+            files: [],
+          },
+          {
+            version_number: "1.8.0",
+            version_type: "release",
+            loaders: ["bukkit", "paper"],
+            game_versions: ["1.21.4"],
+            date_published: "2026-09-01T12:00:00Z",
+            files: [],
+          },
+        ],
+      }),
+    },
+  );
+  const result = (await checker())[0];
+  assert.equal(result.gameVersion, "1.21.4");
+  assert.equal(result.latestVersion, "1.8.0");
+  assert.equal(result.status, "updateAvailable");
 });
 
 test("automatic Paper inventory reaches Update Center without configured projects", async () => {

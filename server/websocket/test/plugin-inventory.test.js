@@ -57,6 +57,12 @@ test("plugin JAR metadata drives automatic project inventory", () => {
   try {
     const plugins = path.join(root, "server9", "plugins");
     fs.mkdirSync(plugins, { recursive: true });
+    const logs = path.join(root, "server9", "logs");
+    fs.mkdirSync(logs, { recursive: true });
+    fs.writeFileSync(
+      path.join(logs, "latest.log"),
+      "[Server thread/INFO]: Starting minecraft server version 1.21.4\n",
+    );
     const jar = path.join(plugins, "renamed-file.jar");
     writeStoredZip(jar, "plugin.yml", "name: RealPlugin\nversion: 4.5.6\n");
     assert.deepEqual(pluginJarIdentity(jar), {
@@ -74,6 +80,7 @@ test("plugin JAR metadata drives automatic project inventory", () => {
     assert.equal(projects[0].serverId, "new-server");
     assert.equal(projects[0].plugin, "RealPlugin");
     assert.equal(projects[0].currentVersion, "4.5.6");
+    assert.equal(projects[0].gameVersion, "1.21.4");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

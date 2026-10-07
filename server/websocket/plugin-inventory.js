@@ -159,17 +159,61 @@ function pluginDirectoryInventory(directory) {
   return plugins.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+function minecraftVersionFromLog(file, { fromEnd = false } = {}) {
+  if (!fs.existsSync(file)) return null;
+  try {
+    const stat = fs.statSync(file);
+    const length = Math.min(stat.size, 2 * 1024 * 1024);
+    const buffer = Buffer.alloc(length);
+    const fd = fs.openSync(file, "r");
+    try {
+      fs.readSync(
+        fd,
+        buffer,
+        0,
+        length,
+        fromEnd ? Math.max(0, stat.size - length) : 0,
+      );
+    } finally {
+      fs.closeSync(fd);
+    }
+    const text = buffer.toString("utf8");
+    const patterns = [
+      /Starting minecraft server version\s+([0-9]+(?:\.[0-9]+){1,3})/giu,
+      /Loading Paper\s+([0-9]+(?:\.[0-9]+){1,3})(?:[-+\s]|$)/giu,
+      /Minecraft Version:\s*([0-9]+(?:\.[0-9]+){1,3})/giu,
+      /Implementing API version\s+([0-9]+(?:\.[0-9]+){1,3})-R/giu,
+    ];
+    let latest = null;
+    for (const pattern of patterns) {
+      for (const match of text.matchAll(pattern)) {
+        if (!latest || match.index > latest.index) {
+          latest = { index: match.index, version: match[1] };
+        }
+      }
+    }
+    return latest?.version || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 function discoverPluginProjects({
   servers = [],
   sourceRoot = "/minecraft",
 } = {}) {
   const projects = [];
   for (const server of servers) {
-    const directory = path.join(
+    const serverRoot = path.join(
       sourceRoot,
       `server${server.multicraftServerId}`,
-      "plugins",
     );
+    const directory = path.join(serverRoot, "plugins");
+    const gameVersion =
+      minecraftVersionFromLog(path.join(serverRoot, "logs", "latest.log")) ||
+      minecraftVersionFromLog(path.join(serverRoot, "server.log"), {
+        fromEnd: true,
+      });
     for (const plugin of pluginDirectoryInventory(directory)) {
       projects.push({
         serverId: server.id,
@@ -177,6 +221,7 @@ function discoverPluginProjects({
         plugin: plugin.name,
         kind: "plugin",
         currentVersion: plugin.version,
+        gameVersion,
         provider: null,
         projectId: "",
         sourceConfirmed: false,
@@ -192,6 +237,7 @@ module.exports = {
   centralEntries,
   discoverPluginProjects,
   filenameIdentity,
+  minecraftVersionFromLog,
   pluginDirectoryInventory,
   pluginJarIdentity,
   readZipEntry,
