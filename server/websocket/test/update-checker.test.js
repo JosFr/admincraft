@@ -80,6 +80,12 @@ test("version comparison handles releases and prereleases", () => {
   assert.equal(compareVersions("2.0.0-rc1", "2.0.0"), -1);
 });
 
+test("version comparison treats Plan build notation as the release tag", () => {
+  assert.equal(compareVersions("5.8 build 3638", "5.8.3638"), 0);
+  assert.equal(compareVersions("5.8 build #3638", "5.8.3638"), 0);
+  assert.equal(compareVersions("5.8 build 3637", "5.8.3638"), -1);
+});
+
 test("provider names match the Flutter contract", () => {
   assert.equal(canonicalProvider("BuiltByBit"), "builtByBit");
   assert.equal(canonicalProvider("GITHUB"), "github");

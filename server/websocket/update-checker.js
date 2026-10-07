@@ -128,9 +128,11 @@ function parseProjects(raw = process.env.UPDATE_PROJECTS_JSON || "") {
 }
 
 function versionParts(value) {
-  const cleaned = String(value || "")
+  let cleaned = String(value || "")
     .trim()
     .replace(/^v/iu, "");
+  const buildNotation = /^(\d+(?:\.\d+)*)\s+build\s+#?(\d+)$/iu.exec(cleaned);
+  if (buildNotation) cleaned = `${buildNotation[1]}.${buildNotation[2]}`;
   const match = /^(\d+(?:\.\d+)*)(?:[-+](.*))?$/u.exec(cleaned);
   if (!match) return null;
   return {
