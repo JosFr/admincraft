@@ -2,11 +2,11 @@ const { execFile, spawn } = require("child_process");
 
 const MAX_COMMAND_LENGTH = 2048;
 
-function validateMessage(message) {
+function validateMessage(message, maxLength = MAX_COMMAND_LENGTH) {
   return (
     typeof message === "string" &&
     message.trim().length > 0 &&
-    message.length <= MAX_COMMAND_LENGTH &&
+    message.length <= maxLength &&
     !/[\u0000-\u001f\u007f]/u.test(message)
   );
 }

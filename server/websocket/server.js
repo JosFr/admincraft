@@ -35,6 +35,7 @@ const PORT = Number.parseInt(process.env.PORT || "8080", 10);
 const CERT_PATH = "./certs/server.crt";
 const KEY_PATH = "./certs/server.key";
 const MAX_MESSAGES_PER_SECOND = 5;
+const MAX_MANAGEMENT_COMMAND_LENGTH = 32 * 1024;
 const MC_NAME = process.env.MC_NAME || "minecraft";
 const SERVER_TYPE = (process.env.SERVER_TYPE || "bedrock").toLowerCase();
 const ACCESS_API_URL = (process.env.ACCESS_API_URL || "").trim();
@@ -561,7 +562,10 @@ function startSession(ws, request, authenticated) {
     }
     messageCount += 1;
 
-    if (!validateMessage(command)) {
+    const commandLimit = command.startsWith("admincraft manage ")
+      ? MAX_MANAGEMENT_COMMAND_LENGTH
+      : undefined;
+    if (!validateMessage(command, commandLimit)) {
       send(ws, "Invalid input.");
       return;
     }
