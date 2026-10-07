@@ -1,6 +1,8 @@
 import 'dart:convert';
 
 import 'package:admincraft/controllers/connection_controller.dart';
+import 'package:admincraft/controllers/network_controller.dart';
+import 'package:admincraft/controllers/notification_controller.dart';
 import 'package:admincraft/models/connection_security.dart';
 import 'package:admincraft/models/model.dart';
 import 'package:admincraft/models/network_access_entry.dart';
@@ -109,13 +111,19 @@ void main() {
     expect(find.text('Diagnostics'), findsOneWidget);
     expect(find.text('Recent activity'), findsNothing);
 
-    final players = tester.getRect(find.byKey(const ValueKey('metric-Players')));
+    final players = tester.getRect(
+      find.byKey(const ValueKey('metric-Players')),
+    );
     final tps = tester.getRect(find.byKey(const ValueKey('metric-TPS')));
     expect((players.top - tps.top).abs(), lessThan(1));
     expect(players.width, closeTo(tps.width, 1));
     expect(players.right, lessThan(tps.left));
-    final difficulty = tester.getRect(find.byKey(const ValueKey('metric-Difficulty')));
-    final chunks = tester.getRect(find.byKey(const ValueKey('metric-Chunks / Entities')));
+    final difficulty = tester.getRect(
+      find.byKey(const ValueKey('metric-Difficulty')),
+    );
+    final chunks = tester.getRect(
+      find.byKey(const ValueKey('metric-Chunks / Entities')),
+    );
     expect((difficulty.top - chunks.top).abs(), lessThan(1));
     expect(difficulty.height, closeTo(chunks.height, 0.1));
     expect(tester.takeException(), isNull);
@@ -157,6 +165,65 @@ void main() {
     expect(find.text('Allow'), findsOneWidget);
     expect(find.text('Blacklist'), findsOneWidget);
     expect(find.text('Revoke'), findsWidgets);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('lobby access prefers the central NetworkController state', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final model = await _model();
+    model.updateNetworkAccess(const []);
+    final prefs = await SharedPreferences.getInstance();
+    final notifications = NotificationController(prefs);
+    final network = NetworkController(notifications);
+    addTearDown(network.dispose);
+    addTearDown(notifications.dispose);
+    network.debugReceive(
+      jsonEncode({
+        'type': 'admincraft.hello',
+        'capabilities': ['network', 'access'],
+      }),
+    );
+    network.debugReceive(
+      jsonEncode({
+        'type': 'admincraft.access-state',
+        'entries': [
+          {
+            'uuid': 'central-trusted',
+            'name': 'CentralOnlyPlayer',
+            'status': 'trusted',
+          },
+        ],
+      }),
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: model),
+          ChangeNotifierProvider(create: (_) => ConnectionController()),
+          ChangeNotifierProvider<NetworkController>.value(value: network),
+        ],
+        child: MaterialApp(
+          home: Scaffold(
+            body: OverviewView(onOpenConsole: () {}, onEditServer: () {}),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.text('Network access'));
+    await tester.tap(find.text('Network access'));
+    await tester.pumpAndSettle();
+    expect(find.text('0 pending · 1 trusted · 0 denied'), findsOneWidget);
+    expect(find.text('CentralOnlyPlayer'), findsOneWidget);
+    expect(find.text('No trusted players.'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

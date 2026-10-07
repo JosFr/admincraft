@@ -1,7 +1,9 @@
 import 'package:admincraft/controllers/connection_controller.dart';
+import 'package:admincraft/controllers/network_controller.dart';
 import 'package:admincraft/models/model.dart';
 import 'package:admincraft/models/network_access_entry.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 class NetworkAccessSection extends StatelessWidget {
   final Model model;
@@ -15,10 +17,14 @@ class NetworkAccessSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pending = _entries(NetworkAccessStatus.pending);
-    final trusted = _entries(NetworkAccessStatus.trusted);
-    final denied = _entries(NetworkAccessStatus.denied);
-    final ready = model.networkAccessAvailable;
+    final network = context.watch<NetworkController?>();
+    final centralReady =
+        network != null && network.connected && network.accessAvailable;
+    final entries = centralReady ? network.access : model.networkAccess;
+    final pending = _entries(entries, NetworkAccessStatus.pending);
+    final trusted = _entries(entries, NetworkAccessStatus.trusted);
+    final denied = _entries(entries, NetworkAccessStatus.denied);
+    final ready = centralReady || model.networkAccessAvailable;
 
     final subtitle = ready
         ? '${pending.length} pending · ${trusted.length} trusted · ${denied.length} denied'
@@ -51,7 +57,7 @@ class NetworkAccessSection extends StatelessWidget {
                 _AccessAction('Allow', 'allow', Icons.check_circle_outline),
                 _AccessAction('Deny', 'deny', Icons.block_outlined),
               ],
-              onAction: _act,
+              onAction: (entry, action) => _act(network, entry, action),
             ),
             const SizedBox(height: 10),
             _AccessGroup(
@@ -62,7 +68,7 @@ class NetworkAccessSection extends StatelessWidget {
                 _AccessAction('Revoke', 'revoke', Icons.undo_outlined),
                 _AccessAction('Blacklist', 'blacklist', Icons.block_outlined),
               ],
-              onAction: _act,
+              onAction: (entry, action) => _act(network, entry, action),
             ),
             const SizedBox(height: 10),
             _AccessGroup(
@@ -72,7 +78,7 @@ class NetworkAccessSection extends StatelessWidget {
               actions: const [
                 _AccessAction('Revoke', 'revoke', Icons.undo_outlined),
               ],
-              onAction: _act,
+              onAction: (entry, action) => _act(network, entry, action),
             ),
           ],
         ],
@@ -80,15 +86,19 @@ class NetworkAccessSection extends StatelessWidget {
     );
   }
 
-  List<NetworkAccessEntry> _entries(NetworkAccessStatus status) => model
-      .networkAccess
-      .where((entry) => entry.status == status)
-      .toList();
+  List<NetworkAccessEntry> _entries(
+    Iterable<NetworkAccessEntry> entries,
+    NetworkAccessStatus status,
+  ) => entries.where((entry) => entry.status == status).toList();
 
   Future<void> _act(
+    NetworkController? network,
     NetworkAccessEntry entry,
     _AccessAction action,
   ) async {
+    if (network?.executeAccessAction(action.command, entry.uuid) == true) {
+      return;
+    }
     await connection.executeNetworkAccessAction(
       model,
       action.command,
@@ -102,10 +112,8 @@ class _AccessGroup extends StatelessWidget {
   final String emptyText;
   final List<NetworkAccessEntry> entries;
   final List<_AccessAction> actions;
-  final Future<void> Function(
-    NetworkAccessEntry entry,
-    _AccessAction action,
-  ) onAction;
+  final Future<void> Function(NetworkAccessEntry entry, _AccessAction action)
+  onAction;
   const _AccessGroup({
     required this.title,
     required this.emptyText,
@@ -139,10 +147,8 @@ class _AccessGroup extends StatelessWidget {
 class _AccessPlayerCard extends StatelessWidget {
   final NetworkAccessEntry entry;
   final List<_AccessAction> actions;
-  final Future<void> Function(
-    NetworkAccessEntry entry,
-    _AccessAction action,
-  ) onAction;
+  final Future<void> Function(NetworkAccessEntry entry, _AccessAction action)
+  onAction;
 
   const _AccessPlayerCard({
     required this.entry,
@@ -161,7 +167,9 @@ class _AccessPlayerCard extends StatelessWidget {
       padding: const EdgeInsets.only(top: 7),
       child: DecoratedBox(
         decoration: BoxDecoration(
-          border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+          ),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Padding(

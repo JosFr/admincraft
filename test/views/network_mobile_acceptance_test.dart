@@ -97,6 +97,7 @@ void main() {
     Widget child, {
     double width = 390,
     double textScale = 1,
+    bool includePendingAccess = true,
   }) async {
     SharedPreferences.setMockInitialValues({});
     final preferences = await SharedPreferences.getInstance();
@@ -149,12 +150,13 @@ void main() {
       jsonEncode({
         'type': 'admincraft.access-state',
         'entries': [
-          {
-            'uuid': 'pending-player',
-            'name': 'PlayerWithLongName',
-            'status': 'pending',
-            'requestedTarget': 'Fraanje-202404-202505',
-          },
+          if (includePendingAccess)
+            {
+              'uuid': 'pending-player',
+              'name': 'PlayerWithLongName',
+              'status': 'pending',
+              'requestedTarget': 'Fraanje-202404-202505',
+            },
           {
             'uuid': 'trusted-player',
             'name': 'TrustedPlayer',
@@ -250,6 +252,23 @@ void main() {
       },
     );
   }
+
+  testWidgets(
+    'Access shows trusted players immediately when there are no pending requests',
+    (tester) async {
+      await pumpScreen(
+        tester,
+        const NetworkAccessView(),
+        includePendingAccess: false,
+      );
+
+      expect(find.text('0 pending · 1 trusted · 0 denied'), findsOneWidget);
+      expect(find.text('Trusted'), findsOneWidget);
+      expect(find.text('TrustedPlayer'), findsOneWidget);
+      expect(find.text('Blacklist'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets(
     'Home keeps standby servers out of attention and Access reachable',

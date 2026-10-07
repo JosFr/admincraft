@@ -36,6 +36,12 @@ class NetworkView extends StatelessWidget {
     final pending = network.access
         .where((entry) => entry.status == NetworkAccessStatus.pending)
         .length;
+    final trusted = network.access
+        .where((entry) => entry.status == NetworkAccessStatus.trusted)
+        .length;
+    final denied = network.access
+        .where((entry) => entry.status == NetworkAccessStatus.denied)
+        .length;
 
     final failedBackups = network.management.backups
         .where((backup) => backup.status == BackupStatus.failed)
@@ -63,6 +69,8 @@ class NetworkView extends StatelessWidget {
                   _Summary(
                     snapshot: network.snapshot,
                     pending: pending,
+                    trusted: trusted,
+                    denied: denied,
                     onAccess: onAccess,
                     connected: network.connected,
                   ),
@@ -160,12 +168,16 @@ class _Header extends StatelessWidget {
 class _Summary extends StatelessWidget {
   final NetworkSnapshot snapshot;
   final int pending;
+  final int trusted;
+  final int denied;
 
   final VoidCallback onAccess;
   final bool connected;
   const _Summary({
     required this.snapshot,
     required this.pending,
+    required this.trusted,
+    required this.denied,
     required this.onAccess,
     required this.connected,
   });
@@ -185,7 +197,11 @@ class _Summary extends StatelessWidget {
         Icons.people_outline,
       ),
       ('Servers', '$online/${snapshot.servers.length}', Icons.dns_outlined),
-      ('Access', '$pending pending', Icons.admin_panel_settings_outlined),
+      (
+        'Access',
+        '$pending pending · $trusted trusted',
+        Icons.admin_panel_settings_outlined,
+      ),
       (
         'Health',
         !connected
@@ -441,44 +457,64 @@ class _Access extends StatelessWidget {
         .toList();
     return Card(
       margin: EdgeInsets.zero,
-      child: ExpansionTile(
-        initiallyExpanded: pending.isNotEmpty,
-        leading: const Icon(Icons.admin_panel_settings_outlined),
-        title: const Text('Network access'),
-        subtitle: Text(
-          '${pending.length} pending · ${trusted.length} trusted · ${denied.length} denied',
-        ),
-        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        children: [
-          if (!network.accessAvailable)
-            const Align(
-              alignment: Alignment.centerLeft,
-              child: Padding(
-                padding: EdgeInsets.only(bottom: 8),
-                child: Text('Access management is unavailable on this bridge.'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.admin_panel_settings_outlined),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Network access',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${pending.length} pending · ${trusted.length} trusted · ${denied.length} denied',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            if (!network.accessAvailable) ...[
+              const SizedBox(height: 12),
+              const Text('Access management is unavailable on this bridge.'),
+            ] else ...[
+              _AccessGroup(
+                title: 'Pending',
+                entries: pending,
+                actions: const [('Allow', 'allow'), ('Deny', 'deny')],
+                network: network,
               ),
-            )
-          else ...[
-            _AccessGroup(
-              title: 'Pending',
-              entries: pending,
-              actions: const [('Allow', 'allow'), ('Deny', 'deny')],
-              network: network,
-            ),
-            _AccessGroup(
-              title: 'Trusted',
-              entries: trusted,
-              actions: const [('Revoke', 'revoke'), ('Blacklist', 'blacklist')],
-              network: network,
-            ),
-            _AccessGroup(
-              title: 'Denied / blacklisted',
-              entries: denied,
-              actions: const [('Revoke', 'revoke')],
-              network: network,
-            ),
+              _AccessGroup(
+                title: 'Trusted',
+                entries: trusted,
+                actions: const [
+                  ('Revoke', 'revoke'),
+                  ('Blacklist', 'blacklist'),
+                ],
+                network: network,
+              ),
+              _AccessGroup(
+                title: 'Denied / blacklisted',
+                entries: denied,
+                actions: const [('Revoke', 'revoke')],
+                network: network,
+              ),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
