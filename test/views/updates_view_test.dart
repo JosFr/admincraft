@@ -204,8 +204,15 @@ void main() {
             'candidates': [
               {
                 'provider': 'github',
+                'projectId': 'IceBlockMC/PLand',
+                'label': 'GitHub · IceBlockMC/PLand',
+                'score': 80,
+              },
+              {
+                'provider': 'github',
                 'projectId': 'plan-player-analytics/Plan',
                 'label': 'GitHub · plan-player-analytics/Plan',
+                'score': 100,
               },
             ],
           },
@@ -219,8 +226,15 @@ void main() {
             'candidates': [
               {
                 'provider': 'github',
+                'projectId': 'IceBlockMC/PLand',
+                'label': 'GitHub · IceBlockMC/PLand',
+                'score': 80,
+              },
+              {
+                'provider': 'github',
                 'projectId': 'plan-player-analytics/Plan',
                 'label': 'GitHub · plan-player-analytics/Plan',
+                'score': 100,
               },
             ],
           },
@@ -262,6 +276,11 @@ void main() {
       find.textContaining('validated for Plan on 2 servers'),
       findsOneWidget,
     );
+    expect(
+      find.text('GitHub · plan-player-analytics/Plan · exact match'),
+      findsOneWidget,
+    );
+    expect(find.text('plan-player-analytics/Plan'), findsOneWidget);
     expect(find.text('Remember for 2 servers'), findsOneWidget);
     await tester.tap(find.text('Remember for 2 servers'));
     await tester.pumpAndSettle();

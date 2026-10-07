@@ -74,6 +74,7 @@ function normalizeCandidate(value, index) {
     projectId,
     label: String(value?.label || `${provider}: ${projectId}`).trim(),
     url: value?.url ? String(value.url) : null,
+    score: Number.isFinite(Number(value?.score)) ? Number(value.score) : 0,
   };
 }
 

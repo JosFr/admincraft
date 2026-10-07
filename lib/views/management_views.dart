@@ -613,7 +613,19 @@ class UpdatesView extends StatelessWidget {
         }
       }
     }
-    selectedCandidate ??= candidates.isEmpty ? null : candidates.first;
+    if (selectedCandidate == null && candidates.isNotEmpty) {
+      final ranked = [...candidates]
+        ..sort((a, b) {
+          final score = b.score.compareTo(a.score);
+          if (score != 0) return score;
+          return a.label.toLowerCase().compareTo(b.label.toLowerCase());
+        });
+      final best = ranked.first;
+      final secondScore = ranked.length > 1 ? ranked[1].score : -1;
+      if (best.score >= 100 && best.score > secondScore) {
+        selectedCandidate = best;
+      }
+    }
     var selectedProvider =
         existingProvider ??
         selectedCandidate?.provider ??
@@ -658,7 +670,11 @@ class UpdatesView extends StatelessWidget {
                           for (final candidate in candidates)
                             DropdownMenuItem(
                               value: candidate,
-                              child: Text(candidate.label),
+                              child: Text(
+                                candidate.score >= 100
+                                    ? '${candidate.label} · exact match'
+                                    : candidate.label,
+                              ),
                             ),
                         ],
                         onChanged: (candidate) {
@@ -671,6 +687,15 @@ class UpdatesView extends StatelessWidget {
                           });
                         },
                       ),
+                      if (selectedCandidate == null) ...[
+                        const SizedBox(height: 8),
+                        const Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            'Choose a candidate. Admincraft only preselects a unique exact match.',
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                     ] else ...[
                       const Align(
@@ -917,11 +942,17 @@ class UpdatesView extends StatelessWidget {
     for (final item in items) {
       for (final candidate in item.candidates) {
         final key = '${candidate.provider.name}\u0000${candidate.projectId}';
-        candidates.putIfAbsent(key, () => candidate);
+        final previous = candidates[key];
+        if (previous == null || candidate.score > previous.score) {
+          candidates[key] = candidate;
+        }
       }
     }
-    return candidates.values.toList()
-      ..sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+    return candidates.values.toList()..sort((a, b) {
+      final score = b.score.compareTo(a.score);
+      if (score != 0) return score;
+      return a.label.toLowerCase().compareTo(b.label.toLowerCase());
+    });
   }
 
   @override

@@ -620,11 +620,13 @@ class UpdateSourceCandidate {
   final String projectId;
   final String label;
   final String? url;
+  final int score;
   const UpdateSourceCandidate({
     required this.provider,
     required this.projectId,
     required this.label,
     this.url,
+    this.score = 0,
   });
   factory UpdateSourceCandidate.fromJson(Map<String, dynamic> json) {
     final provider = _enumByName(
@@ -637,6 +639,7 @@ class UpdateSourceCandidate {
       projectId: json['projectId']?.toString() ?? '',
       label: json['label']?.toString() ?? provider.label,
       url: json['url']?.toString(),
+      score: (json['score'] as num?)?.toInt() ?? 0,
     );
   }
 }

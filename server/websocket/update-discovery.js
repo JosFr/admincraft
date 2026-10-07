@@ -142,8 +142,7 @@ async function discoverCandidates(plugin, providers, fetchImpl, config = {}) {
     ),
   )
     .sort((a, b) => b.score - a.score)
-    .slice(0, 12)
-    .map(({ score, ...candidate }) => candidate);
+    .slice(0, 12);
 }
 
 module.exports = {

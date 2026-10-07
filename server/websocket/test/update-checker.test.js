@@ -9,6 +9,7 @@ const {
   createUpdateChecker,
   parseProjects,
 } = require("../update-checker");
+const { discoverCandidates } = require("../update-discovery");
 
 function writeStoredZip(file, name, body) {
   const nameBytes = Buffer.from(name);
@@ -39,6 +40,39 @@ function writeStoredZip(file, name, body) {
     Buffer.concat([local, nameBytes, data, central, nameBytes, eocd]),
   );
 }
+
+
+test("candidate discovery ranks an exact Plan repository above PLand", async () => {
+  const candidates = await discoverCandidates(
+    "Plan",
+    { modrinth: false, hangar: false, spigot: false, builtByBit: false, github: true },
+    async (url) => {
+      assert.match(String(url), /api\.github\.com\/search\/repositories/u);
+      return {
+        ok: true,
+        json: async () => ({
+          items: [
+            {
+              name: "PLand",
+              full_name: "IceBlockMC/PLand",
+              html_url: "https://github.com/IceBlockMC/PLand",
+            },
+            {
+              name: "Plan",
+              full_name: "plan-player-analytics/Plan",
+              html_url: "https://github.com/plan-player-analytics/Plan",
+            },
+          ],
+        }),
+      };
+    },
+  );
+
+  assert.equal(candidates[0].projectId, "plan-player-analytics/Plan");
+  assert.equal(candidates[0].score, 100);
+  assert.equal(candidates[1].projectId, "IceBlockMC/PLand");
+  assert.equal(candidates[1].score, 80);
+});
 
 test("version comparison handles releases and prereleases", () => {
   assert.equal(compareVersions("1.2.3", "1.2.4"), -1);
